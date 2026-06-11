@@ -436,10 +436,26 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   }
 
   // ---- generation ----
-  const generate = (node) => {
+  const [manualEntry, setManualEntry] = useState(null) // node id with the URL-paste form open
+
+  const runNode = async (node, opts = {}) => {
     if (!onGenerateNode) return
     const action = node.type === 'video_generator' ? 'generate_video' : 'generate_image'
-    onGenerateNode(node.id, action)
+    const result = await onGenerateNode(node.id, action, opts)
+    // A data_url result stays a SESSION preview only — never persisted on the node.
+    if (result && result.data_url) {
+      setPreviews((p) => ({ ...p, ['result:' + node.id]: result.data_url }))
+    }
+    return result
+  }
+
+  const generate = (node) => {
+    const m = modelById((node.data || {}).model_id)
+    if (m && m.id === 'manual') {
+      setManualEntry(node.id)
+      return
+    }
+    runNode(node)
   }
 
   const generateDisabledReason = (node) => {
@@ -504,6 +520,41 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
             <button className="ghost small" onClick={() => setAttachPicker(null)}>Cancel</button>
           </div>
         ) : null}
+      </div>
+    )
+  }
+
+  // Manual model: paste a URL as the node's result (no generation, no credits).
+  const renderManualEntry = (node) => {
+    if (manualEntry !== node.id) return null
+    const apply = () => {
+      const el = document.getElementById(`manual-url-${node.id}`)
+      const url = el ? el.value.trim() : ''
+      if (!url) {
+        setData(node.id, { status_message: 'Paste a URL first.' })
+        return
+      }
+      setData(node.id, { status: 'done', status_message: '', result_external_url: url, result_local_url: '', result_saved: false })
+      setManualEntry(null)
+    }
+    return (
+      <div className="gnode-attach" onMouseDown={(e) => e.stopPropagation()}>
+        <span className="field-label">Result URL:</span>
+        <input
+          id={`manual-url-${node.id}`}
+          type="text"
+          placeholder="https://…"
+          aria-label="Manual result URL"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') apply()
+          }}
+        />
+        <button className="primary small" onClick={apply}>
+          Apply
+        </button>
+        <button className="ghost small" onClick={() => setManualEntry(null)}>
+          Cancel
+        </button>
       </div>
     )
   }
@@ -843,6 +894,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
             </label>
           </div>
           {renderResultBlock(node)}
+          {renderManualEntry(node)}
           {renderGenFooter(node)}
           {d.status !== 'error' && d.status_message ? <div className="note">{d.status_message}</div> : null}
         </div>
@@ -897,6 +949,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
             </label>
           </div>
           {renderResultBlock(node)}
+          {renderManualEntry(node)}
           {renderGenFooter(node)}
           {d.status !== 'error' && d.status_message ? <div className="note">{d.status_message}</div> : null}
         </div>
@@ -1017,10 +1070,10 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
     setRunningAll(true)
     try {
       for (const n of nodes) {
-        const action = n.type === 'video_generator' ? 'generate_video' : 'generate_image'
-        // Sequential, upstream first, so downstream nodes can consume fresh results.
+        // Sequential, upstream first, so downstream nodes can consume fresh
+        // results. The batch confirm above already covered the credit warning.
         // eslint-disable-next-line no-await-in-loop
-        await onGenerateNode(n.id, action)
+        await runNode(n, { skipConfirm: true })
       }
     } finally {
       setRunningAll(false)

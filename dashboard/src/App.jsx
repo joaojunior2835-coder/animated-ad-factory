@@ -30,7 +30,10 @@ import ValidationPanel from './components/ValidationPanel.jsx'
 import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
-import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData } from './lib/nodeCanvasModel.js'
+import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits } from './lib/nodeCanvasModel.js'
+import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
+import { runMock } from './lib/ai/mockProvider.js'
+import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
 
 const SPECIAL_NAV = [
   { key: 'methods', label: 'Ad Methods' },
@@ -139,11 +142,95 @@ export default function App() {
   const updateCanvas = (fn) => setProject((p) => ({ ...p, canvas: fn(p.canvas) }))
   // Node Canvas (separate surface) — routes through the same setProject/saveProject path.
   const updateNodeCanvas = (fn) => setProject((p) => ({ ...p, node_canvas: fn(p.node_canvas || emptyNodeCanvas()) }))
-  // Node Canvas → backend generation routing. The component never calls the
-  // backend itself; it asks App via this callback. The full engine (mock /
-  // OpenAI image / manual) replaces this body in the generation-engine phase.
-  async function generateForNode(nodeId) {
-    updateNodeCanvas((c) => updateNodeData(c, nodeId, { status: 'error', status_message: 'Generation engine not connected yet.' }))
+  // Node Canvas → backend generation routing. The component never calls a
+  // provider itself; it asks App via this callback. Returns the normalized media
+  // result (the caller keeps any data_url as a SESSION preview — base64 is never
+  // written into node data / localStorage).
+  const projectRef = useRef(project)
+  projectRef.current = project
+
+  // OpenAI image sizes by node aspect ratio (validated again server-side).
+  const sizeForAspect = (ar) => {
+    if (ar === '9:16' || ar === '3:4') return '1024x1536'
+    if (ar === '16:9' || ar === '4:3') return '1536x1024'
+    return '1024x1024'
+  }
+
+  async function generateForNode(nodeId, action, opts = {}) {
+    const ncv = normalizeNodeCanvas(projectRef.current.node_canvas)
+    const node = (ncv.nodes || []).find((n) => n.id === nodeId)
+    if (!node) return undefined
+    const d = node.data || {}
+    const modelId = d.model_id || ''
+    const setNode = (patch) => updateNodeCanvas((c) => updateNodeData(c, nodeId, patch))
+    const fail = (message) => {
+      setNode({ status: 'error', status_message: message })
+      return undefined
+    }
+    const prompt = effectivePromptText(ncv, nodeId).trim()
+    const isVideo = action === 'generate_video'
+    const actionType = isVideo ? 'generate_video' : 'generate_image'
+
+    // Manual model: no generation — the canvas opens its URL-paste entry instead.
+    if (!modelId) return fail('Select a model first.')
+    if (modelId === 'manual') return undefined
+
+    // Mock models: existing mock provider path, no network, no credits.
+    if (modelId === 'mock-image' || modelId === 'mock-video') {
+      setNode({ status: 'generating', status_message: '' })
+      const r = runMock({ action_type: actionType, provider_id: 'mock', mode: 'mock', prompt_used: prompt, scene: { scene_number: Number(d.scene_number) || 1 } })
+      const result = normalizeMediaResult({ provider_id: 'mock', mode: 'mock', action_type: actionType, prompt, external_url: r.output_url, output_text: r.output_text, success: r.success })
+      setNode({ status: 'done', status_message: '', result_external_url: result.external_url, result_local_url: '', result_file_name: '', result_mime_type: '', result_saved: false })
+      return result
+    }
+
+    const model = modelById(modelId)
+    if (!model) return fail(`Unknown model "${modelId}". Pick one from the Model Gallery.`)
+
+    // Real API models are gated on API provider mode + an explicit confirmation,
+    // so neither QA nor a stray click can spend credits.
+    const mode = (projectRef.current.canvas && projectRef.current.canvas.provider_mode) || 'manual'
+    if (modelUsesCredits(modelId) && mode !== 'api') {
+      return fail('Real API models need Provider Mode = API (set it in Canvas → Production Board).')
+    }
+    if (modelId !== 'openai-image') {
+      return fail(`Model "${model.name}" has no connected backend yet. Use a mock model, or Manual / Paste URL.`)
+    }
+    if (isVideo) return fail('OpenAI video generation is not connected yet.')
+    if (!prompt) return fail('Prompt is empty — type one or wire a Prompt node in.')
+    if (!opts.skipConfirm && !window.confirm('This will use OpenAI image API credits. Continue?')) {
+      setNode({ status: 'idle' })
+      return undefined
+    }
+
+    setNode({ status: 'generating', status_message: '' })
+    const res = await callPlaceholderLlmAction({ provider_id: 'openai', action_type: 'generate_image', input_prompt: prompt, size: sizeForAspect(d.aspect_ratio) })
+    if (!res || !res.success) {
+      return fail((res && (res.error || res.message)) || 'Local API not reachable — run npm run dev:server.')
+    }
+    const result = normalizeMediaResult({
+      provider_id: 'openai',
+      mode: 'api',
+      action_type: 'generate_image',
+      media_type: 'image',
+      prompt,
+      data_url: res.data_url || '',
+      external_url: res.external_url || '',
+      mime_type: res.mime_type || 'image/png',
+      model: res.model || '',
+      request_id: res.request_id || '',
+      success: true
+    })
+    setNode({
+      status: 'done',
+      status_message: '',
+      result_external_url: result.external_url, // empty when the result is a session data_url
+      result_local_url: '',
+      result_file_name: `openai-image-${String(nodeId).slice(0, 8)}.png`,
+      result_mime_type: result.mime_type || 'image/png',
+      result_saved: false
+    })
+    return result
   }
   const setCanvasPreview = (id, dataUrl) => setCanvasPreviews((m) => ({ ...m, [id]: dataUrl }))
   const selectCompetitor = () => setSelectedMethod('competitor_recreation')

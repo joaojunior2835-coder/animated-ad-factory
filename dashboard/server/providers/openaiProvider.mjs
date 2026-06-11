@@ -30,9 +30,13 @@ function mapImageError(e) {
   return { success: false, provider: 'openai', provider_name: 'OpenAI', action_type: 'generate_image', media_type: 'image', source_type: 'api', status: 'error', request_id, error }
 }
 
+// Sizes the Images API accepts; a client-requested size must be one of these
+// (anything else falls back to the env default). Never trusted raw.
+const ALLOWED_IMAGE_SIZES = ['1024x1024', '1536x1024', '1024x1536', 'auto']
+
 // Text-to-image via OpenAI Images API. Generates exactly ONE image and returns a
 // data_url. Never auto-saves; the frontend decides whether to persist it.
-async function runOpenAiImage({ apiKey, input_prompt }) {
+async function runOpenAiImage({ apiKey, input_prompt, size: requestedSize }) {
   const model = process.env.OPENAI_IMAGE_MODEL && process.env.OPENAI_IMAGE_MODEL.trim()
   if (!model) {
     return { success: false, provider: 'openai', provider_name: 'OpenAI', action_type: 'generate_image', media_type: 'image', source_type: 'api', status: 'error', error: 'OpenAI image model is not configured. Set OPENAI_IMAGE_MODEL in .env.local (e.g. gpt-image-2) and restart the backend.' }
@@ -41,7 +45,8 @@ async function runOpenAiImage({ apiKey, input_prompt }) {
   if (!prompt) {
     return { success: false, provider: 'openai', provider_name: 'OpenAI', action_type: 'generate_image', media_type: 'image', source_type: 'api', status: 'error', error: 'Image prompt is empty.' }
   }
-  const size = process.env.OPENAI_IMAGE_SIZE && process.env.OPENAI_IMAGE_SIZE.trim()
+  const clientSize = ALLOWED_IMAGE_SIZES.includes(requestedSize) ? requestedSize : ''
+  const size = clientSize || (process.env.OPENAI_IMAGE_SIZE && process.env.OPENAI_IMAGE_SIZE.trim())
   const quality = process.env.OPENAI_IMAGE_QUALITY && process.env.OPENAI_IMAGE_QUALITY.trim()
 
   const client = new OpenAI({ apiKey })
@@ -66,14 +71,14 @@ async function runOpenAiImage({ apiKey, input_prompt }) {
   }
 }
 
-export async function runOpenAi({ action_type, input_prompt, context } = {}) {
+export async function runOpenAi({ action_type, input_prompt, context, size } = {}) {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey || !String(apiKey).trim()) {
     return { success: false, error: 'OpenAI API key is not configured. Add OPENAI_API_KEY to .env.local and restart the backend.' }
   }
 
   // Text-to-image (one image). Video stays disconnected.
-  if (action_type === 'generate_image') return runOpenAiImage({ apiKey, input_prompt })
+  if (action_type === 'generate_image') return runOpenAiImage({ apiKey, input_prompt, size })
   if (action_type === 'generate_video') {
     return { success: false, provider: 'openai', provider_name: 'OpenAI', action_type: 'generate_video', media_type: 'video', source_type: 'api', status: 'unsupported', error: 'OpenAI video generation is not connected yet.' }
   }

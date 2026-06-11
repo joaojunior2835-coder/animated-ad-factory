@@ -82,13 +82,13 @@ await step('generate disabled without prompt; enabled with prompt text', async (
   if (await btn.isDisabled()) throw new Error('Generate should be enabled with prompt text')
 })
 
-await step('generate button routes to App stub (error status appears)', async () => {
+await step('generate routes through App engine (mock-image → done + mock result)', async () => {
   // Fit first — at the spawn position the node footer can sit under the minimap overlay.
   await page.locator('.nc-fit').click()
   const ig = page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: 'Image Generator' }) })
   await ig.locator('button', { hasText: 'Generate' }).click()
-  await ig.locator('.badge.gen-status.status-error').waitFor()
-  await ig.locator('.gnode-error', { hasText: 'not connected yet' }).waitFor()
+  await ig.locator('.badge.gen-status.status-done').waitFor()
+  await ig.locator('.media-mock', { hasText: 'mock://generated-image' }).waitFor()
 })
 
 await step('wire prompt -> image gen prompt input', async () => {
@@ -287,13 +287,14 @@ await step('save snapshot downloads a named JSON with nodes', async () => {
   if (snap.name !== 'Probe Production Board') throw new Error('snapshot missing canvas name')
 })
 
-await step('Run All confirms with node count and runs idle generators (stub errors)', async () => {
-  // Current board has mock-model generators (idle) → confirm fires, stub marks them error.
+await step('Run All confirms with node count and runs the idle generator', async () => {
+  // Image gen is already done; the idle mock video gen (from the Use step) runs.
   lastDialog = ''
   await page.locator('.nc-toolbar button', { hasText: 'Run All' }).click()
-  await page.waitForTimeout(300)
+  await page.waitForTimeout(400)
   if (!/This will generate \d+ node/.test(lastDialog)) throw new Error(`expected Run All confirm, got: ${lastDialog}`)
-  await page.locator('.gnode .badge.gen-status.status-error').first().waitFor()
+  const vg = page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: 'Video Generator' }) }).first()
+  await vg.locator('.badge.gen-status.status-done').waitFor()
 })
 
 await step('clear canvas confirms and empties the board', async () => {
@@ -312,6 +313,82 @@ await step('load snapshot restores nodes and warns-free for known types', async 
   const n = await page.locator('.gnode').count()
   if (n < 1) throw new Error('snapshot did not restore nodes')
   await page.locator('.nc-toolbar-name', { hasText: 'Probe Production Board' }).waitFor()
+})
+
+// ---- Phase 5: generation engine (mock + manual + API gating; NO paid calls) ----
+const genNode = (title) => page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: title }) }).first()
+
+await step('GEN setup: clear board, fresh image+video generators', async () => {
+  await page.locator('.nc-toolbar button', { hasText: 'Clear canvas' }).click()
+  await page.locator('.ncsb-tabs .tab', { hasText: 'Nodes' }).click()
+  await page.locator('.ncsb-node-card', { hasText: 'Image Generator' }).click()
+  // Click-spawn places nodes at viewport center — drag the first aside so the
+  // second doesn't stack on top of it.
+  const head = genNode('Image Generator').locator('.gnode-head')
+  const hb = await head.boundingBox()
+  await page.mouse.move(hb.x + 60, hb.y + 10)
+  await page.mouse.down()
+  await page.mouse.move(hb.x - 340, hb.y + 10, { steps: 6 })
+  await page.mouse.up()
+  await page.locator('.ncsb-node-card', { hasText: 'Video Generator' }).click()
+  if ((await page.locator('.gnode').count()) !== 2) throw new Error('expected 2 fresh generators')
+})
+
+await step('GEN1. mock-image generate → done + mock result box', async () => {
+  await page.locator('.nc-fit').click()
+  const ig = genNode('Image Generator')
+  await ig.locator('textarea[aria-label="Image prompt"]').fill('hero product close-up')
+  await ig.locator('button', { hasText: 'Generate' }).click()
+  await ig.locator('.badge.gen-status.status-done').waitFor()
+  await ig.locator('.media-mock', { hasText: 'mock://generated-image' }).waitFor()
+})
+
+await step('GEN2. mock-video generate → done + mock video result', async () => {
+  await page.locator('.nc-fit').click()
+  const vg = genNode('Video Generator')
+  await vg.locator('textarea[aria-label="Video prompt"]').fill('slow pan over product')
+  await vg.locator('button', { hasText: 'Generate' }).click()
+  await vg.locator('.badge.gen-status.status-done').waitFor()
+  await vg.locator('.media-mock', { hasText: 'mock://generated-video' }).waitFor()
+})
+
+await step('GEN3. Run All with everything done → "nothing to run" alert, no confirm', async () => {
+  lastDialog = ''
+  await page.locator('.nc-toolbar button', { hasText: 'Run All' }).click()
+  await page.waitForTimeout(200)
+  if (!/Nothing to run/.test(lastDialog)) throw new Error(`expected nothing-to-run alert, got: ${lastDialog}`)
+})
+
+await step('GEN4. manual model: Generate opens URL paste; Apply sets done + preview', async () => {
+  await page.locator('.nc-fit').click()
+  const ig = genNode('Image Generator')
+  await ig.locator('select[aria-label="Generation model"]').selectOption('manual')
+  await ig.locator('.gnode-credit', { hasText: 'Free (manual)' }).waitFor()
+  await ig.locator('button', { hasText: 'Generate' }).click()
+  const url = ig.locator('input[aria-label="Manual result URL"]')
+  await url.waitFor()
+  await url.fill('https://example.com/manual-result.png')
+  await ig.locator('button', { hasText: 'Apply' }).click()
+  await ig.locator('.badge.gen-status.status-done').waitFor()
+  await ig.locator('img[alt="result"]').waitFor()
+})
+
+await step('GEN5. premium model outside API mode → gated error, no network call', async () => {
+  await page.locator('.nc-fit').click()
+  const ig = genNode('Image Generator')
+  await ig.locator('select[aria-label="Generation model"]').selectOption('openai-image')
+  await ig.locator('button', { hasText: 'Generate' }).click()
+  await ig.locator('.badge.gen-status.status-error').waitFor()
+  await ig.locator('.gnode-error', { hasText: 'Provider Mode = API' }).waitFor()
+})
+
+await step('GEN6. statuses survive reload (done stays done, error stays error)', async () => {
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('.sidebar-left button.nav', { hasText: 'Node Canvas' }).click()
+  await genNode('Video Generator').locator('.badge.gen-status.status-done').waitFor()
+  await genNode('Image Generator').locator('.badge.gen-status.status-error').waitFor()
+  // Mock result url persisted (external mock:// — not a session preview)
+  await genNode('Video Generator').locator('.media-mock', { hasText: 'mock://generated-video' }).waitFor()
 })
 
 await page.screenshot({ path: path.join(ART, 'dev-probe-final.png'), fullPage: true })

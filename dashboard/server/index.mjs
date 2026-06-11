@@ -341,6 +341,9 @@ const server = http.createServer((req, res) => {
       const action_type = payload.action_type || ''
       const input_prompt = payload.input_prompt || payload.prompt || ''
       const context = payload.context
+      // Optional image size hint (generate_image only) — validated in the provider
+      // against an allowlist; anything unexpected falls back to the env default.
+      const size = typeof payload.size === 'string' ? payload.size.slice(0, 16) : ''
 
       // Text/JSON providers: OpenAI and OpenRouter. Everything else stays disconnected.
       const runner = provider_id === 'openai' ? runOpenAi : provider_id === 'openrouter' ? runOpenRouter : null
@@ -355,7 +358,7 @@ const server = http.createServer((req, res) => {
       }
 
       try {
-        const result = await runner({ action_type, input_prompt, context })
+        const result = await runner({ action_type, input_prompt, context, size })
         return send(res, 200, { ...result, request_id })
       } catch (e) {
         // Never leak the key; report a generic backend error.
