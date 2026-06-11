@@ -413,7 +413,15 @@ export default function App() {
       ;(project.canvas && project.canvas.scenes ? project.canvas.scenes : []).forEach((s) => (s.variations || []).forEach((v) => { if (v.local_url) pushMedia(v.local_url, v.file_name) }))
       ;(project.canvas && project.canvas.assets ? project.canvas.assets : []).forEach((a) => { if (a.local_url) pushMedia(a.local_url, a.file_name) })
       ;(project.node_canvas && project.node_canvas.nodes ? project.node_canvas.nodes : []).forEach((n) => { if (n.data && n.data.local_url) pushMedia(n.data.local_url, n.data.file_name) })
-      return <NodeCanvas nodeCanvas={normalizeNodeCanvas(project.node_canvas)} onChange={updateNodeCanvas} savedMedia={savedMedia} onGenerateNode={generateForNode} />
+      return (
+        <NodeCanvas
+          nodeCanvas={normalizeNodeCanvas(project.node_canvas)}
+          onChange={updateNodeCanvas}
+          savedMedia={savedMedia}
+          onGenerateNode={generateForNode}
+          providerMode={(project.canvas && project.canvas.provider_mode) || 'manual'}
+        />
+      )
     }
     if (active === 'handoff') {
       return (

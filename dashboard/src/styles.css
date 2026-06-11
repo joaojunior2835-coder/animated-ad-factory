@@ -1559,3 +1559,18 @@ button.caret {
 .ncsb-model-desc { color: var(--muted); font-size: 10.5px; flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .ncsb-addmodel { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--panel-2); display: grid; gap: 8px; margin-top: 8px; }
 .ncsb-addmodel h4 { margin: 0; font-size: 13px; }
+
+/* Top toolbar */
+.nc-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  height: auto; min-height: 48px; padding: 6px 10px; margin-top: 10px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-2);
+}
+.nc-toolbar-spacer { flex: 1; }
+.nc-toolbar-name {
+  font-weight: 600; font-size: 14px; background: transparent; border: 1px solid transparent;
+  padding: 4px 8px; color: var(--text); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nc-toolbar-name:hover { border-color: var(--border); }
+.nc-toolbar-name-input { font: inherit; font-weight: 600; background: var(--bg); color: var(--text); border: 1px solid var(--accent-2); border-radius: 8px; padding: 4px 8px; width: 240px; }

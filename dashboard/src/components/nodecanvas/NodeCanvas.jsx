@@ -8,8 +8,11 @@ import {
   VIDEO_DURATIONS,
   UPSCALE_FACTORS,
   MODEL_REGISTRY,
+  GENERATOR_TYPES,
   loadCustomModels,
   saveCustomModels,
+  topologicalNodeOrder,
+  modelUsesCredits,
   modelsForType,
   modelById,
   creditEstimateForModel,
@@ -28,6 +31,7 @@ import { normalizeMediaResult } from '../../lib/ai/mediaResultContract.js'
 import { saveMediaToLocal } from '../../lib/ai/apiClient.js'
 import { nodeColor, nodeIcon } from './nodeTheme.js'
 import CanvasSidebar from './CanvasSidebar.jsx'
+import CanvasToolbar from './CanvasToolbar.jsx'
 
 // Read an image file client-side: data_url (session preview) + real dimensions.
 function readImageFile(file) {
@@ -88,7 +92,7 @@ function nodeHasResult(node) {
 
 const STATUS_LABELS = { idle: 'idle', queued: 'queued', generating: 'generating…', done: 'done', error: 'error' }
 
-export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, sceneOptions = [], toolbarExtras = null, registerApi }) {
+export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, sceneOptions = [], providerMode = 'manual', toolbarExtras = null, registerApi }) {
   const nc = nodeCanvas || { nodes: [], connections: [], pan_x: 0, pan_y: 0, zoom: 1 }
   // Session-only previews keyed by node id (data_url). NEVER persisted — node.data
   // keeps only local_url + metadata, so localStorage isn't bloated with base64.
@@ -108,6 +112,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   const [attachPicker, setAttachPicker] = useState(null) // node id (scene picker open)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [customModels, setCustomModels] = useState(() => loadCustomModels())
+  const [runningAll, setRunningAll] = useState(false)
   const spaceDown = useRef(false)
   const commitTimer = useRef(null)
   const viewRef = useRef(view)
@@ -986,6 +991,42 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
     onChange((c) => updateNodeData(c, n.id, { model_id: m.id }))
   }
 
+  // ---- Run All: every idle/error generator, upstream first ----
+  const anyGenerating = (nc.nodes || []).some((n) => n.data && (n.data.status === 'queued' || n.data.status === 'generating'))
+  const runnableNodes = () => {
+    const byId = {}
+    ;(nc.nodes || []).forEach((n) => (byId[n.id] = n))
+    return topologicalNodeOrder(nc)
+      .map((id) => byId[id])
+      .filter((n) => n && GENERATOR_TYPES.includes(n.type))
+      .filter((n) => !n.data || !n.data.status || n.data.status === 'idle' || n.data.status === 'error')
+      .filter((n) => n.data && n.data.model_id && n.data.model_id !== 'manual') // manual nodes need user input — skip in batch
+  }
+
+  async function runAll() {
+    if (!onGenerateNode || runningAll || anyGenerating) return
+    const nodes = runnableNodes()
+    if (!nodes.length) {
+      window.alert('Nothing to run — no idle image/video generator with a non-manual model.')
+      return
+    }
+    let msg = `This will generate ${nodes.length} node(s). Continue?`
+    const paid = nodes.filter((n) => modelUsesCredits(n.data.model_id))
+    if (paid.length) msg += `\n\nWarning: ${paid.length} node(s) use real API models and will use credits.`
+    if (!window.confirm(msg)) return
+    setRunningAll(true)
+    try {
+      for (const n of nodes) {
+        const action = n.type === 'video_generator' ? 'generate_video' : 'generate_image'
+        // Sequential, upstream first, so downstream nodes can consume fresh results.
+        // eslint-disable-next-line no-await-in-loop
+        await onGenerateNode(n.id, action)
+      }
+    } finally {
+      setRunningAll(false)
+    }
+  }
+
   const addCustomModel = (form) => {
     const id = String(form.id || '').trim()
     const name = String(form.name || '').trim()
@@ -1015,6 +1056,15 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
           Right-click or use the palette to add nodes · drag header to move · shift+click multi-select · drag socket→socket to wire · click a wire then Delete · middle-mouse or space+drag to pan · scroll to zoom
         </span>
       </div>
+      <CanvasToolbar
+        nc={nc}
+        onChange={onChange}
+        onFit={fitToScreen}
+        providerMode={providerMode}
+        onRunAll={runAll}
+        runAllDisabled={runningAll || anyGenerating || !onGenerateNode}
+        runAllLabel={runningAll ? '⏳ Running…' : '▶ Run All'}
+      />
       {toolbarExtras}
       <div className="node-canvas-row">
         <CanvasSidebar

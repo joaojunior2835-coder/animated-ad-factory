@@ -28,7 +28,11 @@ async function step(name, fn) {
 const browser = await chromium.launch({ headless: true })
 const ctx = await browser.newContext({ viewport: { width: 1720, height: 950 } })
 page = await ctx.newPage()
-page.on('dialog', (d) => d.accept().catch(() => {}))
+let lastDialog = ''
+page.on('dialog', (d) => {
+  lastDialog = d.message()
+  d.accept().catch(() => {})
+})
 page.on('pageerror', (e) => console.log('PAGE ERROR: ' + e.message))
 page.setDefaultTimeout(8000)
 await page.goto(BASE, { waitUntil: 'domcontentloaded' })
@@ -249,6 +253,65 @@ await step('sidebar collapses to edge toggle and reopens', async () => {
   if (await page.locator('.ncsb').count()) throw new Error('sidebar should be hidden when collapsed')
   await page.locator('.ncsb-toggle.collapsed').click()
   await page.locator('.ncsb').waitFor()
+})
+
+// ---- Phase 4: top toolbar ----
+await step('toolbar renders: name, node count, mode badge, buttons', async () => {
+  await page.locator('.nc-toolbar').waitFor()
+  await page.locator('.nc-toolbar-name', { hasText: 'Untitled Canvas' }).waitFor()
+  await page.locator('.nc-toolbar .api-badge', { hasText: 'Mode: Manual' }).waitFor()
+  for (const label of ['Fit to screen', 'Save snapshot', 'Load snapshot', 'Clear canvas', 'Run All']) {
+    await page.locator('.nc-toolbar button', { hasText: label }).waitFor()
+  }
+  const countTxt = await page.locator('.nc-toolbar .badge').first().innerText()
+  const onBoard = await page.locator('.gnode').count()
+  if (!countTxt.includes(String(onBoard))) throw new Error(`node count badge "${countTxt}" should reflect ${onBoard} nodes`)
+})
+
+await step('canvas rename persists into node_canvas.name', async () => {
+  await page.locator('.nc-toolbar-name').click()
+  const input = page.locator('.nc-toolbar-name-input')
+  await input.fill('Probe Production Board')
+  await input.press('Enter')
+  await page.locator('.nc-toolbar-name', { hasText: 'Probe Production Board' }).waitFor()
+})
+
+await step('save snapshot downloads a named JSON with nodes', async () => {
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.nc-toolbar button', { hasText: 'Save snapshot' }).click()])
+  const fn = dl.suggestedFilename()
+  if (!/^probe-production-board-canvas-.*\.json$/.test(fn)) throw new Error(`bad snapshot filename: ${fn}`)
+  const tmp = path.join(ART, 'dev-probe-snapshot.json')
+  await dl.saveAs(tmp)
+  const snap = JSON.parse((await import('node:fs')).readFileSync(tmp, 'utf8'))
+  if (!Array.isArray(snap.nodes) || !snap.nodes.length) throw new Error('snapshot has no nodes')
+  if (snap.name !== 'Probe Production Board') throw new Error('snapshot missing canvas name')
+})
+
+await step('Run All confirms with node count and runs idle generators (stub errors)', async () => {
+  // Current board has mock-model generators (idle) → confirm fires, stub marks them error.
+  lastDialog = ''
+  await page.locator('.nc-toolbar button', { hasText: 'Run All' }).click()
+  await page.waitForTimeout(300)
+  if (!/This will generate \d+ node/.test(lastDialog)) throw new Error(`expected Run All confirm, got: ${lastDialog}`)
+  await page.locator('.gnode .badge.gen-status.status-error').first().waitFor()
+})
+
+await step('clear canvas confirms and empties the board', async () => {
+  lastDialog = ''
+  await page.locator('.nc-toolbar button', { hasText: 'Clear canvas' }).click()
+  await page.waitForTimeout(200)
+  if (!/Clear the canvas/.test(lastDialog)) throw new Error('expected clear confirm dialog')
+  const n = await page.locator('.gnode').count()
+  if (n !== 0) throw new Error(`expected empty board, got ${n} nodes`)
+})
+
+await step('load snapshot restores nodes and warns-free for known types', async () => {
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.nc-toolbar button', { hasText: 'Load snapshot' }).click()])
+  await chooser.setFiles(path.join(ART, 'dev-probe-snapshot.json'))
+  await page.waitForTimeout(300)
+  const n = await page.locator('.gnode').count()
+  if (n < 1) throw new Error('snapshot did not restore nodes')
+  await page.locator('.nc-toolbar-name', { hasText: 'Probe Production Board' }).waitFor()
 })
 
 await page.screenshot({ path: path.join(ART, 'dev-probe-final.png'), fullPage: true })
