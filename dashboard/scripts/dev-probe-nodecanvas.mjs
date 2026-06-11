@@ -26,7 +26,7 @@ async function step(name, fn) {
 }
 
 const browser = await chromium.launch({ headless: true })
-const ctx = await browser.newContext()
+const ctx = await browser.newContext({ viewport: { width: 1720, height: 950 } })
 page = await ctx.newPage()
 page.on('dialog', (d) => d.accept().catch(() => {}))
 page.on('pageerror', (e) => console.log('PAGE ERROR: ' + e.message))
@@ -79,6 +79,8 @@ await step('generate disabled without prompt; enabled with prompt text', async (
 })
 
 await step('generate button routes to App stub (error status appears)', async () => {
+  // Fit first — at the spawn position the node footer can sit under the minimap overlay.
+  await page.locator('.nc-fit').click()
   const ig = page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: 'Image Generator' }) })
   await ig.locator('button', { hasText: 'Generate' }).click()
   await ig.locator('.badge.gen-status.status-error').waitFor()
@@ -174,6 +176,79 @@ await step('graph persists across reload', async () => {
   await page.locator('.gnode').first().waitFor()
   const after = await page.locator('.gnode').count()
   if (after !== before) throw new Error(`expected ${before} nodes after reload, got ${after}`)
+})
+
+// ---- Phase 3: sidebar (palette + model gallery) ----
+await step('sidebar renders with Nodes/Models tabs; palette has 10 cards', async () => {
+  await page.locator('.ncsb').waitFor()
+  const cards = await page.locator('.ncsb-node-card').count()
+  if (cards !== 10) throw new Error(`expected 10 palette cards, got ${cards}`)
+})
+
+await step('click palette card spawns node at center', async () => {
+  const before = await page.locator('.gnode').count()
+  await page.locator('.ncsb-node-card', { hasText: 'Style' }).click()
+  const after = await page.locator('.gnode').count()
+  if (after !== before + 1) throw new Error(`expected ${before + 1} nodes, got ${after}`)
+})
+
+await step('model gallery lists 4 builtin models sorted Test→Manual→Premium', async () => {
+  await page.locator('.ncsb-tabs .tab', { hasText: 'Models' }).click()
+  const names = await page.locator('.ncsb-model-name').allInnerTexts()
+  if (names.length !== 4) throw new Error(`expected 4 models, got ${names.length}: ${names}`)
+  if (!/Mock/.test(names[0])) throw new Error(`Test category should sort first, got ${names[0]}`)
+  if (!/OpenAI/.test(names[3])) throw new Error(`Premium should sort last, got ${names[3]}`)
+})
+
+await step('search filters models live', async () => {
+  await page.locator('.ncsb-search').fill('video')
+  const names = await page.locator('.ncsb-model-name').allInnerTexts()
+  if (names.length !== 1 || !/Mock Video/.test(names[0])) throw new Error(`expected only Mock Video, got ${names}`)
+  await page.locator('.ncsb-search').fill('')
+})
+
+await step('Use on video model with nothing selected creates video gen node with model set', async () => {
+  await page.keyboard.press('Escape')
+  const before = await page.locator('.gnode').count()
+  await page.locator('.ncsb-model-card', { hasText: 'Mock Video' }).getByRole('button', { name: 'Use' }).click()
+  const after = await page.locator('.gnode').count()
+  if (after !== before + 1) throw new Error('Use should create a node when none selected')
+  const sel = page.locator('.gnode.selected select[aria-label="Generation model"]')
+  const val = await sel.inputValue()
+  if (val !== 'mock-video') throw new Error(`new node model should be mock-video, got ${val}`)
+})
+
+await step('Use on image model applies to selected image gen node', async () => {
+  await page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: 'Image Generator' }) }).first().locator('.gnode-head').click()
+  await page.locator('.ncsb-model-card', { hasText: 'OpenAI Image' }).getByRole('button', { name: 'Use' }).click()
+  const val = await page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: 'Image Generator' }) }).first().locator('select[aria-label="Generation model"]').inputValue()
+  if (val !== 'openai-image') throw new Error(`selected node model should be openai-image, got ${val}`)
+  await page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: 'Image Generator' }) }).first().locator('.gnode-credit', { hasText: 'Uses API credits' }).waitFor()
+})
+
+await step('Add Custom Model persists to localStorage and appears in gallery', async () => {
+  await page.locator('button', { hasText: '+ Add Custom Model' }).click()
+  await page.locator('.ncsb-addmodel input[aria-label="Model id"]').fill('probe-model')
+  await page.locator('.ncsb-addmodel input[aria-label="Model name"]').fill('Probe Model')
+  await page.locator('.ncsb-addmodel select[aria-label="Model output type"]').selectOption('image')
+  await page.locator('.ncsb-addmodel textarea[aria-label="Model description"]').fill('Added by probe')
+  await page.locator('.ncsb-addmodel button', { hasText: 'Add Model' }).click()
+  await page.locator('.ncsb-model-card', { hasText: 'Probe Model' }).waitFor()
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('aaf_custom_models') || '[]'))
+  if (!stored.some((m) => m.id === 'probe-model')) throw new Error('custom model not in localStorage')
+})
+
+await step('custom model offered in node model dropdown', async () => {
+  const sel = page.locator('.gnode').filter({ has: page.locator('.gnode-head strong', { hasText: 'Image Generator' }) }).first().locator('select[aria-label="Generation model"]')
+  const opts = await sel.locator('option').allInnerTexts()
+  if (!opts.some((o) => /Probe Model/.test(o))) throw new Error(`custom model missing from dropdown: ${opts}`)
+})
+
+await step('sidebar collapses to edge toggle and reopens', async () => {
+  await page.locator('.ncsb-head .ncsb-toggle').click()
+  if (await page.locator('.ncsb').count()) throw new Error('sidebar should be hidden when collapsed')
+  await page.locator('.ncsb-toggle.collapsed').click()
+  await page.locator('.ncsb').waitFor()
 })
 
 await page.screenshot({ path: path.join(ART, 'dev-probe-final.png'), fullPage: true })

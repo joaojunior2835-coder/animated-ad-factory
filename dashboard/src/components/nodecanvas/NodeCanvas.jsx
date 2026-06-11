@@ -7,6 +7,9 @@ import {
   REF_TYPES,
   VIDEO_DURATIONS,
   UPSCALE_FACTORS,
+  MODEL_REGISTRY,
+  loadCustomModels,
+  saveCustomModels,
   modelsForType,
   modelById,
   creditEstimateForModel,
@@ -24,6 +27,7 @@ import { classifyMedia } from '../../lib/canvasModel.js'
 import { normalizeMediaResult } from '../../lib/ai/mediaResultContract.js'
 import { saveMediaToLocal } from '../../lib/ai/apiClient.js'
 import { nodeColor, nodeIcon } from './nodeTheme.js'
+import CanvasSidebar from './CanvasSidebar.jsx'
 
 // Read an image file client-side: data_url (session preview) + real dimensions.
 function readImageFile(file) {
@@ -84,7 +88,7 @@ function nodeHasResult(node) {
 
 const STATUS_LABELS = { idle: 'idle', queued: 'queued', generating: 'generating…', done: 'done', error: 'error' }
 
-export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, sceneOptions = [], toolbarExtras = null, sidePanel = null, registerApi }) {
+export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, sceneOptions = [], toolbarExtras = null, registerApi }) {
   const nc = nodeCanvas || { nodes: [], connections: [], pan_x: 0, pan_y: 0, zoom: 1 }
   // Session-only previews keyed by node id (data_url). NEVER persisted — node.data
   // keeps only local_url + metadata, so localStorage isn't bloated with base64.
@@ -102,6 +106,8 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   const [wire, setWire] = useState(null) // { fromNode, fromSocket, fromType, x, y } live
   const [editingLabel, setEditingLabel] = useState(null) // node id
   const [attachPicker, setAttachPicker] = useState(null) // node id (scene picker open)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [customModels, setCustomModels] = useState(() => loadCustomModels())
   const spaceDown = useRef(false)
   const commitTimer = useRef(null)
   const viewRef = useRef(view)
@@ -956,6 +962,51 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
 
   const SPAWNABLE = ['prompt', 'image_generator', 'video_generator', 'reference', 'character', 'style', 'output', 'upscale', 'upload', 'asset']
 
+  // ---- sidebar: palette spawn + model gallery ----
+  const spawnAtCenter = (type) => {
+    const p = viewportCenter()
+    return spawnAt(type, p.x - 140, p.y - 100)
+  }
+
+  const builtinIds = new Set(MODEL_REGISTRY.map((m) => m.id))
+  const galleryModels = [...MODEL_REGISTRY, ...customModels.filter((m) => !builtinIds.has(m.id))]
+
+  // "Use" a gallery model: applies to the selected generator if compatible,
+  // otherwise creates a new generator node at center with the model pre-selected.
+  const useModel = (m) => {
+    const selNode = selected.length === 1 ? (nc.nodes || []).find((n) => n.id === selected[0]) : null
+    const compatible = (node) =>
+      node && ((node.type === 'image_generator' && (m.type === 'image' || m.type === 'any')) || (node.type === 'video_generator' && (m.type === 'video' || m.type === 'any')))
+    if (compatible(selNode)) {
+      setData(selNode.id, { model_id: m.id })
+      return
+    }
+    const type = m.type === 'video' ? 'video_generator' : 'image_generator'
+    const n = spawnAtCenter(type)
+    onChange((c) => updateNodeData(c, n.id, { model_id: m.id }))
+  }
+
+  const addCustomModel = (form) => {
+    const id = String(form.id || '').trim()
+    const name = String(form.name || '').trim()
+    if (!id) return 'Id is required.'
+    if (!name) return 'Name is required.'
+    if (galleryModels.some((m) => m.id === id)) return `A model with id "${id}" already exists.`
+    const entry = {
+      id,
+      name,
+      type: ['image', 'video', 'any'].includes(form.type) ? form.type : 'any',
+      category: String(form.category || 'Custom').trim() || 'Custom',
+      previewUrl: String(form.previewUrl || '').trim() || null,
+      description: String(form.description || ''),
+      custom: true
+    }
+    const next = [...loadCustomModels(), entry]
+    if (!saveCustomModels(next)) return 'Could not persist the model (localStorage unavailable).'
+    setCustomModels(next)
+    return ''
+  }
+
   return (
     <section className="panel node-canvas-panel">
       <div className="row between">
@@ -966,7 +1017,14 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
       </div>
       {toolbarExtras}
       <div className="node-canvas-row">
-        {sidePanel}
+        <CanvasSidebar
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen((o) => !o)}
+          models={galleryModels}
+          onSpawn={spawnAtCenter}
+          onUseModel={useModel}
+          onAddCustomModel={addCustomModel}
+        />
         <div
           className="node-canvas"
           ref={wrapRef}
