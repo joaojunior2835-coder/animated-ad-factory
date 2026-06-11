@@ -391,6 +391,95 @@ await step('GEN6. statuses survive reload (done stays done, error stays error)',
   await genNode('Video Generator').locator('.media-mock', { hasText: 'mock://generated-video' }).waitFor()
 })
 
+// ---- Phase 6: canvas ↔ scene workflow integration ----
+// Fit, then wheel-zoom in over a node until it is comfortably clickable.
+const zoomToNode = async (loc) => {
+  await page.locator('.nc-fit').click()
+  for (let i = 0; i < 24; i++) {
+    const b = await loc.boundingBox()
+    if (!b) throw new Error('node not found for zoom')
+    if (b.width >= 250) break
+    await page.mouse.move(b.x + b.width / 2, b.y + Math.min(b.height / 2, 17))
+    await page.mouse.wheel(0, -120)
+    await page.waitForTimeout(40)
+  }
+  // Middle-mouse pan so the WHOLE node (tall footer included) is on screen.
+  const b = await loc.boundingBox()
+  const cr = await page.locator('.node-canvas').boundingBox()
+  await page.mouse.move(b.x + b.width / 2, b.y + 10)
+  await page.mouse.down({ button: 'middle' })
+  await page.mouse.move(cr.x + cr.width / 2 - 160, cr.y + 50, { steps: 6 })
+  await page.mouse.up({ button: 'middle' })
+  await page.waitForTimeout(80)
+}
+await step('INT setup: create Canvas scenes from outline', async () => {
+  await page.locator('.sidebar-left button.nav', { hasText: 'Ad Methods' }).click()
+  const card = page.locator('.method-card', { hasText: 'Competitor Video Recreation' })
+  await card.waitFor()
+  const sel = card.getByRole('button', { name: 'Select this method' })
+  if (await sel.count()) await sel.click()
+  await page.locator('.sidebar-left button.nav', { has: page.getByText('Canvas', { exact: true }) }).click()
+  const ta = page.locator('.subpanel', { hasText: 'Quick Add From Outline' }).locator('textarea')
+  await ta.fill(['0:00-0:03 Hook: probe scene one', '0:03-0:07 Demo: probe scene two'].join('\n'))
+  await page.getByRole('button', { name: 'Create Scenes From Outline' }).click()
+  await page.locator('.scene-card').nth(1).waitFor()
+  await page.locator('.sidebar-left button.nav', { hasText: 'Node Canvas' }).click()
+  await page.locator('.node-canvas').waitFor()
+})
+
+await step('INT1. Import Scenes appends prompt+gen+output rows (existing nodes kept)', async () => {
+  const before = await page.locator('.gnode').count()
+  await page.locator('.nc-toolbar button', { hasText: 'Import Scenes' }).click()
+  await page.waitForTimeout(300)
+  if (!/Add 2 scene\(s\) as nodes\? Existing nodes will not be changed\./.test(lastDialog)) throw new Error(`bad import confirm: ${lastDialog}`)
+  const after = await page.locator('.gnode').count()
+  if (after !== before + 6) throw new Error(`expected ${before + 6} nodes after import, got ${after}`)
+  // Imported gen node carries the scene's output_prompt seedable text + wires exist
+  const wires = await page.locator('.node-wires .wire').count()
+  if (wires < 4) throw new Error(`expected >=4 wires from import, got ${wires}`)
+})
+
+await step('INT2. generate imported scene image → result propagates to wired Output node', async () => {
+  const gen = genNode('Scene 1 image')
+  await zoomToNode(gen)
+  await gen.locator('textarea[aria-label="Image prompt"]').fill('probe scene one frame')
+  await gen.locator('button', { hasText: 'Generate' }).click()
+  await gen.locator('.badge.gen-status.status-done').waitFor()
+  const out = genNode('Scene 1 output')
+  await out.locator('.gnode-variation', { hasText: 'v1' }).waitFor()
+  await out.locator('.media-mock', { hasText: 'mock://generated-image' }).waitFor()
+})
+
+await step('INT3. Attach to Scene adds a variation on the Canvas scene', async () => {
+  const gen = genNode('Scene 1 image')
+  await zoomToNode(gen)
+  await gen.locator('button', { hasText: 'Attach to Scene' }).click()
+  await gen.locator('select[aria-label="Scene to attach this result to"]').selectOption('1')
+  await page.waitForTimeout(200)
+  await gen.locator('.note', { hasText: 'Attached to Scene 1 ✓' }).waitFor()
+  // Verify on the Canvas board
+  await page.locator('.sidebar-left button.nav', { has: page.getByText('Canvas', { exact: true }) }).click()
+  await page.getByRole('button', { name: 'Board View' }).click()
+  await page.getByRole('button', { name: 'Build Board From Scenes', exact: true }).click()
+  const card = page.locator('.variation-card', { hasText: 'Variation A' }).first()
+  await card.waitFor()
+  const url = await card.locator('label.field', { hasText: 'External URL' }).locator('input').inputValue()
+  if (!url.includes('mock://generated-image/scene-1')) throw new Error(`attached variation has wrong media url: ${url}`)
+  await page.locator('.sidebar-left button.nav', { hasText: 'Node Canvas' }).click()
+})
+
+await step('INT4. Export to Final Timeline marks the scene variation selected', async () => {
+  const out = genNode('Scene 1 output')
+  await zoomToNode(out)
+  await out.locator('button', { hasText: 'Export to Final Timeline' }).click()
+  await out.locator('.note', { hasText: 'Exported to Final Timeline (Scene 1) ✓' }).waitFor()
+  await page.locator('.sidebar-left button.nav', { has: page.getByText('Canvas', { exact: true }) }).click()
+  await page.getByRole('button', { name: 'Board View' }).click()
+  await page.locator('.final-timeline .timeline-item', { hasText: 'Scene 1' }).first().waitFor()
+  await page.locator('.variation-card', { hasText: 'Variation A' }).first().locator('.badge.status-selected').waitFor()
+  await page.locator('.sidebar-left button.nav', { hasText: 'Node Canvas' }).click()
+})
+
 await page.screenshot({ path: path.join(ART, 'dev-probe-final.png'), fullPage: true })
 await browser.close()
 console.log(`\n${passed} passed, ${failed} failed`)

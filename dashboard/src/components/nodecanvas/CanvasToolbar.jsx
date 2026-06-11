@@ -15,7 +15,7 @@ function slug(name) {
   )
 }
 
-export default function CanvasToolbar({ nc, onChange, onFit, providerMode, onRunAll, runAllDisabled, runAllLabel }) {
+export default function CanvasToolbar({ nc, onChange, onFit, providerMode, onRunAll, runAllDisabled, runAllLabel, onImportScenes, importScenesDisabled }) {
   const fileRef = useRef(null)
   const [editingName, setEditingName] = useState(false)
   const nodeCount = (nc.nodes || []).length
@@ -112,6 +112,11 @@ export default function CanvasToolbar({ nc, onChange, onFit, providerMode, onRun
       <button className="ghost small" onClick={clearCanvas} disabled={!nodeCount} aria-label="Clear the canvas">
         Clear canvas
       </button>
+      {onImportScenes ? (
+        <button className="ghost small" onClick={onImportScenes} disabled={importScenesDisabled} title={importScenesDisabled ? 'No Canvas scenes yet' : 'Add Prompt → Image Gen → Output rows from the Canvas scenes'} aria-label="Import Canvas scenes as nodes">
+          Import Scenes
+        </button>
+      ) : null}
       <button className="primary small" onClick={onRunAll} disabled={runAllDisabled} title={runAllDisabled ? 'Generation already running, or nothing to run' : 'Generate every idle image/video node, upstream first'} aria-label="Run all generation nodes">
         {runAllLabel || '▶ Run All'}
       </button>

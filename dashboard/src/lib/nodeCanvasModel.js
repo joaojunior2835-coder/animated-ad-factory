@@ -425,6 +425,71 @@ export function topologicalNodeOrder(nc) {
   return order
 }
 
+// Build Prompt → Image Generator → Output rows from the EXISTING Canvas scenes
+// and APPEND them (never touches existing nodes/connections). One row per scene,
+// placed below the current graph. Pure.
+export function addSceneNodesToCanvas(nc, scenes) {
+  const base = nc || emptyNodeCanvas()
+  const list = Array.isArray(scenes) ? scenes : []
+  if (!list.length) return base
+  // Generator nodes render ~520px tall — keep rows clear of each other.
+  const ROW_H = 580
+  let y0 = 40
+  for (const n of base.nodes || []) y0 = Math.max(y0, n.y + ROW_H)
+  const nodes = []
+  const connections = []
+  list.forEach((s, i) => {
+    const num = Number(s && s.scene_number) || i + 1
+    const y = y0 + i * ROW_H
+    const p = newNode('prompt', 40, y)
+    p.data.label = `Scene ${num} description`
+    p.data.text = String((s && s.what_happens) || '')
+    const g = newNode('image_generator', 400, y)
+    g.data.label = `Scene ${num} image`
+    g.data.user_prompt = String((s && s.output_prompt) || '')
+    g.data.model_id = 'mock-image'
+    const o = newNode('output', 760, y)
+    o.data.label = `Scene ${num} output`
+    o.data.scene_number = num
+    nodes.push(p, g, o)
+    connections.push(
+      { id: uid(), from_node: p.id, from_socket: 'prompt', to_node: g.id, to_socket: 'prompt' },
+      { id: uid(), from_node: g.id, from_socket: 'image', to_node: o.id, to_socket: 'image' }
+    )
+  })
+  return { ...base, nodes: [...(base.nodes || []), ...nodes], connections: [...(base.connections || []), ...connections] }
+}
+
+// After a generator produced a result, append it as a variation on every Output
+// node wired downstream of it. Auto-selects the first variation an Output gets.
+// Pure — returns the same canvas when nothing is wired.
+export function propagateResultToOutputs(nc, nodeId, media) {
+  const base = nc || emptyNodeCanvas()
+  const targets = new Set((base.connections || []).filter((c) => c.from_node === nodeId).map((c) => c.to_node))
+  if (!targets.size) return base
+  let changed = false
+  const nodes = (base.nodes || []).map((n) => {
+    if (!targets.has(n.id) || n.type !== 'output') return n
+    changed = true
+    const variations = Array.isArray(n.data && n.data.variations) ? n.data.variations : []
+    const v = {
+      id: uid(),
+      label: 'v' + (variations.length + 1),
+      url: String((media && media.url) || ''),
+      local_url: String((media && media.local_url) || ''),
+      media_type: media && media.media_type === 'video' ? 'video' : 'image'
+    }
+    const data = { ...n.data, variations: [...variations, v] }
+    if (!Number.isFinite(Number(data.selected_variation_index)) || Number(data.selected_variation_index) < 0) {
+      data.selected_variation_index = variations.length
+      data.final_media_url = v.url
+      data.final_local_path = v.local_url
+    }
+    return { ...n, data }
+  })
+  return changed ? { ...base, nodes } : base
+}
+
 // Text reaching a generator's prompt input: a wired Prompt node's text wins,
 // else the node's own user_prompt.
 export function effectivePromptText(nc, nodeId) {

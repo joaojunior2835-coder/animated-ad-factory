@@ -6,7 +6,7 @@ import { loadLibrary, saveLibrary, newLibraryDoc } from './lib/brandLibrary.js'
 import { nowIso, isActive } from './lib/brandDocs.js'
 import { downloadFlowPackage, downloadProjectJson, downloadProjectSnapshot } from './lib/exportFlowPackage.js'
 import { validateProject, missingSections, exportBlockReason } from './lib/validation.js'
-import { isCompetitorMethod, canvasToMethodData, buildSceneSkeletonPrompt, assessExportReadiness } from './lib/canvasModel.js'
+import { isCompetitorMethod, canvasToMethodData, buildSceneSkeletonPrompt, assessExportReadiness, newVariation, classifyMedia } from './lib/canvasModel.js'
 import { getApiHealth, apiBase } from './lib/ai/apiClient.js'
 
 function nonEmptyStr(v) {
@@ -30,7 +30,7 @@ import ValidationPanel from './components/ValidationPanel.jsx'
 import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
-import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits } from './lib/nodeCanvasModel.js'
+import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits, propagateResultToOutputs } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
 import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
@@ -175,12 +175,17 @@ export default function App() {
     if (!modelId) return fail('Select a model first.')
     if (modelId === 'manual') return undefined
 
+    // Push a finished result onto any wired Output nodes (variation list).
+    const propagate = (urls) =>
+      updateNodeCanvas((c) => propagateResultToOutputs(c, nodeId, { url: urls.url || '', local_url: urls.local_url || '', media_type: isVideo ? 'video' : 'image' }))
+
     // Mock models: existing mock provider path, no network, no credits.
     if (modelId === 'mock-image' || modelId === 'mock-video') {
       setNode({ status: 'generating', status_message: '' })
       const r = runMock({ action_type: actionType, provider_id: 'mock', mode: 'mock', prompt_used: prompt, scene: { scene_number: Number(d.scene_number) || 1 } })
       const result = normalizeMediaResult({ provider_id: 'mock', mode: 'mock', action_type: actionType, prompt, external_url: r.output_url, output_text: r.output_text, success: r.success })
       setNode({ status: 'done', status_message: '', result_external_url: result.external_url, result_local_url: '', result_file_name: '', result_mime_type: '', result_saved: false })
+      propagate({ url: result.external_url })
       return result
     }
 
@@ -230,7 +235,95 @@ export default function App() {
       result_mime_type: result.mime_type || 'image/png',
       result_saved: false
     })
+    if (result.external_url) propagate({ url: result.external_url })
     return result
+  }
+
+  // ---- Node Canvas ↔ scene workflow integration ----
+
+  // Attach a generator node's result to a Canvas scene as a new variation
+  // (same shape/semantics as the Canvas board's addGeneratedVariation).
+  function attachNodeResultToScene(nodeId, sceneNumber) {
+    const ncv = normalizeNodeCanvas(projectRef.current.node_canvas)
+    const node = (ncv.nodes || []).find((n) => n.id === nodeId)
+    if (!node) return
+    const d = node.data || {}
+    const setNode = (patch) => updateNodeCanvas((c) => updateNodeData(c, nodeId, patch))
+    if (!d.result_external_url && !d.result_local_url) {
+      setNode({ status_message: 'Result is a session-only preview — Save to Media Library first.' })
+      return
+    }
+    const isVideo = node.type === 'video_generator'
+    const modelId = d.model_id || ''
+    setProject((p) => {
+      const scenes = (p.canvas && p.canvas.scenes) || []
+      const scene = scenes.find((s) => Number(s.scene_number) === Number(sceneNumber))
+      if (!scene) return p
+      const label = String.fromCharCode(65 + (scene.variations || []).length)
+      const v = newVariation(label, {
+        type: isVideo ? 'video' : 'image',
+        provider: modelId,
+        prompt: effectivePromptText(ncv, nodeId),
+        external_url: d.result_external_url || '',
+        local_url: d.result_local_url || '',
+        storage: d.result_local_url ? 'local_disk' : classifyMedia(d.result_external_url) === 'mock' ? 'mock' : 'external_url',
+        file_name: d.result_file_name || '',
+        mime_type: d.result_mime_type || '',
+        source_type: modelId === 'openai-image' ? 'api' : modelId.startsWith('mock') ? 'mock' : 'manual',
+        action_type: isVideo ? 'generate_video' : 'generate_image',
+        model: modelId,
+        notes: 'From Node Canvas',
+        status: 'generated'
+      })
+      return { ...p, canvas: { ...p.canvas, scenes: scenes.map((s) => (s.id === scene.id ? { ...s, variations: [...(s.variations || []), v] } : s)) } }
+    })
+    setNode({ status_message: `Attached to Scene ${sceneNumber} ✓` })
+  }
+
+  // Export an Output node's selected media to the Final Timeline: mark the
+  // matching scene variation selected (others demote, like selectVariation), or
+  // create it as selected when the scene doesn't have it yet.
+  function exportNodeToTimeline(nodeId) {
+    const ncv = normalizeNodeCanvas(projectRef.current.node_canvas)
+    const node = (ncv.nodes || []).find((n) => n.id === nodeId)
+    if (!node || node.type !== 'output') return
+    const d = node.data || {}
+    const setNode = (patch) => updateNodeCanvas((c) => updateNodeData(c, nodeId, patch))
+    const finalLocal = String(d.final_local_path || '')
+    const finalUrl = String(d.final_media_url || '')
+    if (!finalLocal && !finalUrl) {
+      setNode({ status_message: 'No result to export yet.' })
+      return
+    }
+    const sceneNumber = Number(d.scene_number) || 0
+    let outcome = ''
+    setProject((p) => {
+      const scenes = (p.canvas && p.canvas.scenes) || []
+      const scene = scenes.find((s) => Number(s.scene_number) === sceneNumber)
+      if (!scene) {
+        outcome = `Scene ${sceneNumber} not found in Canvas — create it there first.`
+        return p
+      }
+      const match = (scene.variations || []).find((v) => (finalLocal && v.local_url === finalLocal) || (finalUrl && v.external_url === finalUrl))
+      let variations
+      if (match) {
+        variations = (scene.variations || []).map((v) => (v.id === match.id ? { ...v, status: 'selected' } : v.status === 'selected' ? { ...v, status: 'generated' } : v))
+      } else {
+        const label = String.fromCharCode(65 + (scene.variations || []).length)
+        const v = newVariation(label, {
+          type: classifyMedia(finalUrl || finalLocal) === 'video' ? 'video' : 'image',
+          external_url: finalUrl,
+          local_url: finalLocal,
+          storage: finalLocal ? 'local_disk' : classifyMedia(finalUrl) === 'mock' ? 'mock' : 'external_url',
+          notes: 'From Node Canvas output',
+          status: 'selected'
+        })
+        variations = [...(scene.variations || []).map((x) => (x.status === 'selected' ? { ...x, status: 'generated' } : x)), v]
+      }
+      outcome = `Exported to Final Timeline (Scene ${sceneNumber}) ✓`
+      return { ...p, canvas: { ...p.canvas, scenes: scenes.map((s) => (s.id === scene.id ? { ...s, variations } : s)) } }
+    })
+    setNode({ status_message: outcome })
   }
   const setCanvasPreview = (id, dataUrl) => setCanvasPreviews((m) => ({ ...m, [id]: dataUrl }))
   const selectCompetitor = () => setSelectedMethod('competitor_recreation')
@@ -507,6 +600,9 @@ export default function App() {
           savedMedia={savedMedia}
           onGenerateNode={generateForNode}
           providerMode={(project.canvas && project.canvas.provider_mode) || 'manual'}
+          scenes={(project.canvas && project.canvas.scenes) || []}
+          onAttachResultToScene={attachNodeResultToScene}
+          onExportNodeToTimeline={exportNodeToTimeline}
         />
       )
     }

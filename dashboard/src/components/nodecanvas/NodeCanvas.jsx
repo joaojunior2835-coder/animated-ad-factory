@@ -12,6 +12,8 @@ import {
   loadCustomModels,
   saveCustomModels,
   topologicalNodeOrder,
+  addSceneNodesToCanvas,
+  propagateResultToOutputs,
   modelUsesCredits,
   modelsForType,
   modelById,
@@ -92,7 +94,7 @@ function nodeHasResult(node) {
 
 const STATUS_LABELS = { idle: 'idle', queued: 'queued', generating: 'generating…', done: 'done', error: 'error' }
 
-export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, sceneOptions = [], providerMode = 'manual', toolbarExtras = null, registerApi }) {
+export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, scenes = [], providerMode = 'manual', toolbarExtras = null, registerApi }) {
   const nc = nodeCanvas || { nodes: [], connections: [], pan_x: 0, pan_y: 0, zoom: 1 }
   // Session-only previews keyed by node id (data_url). NEVER persisted — node.data
   // keeps only local_url + metadata, so localStorage isn't bloated with base64.
@@ -123,6 +125,12 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   useEffect(() => setMounted(true), [])
 
   const isSelected = (id) => selected.includes(id)
+
+  // Canvas scenes available for attach/import (number + short summary).
+  const sceneOptions = (scenes || []).map((s) => ({
+    scene_number: Number(s.scene_number),
+    summary: String(s.what_happens || s.scene_type || '').slice(0, 40)
+  }))
 
   // Convert a screen event to canvas coordinates (accounting for pan + zoom).
   const toCanvas = (clientX, clientY) => {
@@ -535,6 +543,8 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
         return
       }
       setData(node.id, { status: 'done', status_message: '', result_external_url: url, result_local_url: '', result_saved: false })
+      // Manual results feed wired Output nodes too, like generated ones.
+      onChange((c) => propagateResultToOutputs(c, node.id, { url, media_type: node.type === 'video_generator' ? 'video' : 'image' }))
       setManualEntry(null)
     }
     return (
@@ -1080,6 +1090,16 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
     }
   }
 
+  // Import the existing Canvas scenes as Prompt → Image Gen → Output rows.
+  const importScenes = () => {
+    if (!scenes.length) {
+      window.alert('No Canvas scenes to import — create scenes in Canvas first.')
+      return
+    }
+    if (!window.confirm(`Add ${scenes.length} scene(s) as nodes? Existing nodes will not be changed.`)) return
+    onChange((c) => addSceneNodesToCanvas(c, scenes))
+  }
+
   const addCustomModel = (form) => {
     const id = String(form.id || '').trim()
     const name = String(form.name || '').trim()
@@ -1117,6 +1137,8 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
         onRunAll={runAll}
         runAllDisabled={runningAll || anyGenerating || !onGenerateNode}
         runAllLabel={runningAll ? '⏳ Running…' : '▶ Run All'}
+        onImportScenes={importScenes}
+        importScenesDisabled={!scenes.length}
       />
       {toolbarExtras}
       <div className="node-canvas-row">
