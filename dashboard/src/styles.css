@@ -1465,3 +1465,64 @@ button.caret {
 }
 .node-menu button { text-align: left; }
 .node-canvas-hint { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--muted, #9aa3b2); pointer-events: none; }
+
+/* ============================================================ */
+/* NODE CANVAS v2 — Higgsfield-inspired production board styles */
+/* ============================================================ */
+
+/* Layout: optional left side panel + the board */
+.node-canvas-row { display: flex; gap: 0; min-height: 0; }
+.node-canvas-row .node-canvas { flex: 1; min-width: 0; }
+
+/* Node chrome */
+.gnode.has-error { border-color: var(--danger); }
+.gnode-icon { margin-right: 6px; flex: none; }
+.gnode-head strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.gnode-label-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 13px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--accent-2); border-radius: 6px; padding: 2px 6px;
+}
+
+/* Footer: status badge + Generate + credit estimate */
+.gnode-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 8px; }
+.gnode-credit { font-size: 11px; color: var(--muted); margin-left: auto; }
+.gnode-error { width: 100%; font-size: 11.5px; color: #f3bcbc; }
+.badge.gen-status { text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; }
+.badge.gen-status.status-idle { color: var(--muted); }
+.badge.gen-status.status-queued { color: #ecdca0; border-color: #7a6a2f; }
+.badge.gen-status.status-generating { color: #9cc2ff; border-color: #3a557a; animation: nc-pulse 1.2s ease-in-out infinite; }
+.badge.gen-status.status-done { color: #8fe0a6; border-color: #2f6b46; }
+.badge.gen-status.status-error { color: #f0a3a3; border-color: #7a3b3b; }
+@keyframes nc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* Result block + scene attach picker */
+.gnode-result { border: 1px dashed var(--border); border-radius: 8px; padding: 8px; }
+.gnode-attach { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.gnode-attach select { font-size: 12px; max-width: 180px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 7px; }
+
+/* Output node variations */
+.gnode-variations { display: grid; gap: 4px; }
+.gnode-variation { display: flex; align-items: center; gap: 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; cursor: pointer; }
+.gnode-variation.on { border-color: #2f6b46; background: rgba(58, 168, 107, 0.08); }
+
+/* Upload dropzone inside nodes */
+.gnode-drop { border: 2px dashed var(--border); border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; font-size: 12px; color: var(--muted); }
+.gnode-drop:hover { border-color: var(--accent-2); }
+
+/* Wire selection + live compatibility hints */
+.node-wires .wire.wire-selected .wire-line { stroke: #f0a85a; stroke-width: 3; }
+.gsock.gsock-ok { box-shadow: 0 0 0 3px rgba(91, 214, 160, 0.45); }
+.gsock.gsock-bad { background: #e06a6a !important; box-shadow: 0 0 0 3px rgba(224, 106, 106, 0.4); cursor: not-allowed; }
+
+/* Fit-to-screen button + minimap overlay */
+.nc-fit { position: absolute; right: 12px; bottom: 124px; z-index: 10; background: var(--panel-2); }
+.nc-minimap {
+  position: absolute; right: 12px; bottom: 12px; width: 160px; height: 100px; z-index: 10;
+  background: rgba(10, 12, 16, 0.92); border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; cursor: pointer;
+}
+.nc-minimap-view { fill: rgba(110, 168, 254, 0.12); stroke: #6ea8fe; stroke-width: 1; }
+
+/* Sockets keep their position relative to the (now bordered) node edge */
+.gnode { border-left-width: 3px; }
