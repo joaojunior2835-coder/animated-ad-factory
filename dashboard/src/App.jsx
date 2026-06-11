@@ -30,7 +30,7 @@ import ValidationPanel from './components/ValidationPanel.jsx'
 import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
-import { emptyNodeCanvas, normalizeNodeCanvas } from './lib/nodeCanvasModel.js'
+import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData } from './lib/nodeCanvasModel.js'
 
 const SPECIAL_NAV = [
   { key: 'methods', label: 'Ad Methods' },
@@ -139,6 +139,12 @@ export default function App() {
   const updateCanvas = (fn) => setProject((p) => ({ ...p, canvas: fn(p.canvas) }))
   // Node Canvas (separate surface) — routes through the same setProject/saveProject path.
   const updateNodeCanvas = (fn) => setProject((p) => ({ ...p, node_canvas: fn(p.node_canvas || emptyNodeCanvas()) }))
+  // Node Canvas → backend generation routing. The component never calls the
+  // backend itself; it asks App via this callback. The full engine (mock /
+  // OpenAI image / manual) replaces this body in the generation-engine phase.
+  async function generateForNode(nodeId) {
+    updateNodeCanvas((c) => updateNodeData(c, nodeId, { status: 'error', status_message: 'Generation engine not connected yet.' }))
+  }
   const setCanvasPreview = (id, dataUrl) => setCanvasPreviews((m) => ({ ...m, [id]: dataUrl }))
   const selectCompetitor = () => setSelectedMethod('competitor_recreation')
 
@@ -407,7 +413,7 @@ export default function App() {
       ;(project.canvas && project.canvas.scenes ? project.canvas.scenes : []).forEach((s) => (s.variations || []).forEach((v) => { if (v.local_url) pushMedia(v.local_url, v.file_name) }))
       ;(project.canvas && project.canvas.assets ? project.canvas.assets : []).forEach((a) => { if (a.local_url) pushMedia(a.local_url, a.file_name) })
       ;(project.node_canvas && project.node_canvas.nodes ? project.node_canvas.nodes : []).forEach((n) => { if (n.data && n.data.local_url) pushMedia(n.data.local_url, n.data.file_name) })
-      return <NodeCanvas nodeCanvas={normalizeNodeCanvas(project.node_canvas)} onChange={updateNodeCanvas} savedMedia={savedMedia} />
+      return <NodeCanvas nodeCanvas={normalizeNodeCanvas(project.node_canvas)} onChange={updateNodeCanvas} savedMedia={savedMedia} onGenerateNode={generateForNode} />
     }
     if (active === 'handoff') {
       return (
