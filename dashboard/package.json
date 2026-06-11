@@ -1,0 +1,30 @@
+{
+  "name": "animated-ad-factory-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local web dashboard MVP for the Animated Ad Factory: one product input to a staged animated ad package.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:docs": "node scripts/smoke-test-doc-importer.mjs",
+    "qa:canvas": "node scripts/qa-canvas-speed-batch.mjs",
+    "qa:e2e": "node scripts/qa-e2e.mjs",
+    "qa:all": "npm run build && npm run test:docs && npm run qa:canvas && npm run qa:e2e",
+    "dev:server": "node server/index.mjs",
+    "dev:all": "node server/dev-all.mjs"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.0",
+    "openai": "^6.42.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "playwright": "^1.60.0",
+    "vite": "^5.4.8"
+  }
+}

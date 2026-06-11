@@ -1,0 +1,379 @@
+// Private, local-only backend.
+//
+// - Binds to 127.0.0.1 only (not exposed on the network).
+// - Reads API keys from dashboard/.env.local into the server process ONLY.
+// - NEVER returns key values to any client (health reports booleans only).
+// - /api/llm calls a real provider for text/JSON (OpenAI only, Part 3).
+//   No image/video, no cloud storage, no database, no login.
+
+import http from 'node:http'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
+import { runOpenAi } from './providers/openaiProvider.mjs'
+import { runOpenRouter } from './providers/openrouterProvider.mjs'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
+// Local media library root (gitignored). Files live ONLY on this machine.
+const MEDIA_ROOT = path.resolve(__dirname, '..', 'local-media')
+const PORT = Number(process.env.PORT) || 8787
+
+// Minimal .env.local loader. Values stay in process.env only.
+function loadEnvLocal() {
+  try {
+    const raw = fs.readFileSync(ENV_PATH, 'utf8')
+    for (const line of raw.split(/\r?\n/)) {
+      const t = line.trim()
+      if (!t || t.startsWith('#')) continue
+      const eq = t.indexOf('=')
+      if (eq === -1) continue
+      const key = t.slice(0, eq).trim()
+      let val = t.slice(eq + 1).trim()
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1)
+      if (key && process.env[key] === undefined) process.env[key] = val
+    }
+  } catch {
+    // No .env.local yet — fine; providers just stay unconfigured.
+  }
+}
+loadEnvLocal()
+
+const KEY_NAMES = {
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY'
+}
+
+// The configured OpenAI model name (not a secret). Safe to expose for display.
+function openaiModel() {
+  return (process.env.OPENAI_MODEL && process.env.OPENAI_MODEL.trim()) || 'gpt-5.5'
+}
+
+// The configured OpenRouter model id (not a secret). Empty if unset — no default,
+// since OpenRouter requires an explicit model.
+function openrouterModel() {
+  return (process.env.OPENROUTER_MODEL && process.env.OPENROUTER_MODEL.trim()) || ''
+}
+
+// The configured OpenAI image model id (not a secret). Empty if unset.
+function openaiImageModel() {
+  return (process.env.OPENAI_IMAGE_MODEL && process.env.OPENAI_IMAGE_MODEL.trim()) || ''
+}
+
+// Returns booleans only — never the key values.
+function providersConfigured() {
+  const out = {}
+  for (const [id, envName] of Object.entries(KEY_NAMES)) {
+    out[id] = Boolean(process.env[envName] && String(process.env[envName]).trim())
+  }
+  return out
+}
+
+function send(res, status, obj) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': '*', // local-only tool
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  })
+  res.end(JSON.stringify(obj))
+}
+
+// ---- Local media library helpers (local disk only — no cloud) ----
+
+const EXT_BY_MIME = {
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/webp': '.webp',
+  'image/gif': '.gif', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov'
+}
+const MIME_BY_EXT = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+  '.gif': 'image/gif', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime'
+}
+
+// Keep only a safe base filename: strip any directory parts and unsafe chars.
+function sanitizeFileName(name) {
+  const base = path.basename(String(name || '').replace(/\\/g, '/')) // drop path segments
+  const cleaned = base.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 120)
+  return cleaned || 'file'
+}
+
+// Sanitize a project id used as a folder name.
+function sanitizeId(id) {
+  const cleaned = String(id || 'default').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 80)
+  return cleaned || 'default'
+}
+
+// Resolve a request path under MEDIA_ROOT, rejecting any traversal outside it.
+function resolveWithinMedia(relPath) {
+  const safe = path.normalize(relPath).replace(/^([/\\])+/, '')
+  const resolved = path.resolve(MEDIA_ROOT, safe)
+  const rootWithSep = MEDIA_ROOT.endsWith(path.sep) ? MEDIA_ROOT : MEDIA_ROOT + path.sep
+  if (resolved !== MEDIA_ROOT && !resolved.startsWith(rootWithSep)) return null
+  return resolved
+}
+
+function sendBinary(res, status, buffer, contentType) {
+  res.writeHead(status, {
+    'Content-Type': contentType || 'application/octet-stream',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-store'
+  })
+  res.end(buffer)
+}
+
+// Decode + save a data URL into the local media library. Returns a descriptor.
+function saveDataUrl({ data_url, file_name, mime_type, category, project_id }) {
+  const m = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(String(data_url || ''))
+  if (!m) return { error: 'Invalid or missing data_url.' }
+  const mime = (mime_type && String(mime_type).trim()) || m[1] || 'application/octet-stream'
+  const isBase64 = !!m[2]
+  const raw = m[3] || ''
+  const buffer = isBase64 ? Buffer.from(raw, 'base64') : Buffer.from(decodeURIComponent(raw), 'utf8')
+  if (!buffer.length) return { error: 'Empty media payload.' }
+
+  const folder = category === 'asset' ? 'assets' : 'variations'
+  const projectId = sanitizeId(project_id)
+  let base = sanitizeFileName(file_name)
+  if (!path.extname(base)) base += EXT_BY_MIME[mime] || ''
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${base}`
+
+  const dir = path.resolve(MEDIA_ROOT, 'projects', projectId, folder)
+  const dest = resolveWithinMedia(path.relative(MEDIA_ROOT, path.join(dir, unique)))
+  if (!dest) return { error: 'Refused to write outside the media library.' }
+
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  fs.writeFileSync(dest, buffer)
+
+  const relUrl = '/media/' + path.relative(MEDIA_ROOT, dest).split(path.sep).join('/')
+  return { success: true, local_url: relUrl, file_name: unique, mime_type: mime, file_size: buffer.length, storage: 'local_disk' }
+}
+
+// The variations directory for a project (where saved variation media lives).
+function variationsDir(projectId) {
+  return path.resolve(MEDIA_ROOT, 'projects', sanitizeId(projectId), 'variations')
+}
+
+// Build a Set of referenced base filenames from a client-supplied list (which may
+// contain file_names and/or local_urls). Comparison-only — never used for fs ops.
+function referencedSet(referenced) {
+  const set = new Set()
+  for (const r of Array.isArray(referenced) ? referenced : []) {
+    if (!r) continue
+    const base = String(r).split('?')[0].split('#')[0].replace(/\\/g, '/').split('/').pop()
+    if (base) {
+      try {
+        set.add(decodeURIComponent(base))
+      } catch {
+        set.add(base)
+      }
+    }
+  }
+  return set
+}
+
+// Read-only: list files in the project's variations dir not in the referenced set.
+function listOrphans(projectId, referenced) {
+  const dir = variationsDir(projectId)
+  const ref = referencedSet(referenced)
+  let names = []
+  try {
+    names = fs.readdirSync(dir)
+  } catch {
+    return [] // no dir yet → no orphans
+  }
+  const out = []
+  for (const name of names) {
+    if (ref.has(name)) continue // referenced → live, skip
+    const full = path.join(dir, name)
+    let stat
+    try {
+      stat = fs.statSync(full)
+    } catch {
+      continue
+    }
+    if (!stat.isFile()) continue
+    out.push({ file_name: name, file_size: stat.size, local_url: '/media/' + path.relative(MEDIA_ROOT, full).split(path.sep).join('/') })
+  }
+  return out
+}
+
+// Delete ONLY explicitly-listed files, re-verifying each is (a) not referenced and
+// (b) strictly inside the project's variations dir. Never deletes anything else.
+function cleanupMediaFiles(projectId, fileNames, referenced) {
+  const dir = variationsDir(projectId)
+  const dirWithSep = dir.endsWith(path.sep) ? dir : dir + path.sep
+  const ref = referencedSet(referenced)
+  const deleted = []
+  const skipped = []
+  const errors = []
+  for (const raw of Array.isArray(fileNames) ? fileNames : []) {
+    const rawBase = String(raw || '').replace(/\\/g, '/').split('/').pop()
+    const name = sanitizeFileName(rawBase) // strips path segments + unsafe chars
+    // Defense in depth: never delete a referenced file even if asked.
+    if (ref.has(name) || ref.has(String(raw))) {
+      skipped.push(name)
+      continue
+    }
+    const dest = path.resolve(dir, name)
+    if (dest !== dir && !dest.startsWith(dirWithSep)) {
+      errors.push({ file_name: name, error: 'refused: outside variations directory' })
+      continue
+    }
+    try {
+      const st = fs.statSync(dest)
+      if (!st.isFile()) {
+        errors.push({ file_name: name, error: 'not a file' })
+        continue
+      }
+      fs.unlinkSync(dest)
+      deleted.push(name)
+    } catch (e) {
+      errors.push({ file_name: name, error: e && e.code === 'ENOENT' ? 'not found' : (e && e.message) || 'delete failed' })
+    }
+  }
+  return { deleted, skipped, errors }
+}
+
+const server = http.createServer((req, res) => {
+  if (req.method === 'OPTIONS') return send(res, 204, {})
+
+  const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
+
+  if (req.method === 'GET' && url.pathname === '/health') {
+    const cfg = providersConfigured()
+    return send(res, 200, {
+      ok: true,
+      status: 'API backend is running',
+      provider_connected: Boolean(cfg.openai || cfg.openrouter), // wired text/JSON providers
+      providers_configured: cfg,
+      openai_model: openaiModel(), // model name only — never a key
+      openrouter_model: openrouterModel(), // model id only — never a key
+      openai_image_model: openaiImageModel(), // image model id only — never a key
+      openai_image_configured: Boolean(cfg.openai && openaiImageModel()) // key + image model present
+    })
+  }
+
+  // Serve a saved media file (local disk only, traversal-guarded).
+  if (req.method === 'GET' && url.pathname.startsWith('/media/')) {
+    const rel = decodeURIComponent(url.pathname.slice('/media/'.length))
+    const resolved = resolveWithinMedia(rel)
+    if (!resolved) return send(res, 403, { ok: false, error: 'Forbidden path.' })
+    fs.readFile(resolved, (err, data) => {
+      if (err) return send(res, 404, { ok: false, error: 'Not found.' })
+      sendBinary(res, 200, data, MIME_BY_EXT[path.extname(resolved).toLowerCase()] || 'application/octet-stream')
+    })
+    return
+  }
+
+  // Orphan scan (read-only) + explicit cleanup. Both carry the referenced set in the
+  // body so the server knows what's live; cleanup re-verifies before deleting.
+  if (req.method === 'POST' && (url.pathname === '/api/media/orphans' || url.pathname === '/api/media/cleanup')) {
+    let body = ''
+    req.on('data', (c) => {
+      body += c
+      if (body.length > 5e6) req.destroy()
+    })
+    req.on('end', () => {
+      let payload = {}
+      try {
+        payload = body ? JSON.parse(body) : {}
+      } catch {
+        return send(res, 400, { error: 'Invalid JSON body.' })
+      }
+      try {
+        if (url.pathname === '/api/media/orphans') {
+          return send(res, 200, { orphans: listOrphans(payload.project, payload.referenced) })
+        }
+        return send(res, 200, cleanupMediaFiles(payload.project, payload.file_names, payload.referenced))
+      } catch (e) {
+        return send(res, 200, { error: `Media cleanup failed: ${e && e.message ? e.message : 'unknown error'}` })
+      }
+    })
+    return
+  }
+
+  // Save an uploaded data URL into the local media library.
+  if (req.method === 'POST' && url.pathname === '/api/media/save') {
+    let body = ''
+    req.on('data', (c) => {
+      body += c
+      if (body.length > 60e6) req.destroy() // ~60MB cap for local media
+    })
+    req.on('end', () => {
+      let payload = {}
+      try {
+        payload = body ? JSON.parse(body) : {}
+      } catch {
+        return send(res, 400, { success: false, error: 'Invalid JSON body.' })
+      }
+      try {
+        const result = saveDataUrl(payload)
+        if (result.error) return send(res, 400, { success: false, error: result.error })
+        return send(res, 200, result)
+      } catch (e) {
+        return send(res, 200, { success: false, error: `Media save failed: ${e && e.message ? e.message : 'unknown error'}` })
+      }
+    })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/llm') {
+    let body = ''
+    req.on('data', (c) => {
+      body += c
+      if (body.length > 1e6) req.destroy()
+    })
+    req.on('end', async () => {
+      // Per-request id for traceability (logs/debug). Not a secret.
+      const request_id = randomUUID()
+
+      let payload = {}
+      try {
+        payload = body ? JSON.parse(body) : {}
+      } catch {
+        return send(res, 400, { success: false, error: 'Invalid JSON body.', request_id })
+      }
+
+      const provider_id = String(payload.provider_id || '').toLowerCase()
+      const action_type = payload.action_type || ''
+      const input_prompt = payload.input_prompt || payload.prompt || ''
+      const context = payload.context
+
+      // Text/JSON providers: OpenAI and OpenRouter. Everything else stays disconnected.
+      const runner = provider_id === 'openai' ? runOpenAi : provider_id === 'openrouter' ? runOpenRouter : null
+      if (!runner) {
+        return send(res, 200, {
+          success: false,
+          request_id,
+          error: provider_id
+            ? `Provider "${provider_id}" is not connected. Use "openai" or "openrouter".`
+            : 'No provider_id provided. Use "openai" or "openrouter".'
+        })
+      }
+
+      try {
+        const result = await runner({ action_type, input_prompt, context })
+        return send(res, 200, { ...result, request_id })
+      } catch (e) {
+        // Never leak the key; report a generic backend error.
+        return send(res, 200, { success: false, request_id, error: `Backend error: ${e && e.message ? e.message : 'unknown error'}` })
+      }
+    })
+    return
+  }
+
+  send(res, 404, { ok: false, error: 'Not found' })
+})
+
+server.listen(PORT, '127.0.0.1', () => {
+  const cfg = providersConfigured()
+  // Log booleans only — never key values.
+  console.log(`[api] local backend on http://127.0.0.1:${PORT}`)
+  console.log(`[api] providers configured: ${Object.entries(cfg).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+  console.log(`[api] OpenAI text/JSON ${cfg.openai ? 'ready' : 'not configured'} (model: ${openaiModel()}).`)
+  console.log(`[api] OpenRouter text/JSON ${cfg.openrouter ? 'ready' : 'not configured'} (model: ${openrouterModel() || '(unset)'}).`)
+  console.log(`[api] OpenAI image ${cfg.openai && openaiImageModel() ? 'ready' : 'not configured'} (model: ${openaiImageModel() || '(unset)'}). Video: not connected.`)
+})

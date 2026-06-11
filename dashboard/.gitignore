@@ -1,0 +1,8 @@
+node_modules
+dist
+*.local
+.vite
+qa-artifacts
+local-media
+.env
+.env.local

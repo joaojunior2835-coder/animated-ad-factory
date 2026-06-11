@@ -1,0 +1,291 @@
+{
+  "project": {
+    "title": "French Craving-Control Claymation Ad",
+    "goal": "Create a 30-second French-language claymation ad for an evening craving-control ritual drink for women who train, framed around ritual and control without medical or weight-loss claims.",
+    "target_runtime_seconds": 30,
+    "aspect_ratio": "9:16",
+    "platform": "Instagram Reels, TikTok, YouTube Shorts",
+    "visual_style": "warm tactile claymation",
+    "scene_duration_rule": "6 seconds per scene",
+    "market": "France",
+    "language": "French"
+  },
+  "product_intake": {
+    "product_name": "Evening craving-control ritual drink",
+    "category": "wellness ritual drink",
+    "what_it_is": "An evening ritual drink for women who train and want to stay in control of evening cravings.",
+    "who_it_serves": "Women who train regularly but struggle with evening cravings.",
+    "core_benefit": "A calming evening ritual that helps you stay in control and aligned with your training goals.",
+    "market": "France",
+    "language": "French",
+    "claim_constraints": [
+      "No medical, weight-loss, or guaranteed appetite-suppression claims.",
+      "Frame around ritual, support, evening routine, control, and alignment with training goals.",
+      "Stronger claims only if explicitly verified and approved."
+    ]
+  },
+  "audience_psychology": {
+    "persona": "Lea, early 30s, trains four times a week, disciplined by day but ambushed by cravings in the evening.",
+    "core_tension": "She feels in control all day, then loses that control at night and feels she is undoing her own effort.",
+    "trigger_moment": "The quiet evening hour after training when fatigue and cravings arrive together.",
+    "desired_identity": "A woman who stays aligned with her goals without punishing herself.",
+    "objections": [
+      "Another product that overpromises.",
+      "Fear of being shamed about food or body.",
+      "Skepticism of appetite-suppressant gimmicks."
+    ]
+  },
+  "ad_concept": {
+    "idea": "The evening ritual that hands control back to her.",
+    "angle": "Not a fix for her body, a ritual for her evening.",
+    "visual_style": "warm tactile claymation",
+    "hook_premise": "A bold claymation evening-ritual image that stops the scroll.",
+    "desired_feeling": "Warm, understood, in control."
+  },
+  "story_beats": [
+    { "scene_number": 1, "beat": "Scroll-stopper", "purpose": "Stop the scroll with a bold tactile claymation image of the evening ritual." },
+    { "scene_number": 2, "beat": "Evening craving moment", "purpose": "Show the emotional evening craving moment with empathy." },
+    { "scene_number": 3, "beat": "The ritual drink", "purpose": "Introduce the drink as a calm, intentional ritual." },
+    { "scene_number": 4, "beat": "Shift back into control", "purpose": "Show the shift back into control and alignment with training goals." },
+    { "scene_number": 5, "beat": "Product hero", "purpose": "End on a clean tactile product hero shot." }
+  ],
+  "continuity_bible": {
+    "main_subject": {
+      "role": "woman in her early 30s who trains regularly",
+      "appearance": "warm tactile claymation figure, athletic build, relaxed ponytail, expressive clay face",
+      "wardrobe": "fitted workout wear in muted warm tones, no visible logos",
+      "movement_style": "deliberate, grounded, human",
+      "do_not_change": ["claymation texture", "face identity", "workout wear", "warm tone"]
+    },
+    "product": {
+      "name": "amber-colored craving-control ritual drink",
+      "shape": "small rounded glass bottle with a soft cork-style cap",
+      "materials": "frosted amber glass, clay-rendered",
+      "color": "warm amber",
+      "label": "minimal unbranded label, no claims text",
+      "required_visibility": "drink clearly visible in the ritual, shift, and hero beats",
+      "do_not_change": ["amber color", "rounded bottle shape", "minimal label", "claymation finish"]
+    },
+    "location": {
+      "setting": "warm home kitchen in the evening",
+      "time_of_day": "dusk into night",
+      "background": "wooden counter, soft cupboard, a wall clock, a gym bag",
+      "lighting": "warm amber key light, soft evening shadows",
+      "do_not_change": ["evening setting", "warm amber light", "wooden kitchen", "claymation world"]
+    },
+    "camera_language": {
+      "lens": "intimate close and medium claymation framing",
+      "movement": "slow push-ins and gentle slides, no impossible moves",
+      "depth_of_field": "soft, product stays readable"
+    },
+    "negative_constraints": [
+      "no medical claims",
+      "no weight-loss claims",
+      "no appetite-suppressant or coupe-faim claims",
+      "no before/after or body comparison",
+      "no scales, calorie counts, or weight numbers",
+      "no shame or binge imagery",
+      "no guaranteed results",
+      "no visible brand logos",
+      "no live-action or photoreal style, claymation only"
+    ]
+  },
+  "scenes": [
+    {
+      "scene_number": 1,
+      "duration_seconds": 6,
+      "purpose": "Stop the scroll with a bold tactile claymation image of the evening ritual.",
+      "start_state": "A tight claymation close-up of a small amber ritual drink bottle being set on a warm wooden kitchen counter at dusk.",
+      "end_state": "A clay woman in fitted workout wear holds the amber drink and looks directly at camera with a calm, confident expression.",
+      "camera_movement": "Slow push-in toward the woman and the drink.",
+      "subject_motion": "The clay woman lifts the amber drink slightly toward the camera.",
+      "environment_motion": "Warm evening light glows softly; clay textures catch the light.",
+      "continuity_references": [
+        "clay woman in fitted workout wear",
+        "amber ritual drink bottle",
+        "warm evening kitchen",
+        "claymation texture"
+      ],
+      "negative_constraints": [
+        "no weight-loss claims",
+        "no appetite-suppressant claims",
+        "no scales or body comparison",
+        "no calorie counts",
+        "no photoreal style"
+      ],
+      "start_frame_prompt": "SCENE 1 - START FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows a tight claymation close-up of a small amber ritual drink bottle being set on a warm wooden kitchen counter at dusk.\n\nSubject: a clay hand placing the bottle, warm tactile claymation.\nProduct: small rounded amber glass bottle with a soft cork-style cap, minimal unbranded label, clearly the hero.\nEnvironment: warm home kitchen in the evening, wooden counter, soft cupboard behind.\nCamera and composition: vertical 9:16 close product shot, bottle just right of center.\nLighting: warm amber key light, soft evening shadows.\nStyle: warm tactile claymation, handmade clay texture.\n\nContinuity requirements: preserve the amber bottle shape, claymation texture, and warm evening kitchen.\n\nDo not include: photoreal style, brand logos, weight-loss or appetite-suppressant claims, scales, calorie counts.",
+      "end_frame_prompt": "SCENE 1 - END FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows a clay woman in fitted workout wear holding the amber ritual drink and looking directly at camera with a calm, confident expression.\n\nSubject: warm claymation woman, early 30s, athletic build, relaxed ponytail, fitted muted workout wear, no logos.\nProduct: same amber rounded bottle held toward the camera, minimal label, clearly visible.\nEnvironment: same warm evening kitchen, wooden counter, soft cupboard.\nCamera and composition: vertical 9:16 hero framing, woman and drink centered.\nLighting: warm amber key light, gentle evening glow.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the woman's identity, workout wear, amber bottle, and claymation world.\n\nDo not include: photoreal style, brand logos, weight-loss or appetite-suppressant claims, body comparison, scales.",
+      "flow_agent_prompt": "SCENE 1 - FLOW AGENT MODE PROMPT\n\nGenerate a 6 second video clip for French Craving-Control Claymation Ad.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: stop the scroll with a bold tactile claymation image of the evening ritual.\n\nCamera movement: slow push-in toward the woman and the drink.\n\nSubject motion: the clay woman lifts the amber drink slightly toward the camera.\n\nEnvironment motion: warm evening light glows softly; clay textures catch the light.\n\nContinuity requirements: same clay woman and workout wear, same amber ritual drink, same warm evening kitchen, claymation texture.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and claymation realism level.\n\nDo not include: photoreal style, brand logos, weight-loss or appetite-suppressant claims, scales, calorie counts, body comparison."
+    },
+    {
+      "scene_number": 2,
+      "duration_seconds": 6,
+      "purpose": "Show the emotional evening craving moment with empathy.",
+      "start_state": "The clay woman sits on the kitchen floor in the evening, tired after training, glancing toward a cupboard of snacks.",
+      "end_state": "She rests her head in her hand, the pull of the craving visible on her face, warm but tense light.",
+      "camera_movement": "Slow drift toward her face.",
+      "subject_motion": "She reaches halfway toward the cupboard, then hesitates.",
+      "environment_motion": "Evening shadows deepen slightly; the wall clock reads late.",
+      "continuity_references": [
+        "same clay woman and workout wear",
+        "same warm evening kitchen",
+        "claymation texture",
+        "evening timing"
+      ],
+      "negative_constraints": [
+        "no binge imagery",
+        "no shame framing",
+        "no weight-loss claims",
+        "no body comparison",
+        "no photoreal style"
+      ],
+      "start_frame_prompt": "SCENE 2 - START FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows the clay woman sitting on the warm kitchen floor in the evening, tired after training, glancing toward a cupboard of snacks.\n\nSubject: same claymation woman, fitted workout wear, tired but dignified expression.\nProduct: the amber ritual drink resting on the counter in the background, still visible.\nEnvironment: same warm evening kitchen, wooden floor, soft cupboard, wall clock reading late.\nCamera and composition: vertical 9:16 medium shot at floor level.\nLighting: warm amber light with deeper evening shadows.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the woman's identity, workout wear, kitchen, and claymation world.\n\nDo not include: binge or shame imagery, photoreal style, weight-loss claims, scales, body comparison.",
+      "end_frame_prompt": "SCENE 2 - END FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows the clay woman resting her head in her hand, the pull of the evening craving visible on her face.\n\nSubject: same claymation woman, quietly tense expression, hand near her temple.\nProduct: amber ritual drink still visible on the counter behind her.\nEnvironment: same warm evening kitchen, deeper shadows, late clock.\nCamera and composition: vertical 9:16 closer framing on her face and shoulders.\nLighting: warm amber key light with a tense, low evening tone.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the woman's identity, workout wear, kitchen, and claymation texture.\n\nDo not include: binge or shame imagery, photoreal style, weight-loss or appetite-suppressant claims, body comparison.",
+      "flow_agent_prompt": "SCENE 2 - FLOW AGENT MODE PROMPT\n\nGenerate a 6 second video clip for French Craving-Control Claymation Ad.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: show the emotional evening craving moment with empathy.\n\nCamera movement: slow drift toward her face.\n\nSubject motion: she reaches halfway toward the cupboard, then hesitates and lowers her hand.\n\nEnvironment motion: evening shadows deepen slightly; the kitchen stays still.\n\nContinuity requirements: same clay woman and workout wear, same warm evening kitchen, claymation texture, evening timing.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and claymation realism level.\n\nDo not include: binge or shame imagery, photoreal style, weight-loss or appetite-suppressant claims, body comparison, scales."
+    },
+    {
+      "scene_number": 3,
+      "duration_seconds": 6,
+      "purpose": "Introduce the drink as a calm, intentional ritual.",
+      "start_state": "She pauses, then reaches instead for the amber ritual drink on the counter.",
+      "end_state": "She prepares the drink with a small deliberate ritual gesture, her expression softening.",
+      "camera_movement": "Gentle slide following her hands to the drink.",
+      "subject_motion": "She pours and stirs the ritual drink slowly.",
+      "environment_motion": "Warm light warms further; a soft swirl moves in the glass.",
+      "continuity_references": [
+        "amber ritual drink bottle",
+        "same clay woman",
+        "same warm evening kitchen",
+        "warm evening light"
+      ],
+      "negative_constraints": [
+        "no appetite-suppressant claims",
+        "no magical transformation",
+        "no weight-loss claims",
+        "no calorie counts",
+        "no photoreal style"
+      ],
+      "start_frame_prompt": "SCENE 3 - START FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows the clay woman pausing, then reaching for the amber ritual drink on the wooden counter instead of the cupboard.\n\nSubject: same claymation woman, expression beginning to steady, hand reaching for the bottle.\nProduct: amber rounded bottle with cork-style cap, minimal label, clearly visible and central.\nEnvironment: same warm evening kitchen, wooden counter.\nCamera and composition: vertical 9:16 medium-close shot on her hands and the drink.\nLighting: warm amber key light, gentle glow.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the amber bottle, the woman's identity, kitchen, and claymation world.\n\nDo not include: magical transformation, photoreal style, appetite-suppressant or weight-loss claims, calorie counts.",
+      "end_frame_prompt": "SCENE 3 - END FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows the clay woman preparing the ritual drink with a small deliberate gesture, pouring it into a clay glass, her expression softening.\n\nSubject: same claymation woman, calmer expression, careful ritual gesture.\nProduct: amber ritual drink being poured into a clay glass, bottle and glass both clearly visible.\nEnvironment: same warm evening kitchen, wooden counter.\nCamera and composition: vertical 9:16 close shot on the pour and her face.\nLighting: warmer amber glow than the previous beat.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the amber drink, the woman's identity, kitchen, and claymation texture.\n\nDo not include: magical transformation, photoreal style, appetite-suppressant or weight-loss claims, calorie counts.",
+      "flow_agent_prompt": "SCENE 3 - FLOW AGENT MODE PROMPT\n\nGenerate a 6 second video clip for French Craving-Control Claymation Ad.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: introduce the drink as a calm, intentional ritual.\n\nCamera movement: gentle slide following her hands to the drink.\n\nSubject motion: she pours and stirs the ritual drink slowly and deliberately.\n\nEnvironment motion: the warm light warms further; a soft swirl moves in the glass.\n\nContinuity requirements: same amber ritual drink, same clay woman, same warm evening kitchen, warm evening light.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and claymation realism level.\n\nDo not include: magical transformation, photoreal style, appetite-suppressant or weight-loss claims, calorie counts, body comparison."
+    },
+    {
+      "scene_number": 4,
+      "duration_seconds": 6,
+      "purpose": "Show the shift back into control and alignment with training goals.",
+      "start_state": "She sips the drink, shoulders relaxing, the craving's grip easing into calm.",
+      "end_state": "She stands, steady and in control, glancing at her gym bag with quiet resolve.",
+      "camera_movement": "Slow rise from seated to standing eye level.",
+      "subject_motion": "She breathes, sips, then stands with calm posture.",
+      "environment_motion": "Light steadies and brightens gently; shadows settle.",
+      "continuity_references": [
+        "same clay woman and workout wear",
+        "amber ritual drink",
+        "same warm evening kitchen",
+        "gym bag detail"
+      ],
+      "negative_constraints": [
+        "no weight-loss claims",
+        "no guaranteed results",
+        "no appetite-suppressant claims",
+        "no body comparison",
+        "no photoreal style"
+      ],
+      "start_frame_prompt": "SCENE 4 - START FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows the clay woman sipping the ritual drink, her shoulders relaxing as the craving's grip eases into calm.\n\nSubject: same claymation woman, calmer face, holding the clay glass.\nProduct: amber ritual drink in the clay glass, clearly visible.\nEnvironment: same warm evening kitchen, gym bag visible nearby.\nCamera and composition: vertical 9:16 medium shot at seated level.\nLighting: warm amber light, steadier and a touch brighter.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the woman's identity, workout wear, drink, kitchen, and claymation world.\n\nDo not include: photoreal style, weight-loss or appetite-suppressant claims, guaranteed-result text, body comparison.",
+      "end_frame_prompt": "SCENE 4 - END FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows the clay woman standing, steady and in control, glancing at her gym bag with quiet resolve.\n\nSubject: same claymation woman, calm and grounded posture, settled expression.\nProduct: amber ritual drink resting on the counter beside her, still visible.\nEnvironment: same warm evening kitchen, gym bag in frame.\nCamera and composition: vertical 9:16 medium shot at standing eye level.\nLighting: warm amber light, settled and confident.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the woman's identity, workout wear, drink, kitchen, and claymation texture.\n\nDo not include: photoreal style, weight-loss or appetite-suppressant claims, guaranteed-result text, body comparison.",
+      "flow_agent_prompt": "SCENE 4 - FLOW AGENT MODE PROMPT\n\nGenerate a 6 second video clip for French Craving-Control Claymation Ad.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: show the shift back into control and alignment with training goals.\n\nCamera movement: slow rise from seated to standing eye level.\n\nSubject motion: she breathes, sips, then stands with calm, grounded posture.\n\nEnvironment motion: the light steadies and brightens gently; shadows settle.\n\nContinuity requirements: same clay woman and workout wear, same amber ritual drink, same warm evening kitchen, gym bag detail.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and claymation realism level.\n\nDo not include: photoreal style, weight-loss or appetite-suppressant claims, guaranteed results, body comparison, scales."
+    },
+    {
+      "scene_number": 5,
+      "duration_seconds": 6,
+      "purpose": "End on a clean tactile product hero shot.",
+      "start_state": "The camera pulls back from the woman to the amber ritual drink standing on the counter in warm light.",
+      "end_state": "Final hero composition: the ritual drink centered, the calm woman softly behind, warm claymation glow.",
+      "camera_movement": "Slow pullback to a balanced hero composition.",
+      "subject_motion": "The woman settles calmly in the background.",
+      "environment_motion": "Warm light holds steady; a gentle glow rests on the bottle.",
+      "continuity_references": [
+        "amber ritual drink bottle",
+        "same clay woman",
+        "warm evening kitchen",
+        "claymation texture"
+      ],
+      "negative_constraints": [
+        "no on-screen claims text beyond the approved tagline",
+        "no weight-loss claims",
+        "no appetite-suppressant claims",
+        "no body comparison",
+        "no photoreal style"
+      ],
+      "start_frame_prompt": "SCENE 5 - START FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image begins to pull back from the calm clay woman toward the amber ritual drink standing on the warm wooden counter.\n\nSubject: same claymation woman, calm and settled, slightly behind the drink.\nProduct: amber rounded bottle, minimal label, clearly the hero in warm light.\nEnvironment: same warm evening kitchen, wooden counter.\nCamera and composition: vertical 9:16 composition opening toward a hero framing.\nLighting: warm amber glow on the bottle.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the amber bottle, the woman's identity, kitchen, and claymation world.\n\nDo not include: extra claims text, photoreal style, weight-loss or appetite-suppressant claims, body comparison.",
+      "end_frame_prompt": "SCENE 5 - END FRAME PROMPT\n\nCreate a still image for French Craving-Control Claymation Ad.\n\nThe image shows a final clean hero composition: the amber ritual drink centered on the counter, the calm clay woman softly behind it, in a warm claymation glow.\n\nSubject: same claymation woman, calm and in control, softly out of focus behind the drink.\nProduct: amber ritual drink centered as the hero, minimal label, sharply rendered.\nEnvironment: same warm evening kitchen, wooden counter.\nCamera and composition: vertical 9:16 balanced product hero shot.\nLighting: warm amber hero glow.\nStyle: warm tactile claymation.\n\nContinuity requirements: preserve the amber bottle, the woman's identity, kitchen, and claymation texture.\n\nDo not include: extra claims text, photoreal style, weight-loss or appetite-suppressant claims, body comparison.",
+      "flow_agent_prompt": "SCENE 5 - FLOW AGENT MODE PROMPT\n\nGenerate a 6 second video clip for French Craving-Control Claymation Ad.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: end on a clean tactile product hero shot.\n\nCamera movement: slow pullback to a balanced hero composition.\n\nSubject motion: the woman settles calmly in the background.\n\nEnvironment motion: warm light holds steady; a gentle glow rests on the bottle.\n\nContinuity requirements: same amber ritual drink, same clay woman, same warm evening kitchen, claymation texture.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and claymation realism level.\n\nDo not include: extra claims text, photoreal style, weight-loss or appetite-suppressant claims, body comparison, scales."
+    }
+  ],
+  "voiceover_script": {
+    "language": "French",
+    "lines": [
+      { "scene_number": 1, "vo": "Le soir, c'est là que tout se joue." },
+      { "scene_number": 2, "vo": "Les envies arrivent. Toujours à la même heure." },
+      { "scene_number": 3, "vo": "Alors j'ai mon rituel." },
+      { "scene_number": 4, "vo": "Un geste simple, et je reste alignée avec mes objectifs." },
+      { "scene_number": 5, "vo": "Mon rituel du soir. Reste en contrôle, sans te priver." }
+    ],
+    "compliance_note": "Framed around ritual, evening routine, and control. No appetite-suppression, weight-loss, or medical claims."
+  },
+  "music_direction": {
+    "mood": "warm, intimate, tactile",
+    "reference_feel": "soft French indie-pop, gentle and modern",
+    "energy_curve": [
+      { "scene_number": 1, "energy": "warm, inviting open" },
+      { "scene_number": 2, "energy": "sparse, tender tension" },
+      { "scene_number": 3, "energy": "a calm turn, first lift" },
+      { "scene_number": 4, "energy": "steady, confident rise" },
+      { "scene_number": 5, "energy": "settled, warm resolve" }
+    ],
+    "sound_design": [
+      "soft clay foley on the bottle and the pour",
+      "gentle room tone of an evening kitchen",
+      "no aggressive drops"
+    ]
+  },
+  "edit_plan": {
+    "clip_order": [1, 2, 3, 4, 5],
+    "transitions": [
+      "soft match cut on the drink between the craving beat and the ritual beat",
+      "gentle dissolve into the hero pullback"
+    ],
+    "captions": {
+      "language": "French",
+      "placement": "lower third, minimal",
+      "note": "captions mirror the voiceover, no added claims"
+    },
+    "end_card": {
+      "visual": "amber ritual drink in a warm claymation glow",
+      "tagline_fr": "Ton rituel du soir.",
+      "note": "tagline only, no claims"
+    },
+    "total_runtime_seconds": 30
+  },
+  "exports": {
+    "copy_paste_order": [
+      "continuity_bible",
+      "scene_1_start_frame_prompt",
+      "scene_1_end_frame_prompt",
+      "scene_1_flow_agent_prompt",
+      "repeat_by_scene",
+      "voiceover_script",
+      "music_direction",
+      "edit_plan"
+    ],
+    "review_checklist": [
+      "No medical, weight-loss, or appetite-suppression claims in any line or frame?",
+      "Is all copy and voiceover in French and natural for the French market?",
+      "Does the amber drink stay visually identical across clips?",
+      "Does the warm claymation style stay consistent?",
+      "Does the arc open on a scroll-stopper and end on a product hero?",
+      "Does each clip have one primary action?",
+      "Does total runtime equal the sum of clip durations?"
+    ]
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://flow-keyframe-video-pipeline/schema/project.schema.json",
+  "title": "Flow Keyframe Video Project",
+  "description": "Validates the project structure used by examples/example-50s-project.json and consumed by scripts/render_project.py. A 'clip' and a 'scene' are the same thing; the array key is 'scenes' for backwards compatibility.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["project", "continuity_bible", "scenes"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["title", "target_runtime_seconds", "platform"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project title."
+        },
+        "target_runtime_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Total target duration of the finished video, in seconds."
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target platform(s), e.g. TikTok, Instagram Reels, YouTube Shorts."
+        },
+        "goal": { "type": "string" },
+        "aspect_ratio": { "type": "string" },
+        "visual_style": { "type": "string" },
+        "scene_duration_rule": { "type": "string" }
+      }
+    },
+    "continuity_bible": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": true,
+      "description": "Canonical reference applied to every clip. Free-form nested object; negative_constraints is the global do-not list.",
+      "properties": {
+        "negative_constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered list of clips (scenes).",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "scene_number",
+          "duration_seconds",
+          "purpose",
+          "start_frame_prompt",
+          "end_frame_prompt",
+          "flow_agent_prompt",
+          "camera_movement",
+          "subject_motion",
+          "environment_motion",
+          "continuity_references",
+          "negative_constraints"
+        ],
+        "properties": {
+          "scene_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based clip index in production order."
+          },
+          "duration_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Clip duration in seconds."
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Narrative purpose of the clip."
+          },
+          "start_state": { "type": "string" },
+          "end_state": { "type": "string" },
+          "camera_movement": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Motion prompt: how the camera moves."
+          },
+          "subject_motion": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Motion prompt: how the subject moves."
+          },
+          "environment_motion": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Motion prompt: how the environment moves."
+          },
+          "start_frame_prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Image prompt for the clip's first frame."
+          },
+          "end_frame_prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Image prompt for the clip's final frame."
+          },
+          "flow_agent_prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Google Flow Agent Mode instruction block for the clip."
+          },
+          "continuity_references": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Details that must carry over from the continuity bible / prior clip."
+          },
+          "negative_constraints": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Per-clip do-not list."
+          }
+        }
+      }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "copy_paste_order": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "review_checklist": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

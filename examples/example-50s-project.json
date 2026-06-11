@@ -1,0 +1,234 @@
+{
+  "project": {
+    "title": "Premium Desk Lamp Product Story",
+    "goal": "Create a 50-second ecommerce product video showing a premium adjustable desk lamp improving a focused evening work session.",
+    "target_runtime_seconds": 50,
+    "aspect_ratio": "9:16",
+    "platform": "TikTok, Instagram Reels, YouTube Shorts",
+    "visual_style": "realistic cinematic product footage, premium but practical",
+    "scene_duration_rule": "8-10 seconds per scene"
+  },
+  "continuity_bible": {
+    "main_subject": {
+      "role": "young professional working at a desk",
+      "appearance": "late 20s, calm focused expression, short dark hair, neutral skin tone",
+      "wardrobe": "charcoal knit sweater, no visible logos",
+      "movement_style": "small realistic movements, focused and deliberate",
+      "do_not_change": [
+        "face structure",
+        "hair length",
+        "wardrobe",
+        "professional tone"
+      ]
+    },
+    "product": {
+      "name": "matte black adjustable LED desk lamp",
+      "shape": "slim vertical stem, circular weighted base, horizontal light bar",
+      "materials": "matte black metal with subtle satin finish",
+      "required_visibility": "lamp must be clearly visible in every scene",
+      "do_not_change": [
+        "matte black color",
+        "slim shape",
+        "circular base",
+        "horizontal light bar"
+      ]
+    },
+    "location": {
+      "setting": "modern apartment home office at night",
+      "background": "wood desk, laptop, notebook, pen, soft shelves in background",
+      "lighting": "warm lamp light as primary source, cool dim city light outside window",
+      "do_not_change": [
+        "night setting",
+        "desk layout",
+        "warm key light",
+        "modern apartment office"
+      ]
+    },
+    "camera_language": {
+      "lens": "natural product-focused closeups and medium shots",
+      "movement": "slow push-ins, gentle slides, controlled handheld-free motion",
+      "depth_of_field": "shallow but product remains sharp"
+    },
+    "negative_constraints": [
+      "no extra people",
+      "no visible brand logos",
+      "no text overlays",
+      "no changing lamp design",
+      "no changing wardrobe",
+      "no daylight",
+      "no cluttered desk",
+      "no unrealistic glowing effects"
+    ]
+  },
+  "scenes": [
+    {
+      "scene_number": 1,
+      "duration_seconds": 8,
+      "purpose": "Establish the workspace and product presence before the lamp turns on.",
+      "start_state": "A dim modern home office at night with the matte black desk lamp visible but off beside a laptop and notebook.",
+      "end_state": "The user's hand reaches toward the lamp control while the lamp remains the central product in frame.",
+      "camera_movement": "Slow push-in from a medium desk view toward the lamp.",
+      "subject_motion": "The professional enters frame partially and reaches toward the lamp.",
+      "environment_motion": "Subtle city light flicker outside the window, otherwise still.",
+      "continuity_references": [
+        "matte black adjustable LED desk lamp",
+        "modern apartment home office at night",
+        "wood desk with laptop and notebook",
+        "warm light not yet activated"
+      ],
+      "negative_constraints": [
+        "no daylight",
+        "no extra people",
+        "no text overlays",
+        "do not change desk layout"
+      ],
+      "start_frame_prompt": "SCENE 1 - START FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows a dim modern apartment home office at night. A matte black adjustable LED desk lamp sits on a wood desk beside a laptop, notebook, and pen. The lamp is off but clearly visible as the hero product.\n\nSubject: no full face visible yet, only the workspace prepared for use.\nProduct: slim matte black desk lamp with circular base and horizontal light bar, off, sharply visible.\nEnvironment: modern apartment home office, night city window glow, clean wood desk.\nCamera and composition: medium vertical 9:16 product-focused shot, desk lamp slightly right of center, laptop and notebook supporting the scene.\nLighting: dim cool ambient city light, no warm lamp light yet.\nStyle: realistic cinematic ecommerce product footage, premium but practical.\n\nContinuity requirements: preserve the matte black lamp design, modern night office, wood desk, laptop, notebook, and clean uncluttered layout.\n\nDo not include: extra people, visible logos, text overlays, daylight, clutter, unrealistic glow.",
+      "end_frame_prompt": "SCENE 1 - END FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the same dim home office desk as a young professional's hand reaches toward the lamp control. The matte black lamp remains the central product in frame and is still off.\n\nSubject: partial view of a young professional in a charcoal knit sweater, hand reaching calmly toward the lamp control.\nProduct: same slim matte black desk lamp with circular base and horizontal light bar, off, sharply visible.\nEnvironment: same modern apartment home office at night, wood desk, laptop, notebook, pen, soft shelves in background.\nCamera and composition: closer vertical 9:16 product shot, slow push-in implied, hand entering from the left side without covering the lamp.\nLighting: dim cool ambient city light, no warm lamp light yet.\nStyle: realistic cinematic ecommerce product footage, premium but practical.\n\nContinuity requirements: preserve wardrobe, lamp shape, desk layout, night setting, and subdued pre-activation lighting.\n\nDo not include: extra people, visible logos, text overlays, daylight, clutter, unrealistic glow.",
+      "flow_agent_prompt": "SCENE 1 - FLOW AGENT MODE PROMPT\n\nGenerate an 8 second video clip for Premium Desk Lamp Product Story.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: establish the workspace and product presence before the lamp turns on.\n\nCamera movement: slow push-in from a medium desk view toward the lamp.\n\nSubject motion: the young professional enters only partially and reaches toward the lamp control with a calm deliberate movement.\n\nEnvironment motion: subtle city light outside the window, otherwise still.\n\nContinuity requirements: preserve the matte black adjustable LED desk lamp, clean wood desk, laptop, notebook, pen, modern apartment home office at night, and dim pre-activation lighting.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and realism level.\n\nDo not include: extra people, visible logos, text overlays, daylight, clutter, unrealistic glow, changing lamp design, changing desk layout."
+    },
+    {
+      "scene_number": 2,
+      "duration_seconds": 8,
+      "purpose": "Show the lamp turning on and transforming the workspace mood.",
+      "start_state": "The hand touches the lamp control in the dim workspace.",
+      "end_state": "The lamp emits warm focused light across the notebook and keyboard.",
+      "camera_movement": "Gentle side slide along the desk surface toward the illuminated notebook.",
+      "subject_motion": "The hand taps the control, then moves away.",
+      "environment_motion": "Warm light gradually fills the immediate desk area.",
+      "continuity_references": [
+        "same hand and charcoal sweater",
+        "same matte black lamp",
+        "same night office",
+        "warm lamp light becomes primary source"
+      ],
+      "negative_constraints": [
+        "no magical flare",
+        "no color-changing lamp",
+        "no new objects",
+        "no visible UI text"
+      ],
+      "start_frame_prompt": "SCENE 2 - START FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the young professional's hand in a charcoal knit sweater touching the control on the matte black adjustable LED desk lamp in the same dim night office.\n\nSubject: partial hand and sleeve only, calm controlled gesture.\nProduct: same matte black desk lamp, control being touched, lamp just before activation.\nEnvironment: same wood desk with laptop, notebook, pen, night apartment background.\nCamera and composition: close vertical 9:16 product detail shot with the lamp control and hand clearly visible.\nLighting: dim cool ambient light just before warm activation.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve lamp design, charcoal sweater, night office, and desk layout.\n\nDo not include: magical flare, extra people, visible logos, text overlays, new desk objects.",
+      "end_frame_prompt": "SCENE 2 - END FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the same lamp now turned on, casting warm focused light across the notebook, pen, and edge of the laptop keyboard.\n\nSubject: the hand has moved away, only a subtle sleeve edge may remain near frame edge.\nProduct: same matte black adjustable LED desk lamp, warm LED light active, product sharply visible.\nEnvironment: same modern night office, wood desk, laptop, notebook, pen, shelves softly blurred.\nCamera and composition: close vertical 9:16 desk-level shot, warm light leading the eye from lamp to notebook.\nLighting: warm lamp light as primary source, cool dim city light in background.\nStyle: realistic cinematic ecommerce product footage, premium but practical.\n\nContinuity requirements: preserve exact lamp form, desk layout, night setting, and warm practical lighting.\n\nDo not include: magical glow, color-changing light, extra objects, visible logos, text overlays.",
+      "flow_agent_prompt": "SCENE 2 - FLOW AGENT MODE PROMPT\n\nGenerate an 8 second video clip for Premium Desk Lamp Product Story.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: show the lamp turning on and transforming the workspace mood.\n\nCamera movement: gentle side slide along the desk surface toward the illuminated notebook.\n\nSubject motion: the hand taps the lamp control, then moves away naturally.\n\nEnvironment motion: warm light gradually fills the desk surface while the night background stays stable.\n\nContinuity requirements: same hand, same charcoal sweater, same matte black lamp, same desk layout, warm lamp light becomes the primary source.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and realism level.\n\nDo not include: magical flare, color-changing lamp, new objects, visible UI text, extra people, style shift."
+    },
+    {
+      "scene_number": 3,
+      "duration_seconds": 8,
+      "purpose": "Show adjustability and ergonomic control.",
+      "start_state": "The lamp is on and aimed broadly across the desk.",
+      "end_state": "The lamp head is adjusted downward to focus light precisely on the notebook.",
+      "camera_movement": "Slow closeup tilt following the lamp arm and light bar.",
+      "subject_motion": "The professional gently adjusts the lamp head.",
+      "environment_motion": "Light direction shifts subtly across the notebook.",
+      "continuity_references": [
+        "same lamp design",
+        "same warm light",
+        "same hand and sweater",
+        "same desk objects"
+      ],
+      "negative_constraints": [
+        "no bending impossible geometry",
+        "no product redesign",
+        "no extra hands",
+        "no jump cut"
+      ],
+      "start_frame_prompt": "SCENE 3 - START FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the matte black adjustable LED desk lamp turned on, casting warm light broadly across the wood desk, laptop, and notebook.\n\nSubject: young professional's hand near the lamp but not yet adjusting it, charcoal knit sweater visible.\nProduct: same slim matte black lamp with circular base and horizontal light bar, warm light on.\nEnvironment: same modern apartment home office at night.\nCamera and composition: vertical 9:16 close product shot focused on the lamp arm and light bar.\nLighting: warm lamp light primary, cool city background light secondary.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve lamp design, warm light, wardrobe, desk layout, and night setting.\n\nDo not include: redesigned lamp, extra hands, visible logos, text overlays, impossible geometry.",
+      "end_frame_prompt": "SCENE 3 - END FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the professional's hand gently adjusting the lamp head downward so the warm light focuses precisely on the open notebook.\n\nSubject: hand and charcoal sweater sleeve visible, careful realistic adjustment.\nProduct: same matte black adjustable lamp, head angled downward, circular base stable on desk.\nEnvironment: same wood desk, laptop, notebook, pen, night office background.\nCamera and composition: vertical 9:16 closeup following the lamp arm to the light bar and illuminated notebook.\nLighting: warm focused pool of light on notebook, cool dim background.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve product shape, realistic adjustment range, desk objects, and lighting style.\n\nDo not include: impossible bending, product redesign, extra hands, jump cut, text overlays.",
+      "flow_agent_prompt": "SCENE 3 - FLOW AGENT MODE PROMPT\n\nGenerate an 8 second video clip for Premium Desk Lamp Product Story.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: show adjustability and ergonomic control.\n\nCamera movement: slow closeup tilt following the lamp arm and light bar.\n\nSubject motion: the professional gently adjusts the lamp head downward with one hand.\n\nEnvironment motion: the warm light direction shifts subtly across the notebook as the lamp angle changes.\n\nContinuity requirements: same matte black lamp design, same warm light, same hand and charcoal sweater, same wood desk, laptop, notebook, and pen.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and realism level.\n\nDo not include: impossible product geometry, lamp redesign, extra hands, jump cut, new objects, visible text overlays."
+    },
+    {
+      "scene_number": 4,
+      "duration_seconds": 8,
+      "purpose": "Show the user working comfortably under focused light.",
+      "start_state": "The notebook is illuminated and the professional begins writing.",
+      "end_state": "The professional works with calm focus, lamp visible in foreground.",
+      "camera_movement": "Slow slide from notebook detail to medium shot of user and lamp.",
+      "subject_motion": "The professional writes a few lines and glances at the laptop.",
+      "environment_motion": "Stable warm pool of light, subtle background stillness.",
+      "continuity_references": [
+        "same professional",
+        "same charcoal sweater",
+        "same lamp angle",
+        "same night office"
+      ],
+      "negative_constraints": [
+        "no readable writing",
+        "no screen text",
+        "no new props",
+        "no wardrobe change"
+      ],
+      "start_frame_prompt": "SCENE 4 - START FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the open notebook warmly illuminated by the adjusted desk lamp as the young professional begins writing with a pen.\n\nSubject: partial view of professional's hand and charcoal sweater sleeve, writing naturally.\nProduct: same matte black lamp visible near the notebook, angled downward.\nEnvironment: same wood desk, laptop nearby, modern apartment office at night.\nCamera and composition: vertical 9:16 close desk detail, notebook and lamp light as focus.\nLighting: warm focused lamp light on notebook, cool dim background.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve same hand, wardrobe, lamp angle, desk layout, and night lighting.\n\nDo not include: readable writing, screen text, new props, visible logos, wardrobe change.",
+      "end_frame_prompt": "SCENE 4 - END FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the young professional calmly working at the desk, glancing toward the laptop while the matte black lamp remains visible in the foreground casting warm focused light.\n\nSubject: same young professional, charcoal knit sweater, focused calm expression, seated at desk.\nProduct: same matte black adjustable LED desk lamp in foreground, warm light active.\nEnvironment: same modern apartment home office at night, wood desk, laptop, notebook, pen, soft shelves.\nCamera and composition: vertical 9:16 medium product-lifestyle shot with lamp foreground and user behind it.\nLighting: warm lamp light on desk and subject, cool dim city background.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve subject identity, wardrobe, lamp design, desk layout, and night office.\n\nDo not include: readable screen text, new props, extra people, visible logos, wardrobe change.",
+      "flow_agent_prompt": "SCENE 4 - FLOW AGENT MODE PROMPT\n\nGenerate an 8 second video clip for Premium Desk Lamp Product Story.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: show the user working comfortably under focused light.\n\nCamera movement: slow slide from notebook detail to medium shot of user and lamp.\n\nSubject motion: the professional writes a few lines, then glances calmly at the laptop.\n\nEnvironment motion: stable warm pool of light with subtle stillness in the night background.\n\nContinuity requirements: same professional, same charcoal sweater, same lamp angle, same matte black lamp, same night office and desk layout.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and realism level.\n\nDo not include: readable writing, screen text, new props, wardrobe change, extra people, visible logos."
+    },
+    {
+      "scene_number": 5,
+      "duration_seconds": 8,
+      "purpose": "Show product detail and premium material quality.",
+      "start_state": "The lamp is visible during the work session.",
+      "end_state": "A close product detail shot reveals the matte finish and slim construction.",
+      "camera_movement": "Slow macro slide along the lamp stem and light bar.",
+      "subject_motion": "No subject movement except soft blurred background presence.",
+      "environment_motion": "Subtle warm light reflection on the desk.",
+      "continuity_references": [
+        "same lamp",
+        "same warm light",
+        "same desk surface",
+        "same night office background"
+      ],
+      "negative_constraints": [
+        "no brand logo",
+        "no text labels",
+        "no changing materials",
+        "no floating product shot"
+      ],
+      "start_frame_prompt": "SCENE 5 - START FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows the matte black desk lamp visible during the focused work session, with the professional softly blurred in the background.\n\nSubject: same young professional in charcoal sweater, blurred background presence only.\nProduct: same matte black adjustable LED desk lamp, warm light on, foreground hero product.\nEnvironment: same wood desk and modern apartment home office at night.\nCamera and composition: vertical 9:16 product-focused shot, lamp sharp, user softly blurred behind.\nLighting: warm lamp light with subtle reflections on the desk.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve lamp design, matte black finish, warm light, desk surface, and night background.\n\nDo not include: brand logo, text labels, changed materials, floating product, extra people.",
+      "end_frame_prompt": "SCENE 5 - END FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows a close product detail of the lamp's matte black metal stem and horizontal light bar, revealing its slim construction and satin finish.\n\nSubject: professional remains only as an indistinct blurred background shape if visible.\nProduct: same matte black adjustable LED desk lamp, close detail of stem and light bar, warm LED active.\nEnvironment: same wood desk, warm reflection, night office background softly blurred.\nCamera and composition: vertical 9:16 macro-style product closeup, shallow depth of field, clean premium framing.\nLighting: warm lamp light reflecting softly on matte metal and desk surface.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve exact lamp material, shape, color, and warm lighting.\n\nDo not include: brand logo, text labels, changed materials, floating product, unrealistic glow.",
+      "flow_agent_prompt": "SCENE 5 - FLOW AGENT MODE PROMPT\n\nGenerate an 8 second video clip for Premium Desk Lamp Product Story.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: show product detail and premium material quality.\n\nCamera movement: slow macro slide along the lamp stem and light bar.\n\nSubject motion: no active subject motion; the professional may remain softly blurred in the background.\n\nEnvironment motion: subtle warm light reflection on the desk surface.\n\nContinuity requirements: same matte black lamp, same warm light, same desk surface, same night office background.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and realism level.\n\nDo not include: brand logo, text labels, changed materials, floating product shot, unrealistic glow, new objects."
+    },
+    {
+      "scene_number": 6,
+      "duration_seconds": 10,
+      "purpose": "End with a clean hero shot that communicates focus, calm, and product value.",
+      "start_state": "Close product detail pulls back toward the full workspace.",
+      "end_state": "Final composed hero shot of the lamp illuminating the finished workspace with the user calmly focused.",
+      "camera_movement": "Slow pullback to a balanced product-lifestyle hero composition.",
+      "subject_motion": "The professional settles into focused work posture.",
+      "environment_motion": "Warm light remains steady, background stays calm.",
+      "continuity_references": [
+        "same lamp",
+        "same user",
+        "same wardrobe",
+        "same desk",
+        "same night office",
+        "same warm lighting"
+      ],
+      "negative_constraints": [
+        "no text overlay",
+        "no logo reveal",
+        "no new room angle",
+        "no dramatic style shift"
+      ],
+      "start_frame_prompt": "SCENE 6 - START FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image begins from the close product detail of the matte black lamp, with the warm light and desk surface still prominent.\n\nSubject: same professional softly visible beyond the lamp, charcoal sweater, calm work posture beginning to come into view.\nProduct: same matte black adjustable LED desk lamp, close foreground detail, warm light active.\nEnvironment: same wood desk, laptop, notebook, modern apartment home office at night.\nCamera and composition: vertical 9:16 close product composition ready to pull back into a wider hero shot.\nLighting: warm lamp light primary, cool dim city light secondary.\nStyle: realistic cinematic ecommerce product footage.\n\nContinuity requirements: preserve lamp details, user wardrobe, desk layout, night office, and warm lighting.\n\nDo not include: text overlay, logo reveal, new room angle, extra people, dramatic style shift.",
+      "end_frame_prompt": "SCENE 6 - END FRAME PROMPT\n\nCreate a still image for Premium Desk Lamp Product Story.\n\nThe image shows a final clean hero composition: the matte black desk lamp illuminates the wood desk while the young professional works calmly in the modern apartment office at night.\n\nSubject: same young professional, charcoal knit sweater, calm focused expression, natural work posture.\nProduct: same matte black adjustable LED desk lamp, clearly visible as the hero product, warm light active.\nEnvironment: same wood desk with laptop, notebook, pen, soft shelves, cool night city window in background.\nCamera and composition: vertical 9:16 balanced product-lifestyle hero shot, lamp prominent and user context clear.\nLighting: warm focused lamp light on desk and subject, cool dim background contrast.\nStyle: realistic cinematic ecommerce product footage, premium but practical.\n\nContinuity requirements: preserve subject identity, wardrobe, product design, location, desk layout, camera language, and lighting.\n\nDo not include: text overlay, logo reveal, new room angle, extra people, dramatic style shift.",
+      "flow_agent_prompt": "SCENE 6 - FLOW AGENT MODE PROMPT\n\nGenerate a 10 second video clip for Premium Desk Lamp Product Story.\n\nUse the provided start frame and end frame as strict anchors. Animate a smooth transition from the start frame to the end frame.\n\nScene purpose: end with a clean hero shot that communicates focus, calm, and product value.\n\nCamera movement: slow pullback to a balanced product-lifestyle hero composition.\n\nSubject motion: the professional settles into a calm focused work posture.\n\nEnvironment motion: warm light remains steady and the background stays calm.\n\nContinuity requirements: same lamp, same user, same charcoal sweater, same wood desk, same night office, same warm lighting.\n\nPreserve the continuity bible exactly: subject identity, wardrobe, product details, location, lighting, camera style, color palette, and realism level.\n\nDo not include: text overlay, logo reveal, new room angle, dramatic style shift, extra people, new objects."
+    }
+  ],
+  "exports": {
+    "copy_paste_order": [
+      "continuity_bible",
+      "scene_1_start_frame_prompt",
+      "scene_1_end_frame_prompt",
+      "scene_1_flow_agent_prompt",
+      "repeat_by_scene"
+    ],
+    "review_checklist": [
+      "Does the product remain visually identical?",
+      "Does the subject remain visually identical?",
+      "Does the lighting stay coherent?",
+      "Does each clip have only one primary action?",
+      "Does the end frame bridge into the next scene?",
+      "Are all prompts copy-paste clean?"
+    ]
+  }
+}
