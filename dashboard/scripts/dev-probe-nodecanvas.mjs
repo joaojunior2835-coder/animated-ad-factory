@@ -480,6 +480,45 @@ await step('INT4. Export to Final Timeline marks the scene variation selected', 
   await page.locator('.sidebar-left button.nav', { hasText: 'Node Canvas' }).click()
 })
 
+// ---- Phase 7: keyboard shortcuts ----
+await step('KB1. Ctrl+A selects all nodes; Escape clears selection', async () => {
+  await page.locator('.node-canvas').click({ position: { x: 30, y: 80 } })
+  await page.keyboard.press('Control+a')
+  const total = await page.locator('.gnode').count()
+  const sel = await page.locator('.gnode.selected').count()
+  if (sel !== total || total === 0) throw new Error(`Ctrl+A selected ${sel}/${total}`)
+  await page.keyboard.press('Escape')
+  if ((await page.locator('.gnode.selected').count()) !== 0) throw new Error('Escape should clear selection')
+})
+
+await step('KB2. Ctrl+Z undoes a node add', async () => {
+  const before = await page.locator('.gnode').count()
+  await page.locator('.ncsb-tabs .tab', { hasText: 'Nodes' }).click()
+  await page.locator('.ncsb-node-card', { hasText: 'Upscale' }).click()
+  if ((await page.locator('.gnode').count()) !== before + 1) throw new Error('spawn failed')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+z')
+  await page.waitForTimeout(150)
+  if ((await page.locator('.gnode').count()) !== before) throw new Error('Ctrl+Z did not undo the add')
+})
+
+await step('KB3. Ctrl+Z undoes a node move', async () => {
+  await page.locator('.nc-fit').click()
+  const head = page.locator('.gnode').first().locator('.gnode-head')
+  const b1 = await page.locator('.gnode').first().boundingBox()
+  const hb = await head.boundingBox()
+  await page.mouse.move(hb.x + 40, hb.y + 8)
+  await page.mouse.down()
+  await page.mouse.move(hb.x + 160, hb.y + 90, { steps: 5 })
+  await page.mouse.up()
+  const b2 = await page.locator('.gnode').first().boundingBox()
+  if (Math.abs(b2.x - b1.x) < 40) throw new Error('drag did not move the node')
+  await page.keyboard.press('Control+z')
+  await page.waitForTimeout(150)
+  const b3 = await page.locator('.gnode').first().boundingBox()
+  if (Math.abs(b3.x - b1.x) > 5 || Math.abs(b3.y - b1.y) > 5) throw new Error(`Ctrl+Z did not restore position (${b1.x},${b1.y} -> ${b3.x},${b3.y})`)
+})
+
 await page.screenshot({ path: path.join(ART, 'dev-probe-final.png'), fullPage: true })
 await browser.close()
 console.log(`\n${passed} passed, ${failed} failed`)

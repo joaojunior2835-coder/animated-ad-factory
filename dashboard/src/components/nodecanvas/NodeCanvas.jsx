@@ -124,6 +124,19 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   const [, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
+  // ---- undo (Ctrl+Z): 20-step stack of graph snapshots, session-only ----
+  // Pushed before structural mutations (add/delete/move/wire/clear/load/import),
+  // NOT on field edits — text inputs keep native undo.
+  const history = useRef([])
+  const pushHistory = () => {
+    history.current.push(nc)
+    if (history.current.length > 20) history.current.shift()
+  }
+  const undo = () => {
+    const prev = history.current.pop()
+    if (prev) onChange(() => prev)
+  }
+
   const isSelected = (id) => selected.includes(id)
 
   // Canvas scenes available for attach/import (number + short summary).
@@ -195,6 +208,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
 
   const spawnAt = (type, cx, cy) => {
     const n = newNode(type, cx, cy)
+    pushHistory()
     onChange((c) => addNode(c, n))
     setSelected([n.id])
     setSelectedWire(null)
@@ -293,9 +307,20 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
         setSelectedWire(null)
         return
       }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !isTyping()) {
+        e.preventDefault()
+        undo()
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !isTyping()) {
+        e.preventDefault()
+        setSelected((nc.nodes || []).map((n) => n.id))
+        return
+      }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       if (isTyping()) return
       if (selectedWire) {
+        pushHistory()
         onChange((c) => removeConnection(c, selectedWire))
         setSelectedWire(null)
         return
@@ -303,6 +328,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
       if (selected.length) {
         const withResults = (nc.nodes || []).filter((n) => selected.includes(n.id) && nodeHasResult(n))
         if (withResults.length && !window.confirm(`Delete ${selected.length} node(s)? ${withResults.length} of them have results attached.`)) return
+        pushHistory()
         onChange((c) => selected.reduce((acc, id) => removeNode(acc, id), c))
         setSelected([])
       }
@@ -359,6 +385,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
     else if (e.shiftKey && !isSelected(node.id)) setSelected((s) => [...s, node.id])
     const byId = {}
     ;(nc.nodes || []).forEach((n) => (byId[n.id] = n))
+    pushHistory() // undo restores pre-drag positions
     setDrag({ moves: ids.filter((id) => byId[id]).map((id) => ({ id, offX: p.x - byId[id].x, offY: p.y - byId[id].y })) })
   }
 
@@ -372,6 +399,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   const endWire = (e, node, socketName) => {
     e.stopPropagation()
     if (!wire) return
+    pushHistory()
     onChange((c) => addConnection(c, { from_node: wire.fromNode, from_socket: wire.fromSocket, to_node: node.id, to_socket: socketName }))
     setWire(null)
   }
@@ -1097,6 +1125,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
       return
     }
     if (!window.confirm(`Add ${scenes.length} scene(s) as nodes? Existing nodes will not be changed.`)) return
+    pushHistory()
     onChange((c) => addSceneNodesToCanvas(c, scenes))
   }
 
@@ -1131,7 +1160,10 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
       </div>
       <CanvasToolbar
         nc={nc}
-        onChange={onChange}
+        onChange={(fn) => {
+          pushHistory() // clear / load snapshot / rename are all undoable
+          onChange(fn)
+        }}
         onFit={fitToScreen}
         providerMode={providerMode}
         onRunAll={runAll}
@@ -1254,6 +1286,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={() => {
                         if (nodeHasResult(node) && !window.confirm(`Delete "${title}"? It has a result attached.`)) return
+                        pushHistory()
                         onChange((c) => removeNode(c, node.id))
                         setSelected((s) => s.filter((x) => x !== node.id))
                       }}

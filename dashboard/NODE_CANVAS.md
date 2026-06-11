@@ -1,5 +1,10 @@
 # Production Node Canvas
 
+> **Superseded:** this describes the v1 dormant engine. The canvas is now fully
+> functional — see **`NODE_CANVAS_V2.md`** for the current node types, model
+> registry, generation engine, toolbar/sidebar, and workflow integration. The
+> persistence model and typed-wiring rules below still apply.
+
 A **separate**, freeform node-graph surface (left nav → **Node Canvas**), modeled on
 Higgsfield Canvas. It is **additive** — the existing scene-card **Canvas** (List/Board,
 Flow Import, variations, duration, gaps, cleanup, readiness, export) is unchanged.
