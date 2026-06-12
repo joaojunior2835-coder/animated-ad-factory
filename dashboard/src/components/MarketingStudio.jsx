@@ -85,6 +85,23 @@ function CopyButton({ text, label = 'Copy', className = 'ghost small' }) {
   )
 }
 
+// Copy-all with a satisfying confirmation: scales on click, reports the count.
+function CopyAllButton({ prompts }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      className={copied ? 'primary ms-copyall copied' : 'primary ms-copyall'}
+      onClick={() => {
+        copyText(buildCopyAllText(prompts))
+        setCopied(true)
+        setTimeout(() => setCopied(false), 3000)
+      }}
+    >
+      {copied ? `✓ Copied ${prompts.length} prompts to clipboard` : 'Copy All Prompts'}
+    </button>
+  )
+}
+
 function downloadMarkdown(content, filename) {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -176,6 +193,12 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
   const [loadedFlash, setLoadedFlash] = useState('')
   const [savedFlash, setSavedFlash] = useState(false)
   const hookFieldRef = useRef(null)
+  const nameFieldRef = useRef(null)
+
+  // The cursor is waiting the moment the step appears.
+  useEffect(() => {
+    if (nameFieldRef.current) nameFieldRef.current.focus()
+  }, [])
   const p = studio.product
   const b = studio.brief
   const library = Array.isArray(productLibrary) ? productLibrary : []
@@ -281,7 +304,7 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
       <div className="ms-grid2">
         <label className="field">
           <span className="field-label">Product name *</span>
-          <input className={`ms-input${filled('product.name')}`} value={p.name} placeholder="NuitCalme" onChange={(e) => setProduct('name', e.target.value)} />
+          <input ref={nameFieldRef} className={`ms-input${filled('product.name')}`} value={p.name} placeholder="NuitCalme" onChange={(e) => setProduct('name', e.target.value)} />
         </label>
         <label className="field">
           <span className="field-label">Product category</span>
@@ -665,6 +688,24 @@ function CharactersStep({ studio, onUpdate, onBack, onNext }) {
         <CharacterPicker title="Character" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} selectedFormat={studio.format} />
       )}
 
+      {(() => {
+        const picked = (two ? studio.characters.slice(0, 2) : studio.characters.slice(0, 1)).map((id) => characterById(id)).filter(Boolean)
+        if (!picked.length) return null
+        return (
+          <div className="ms-voice-preview">
+            {picked.map((c) => (
+              <div key={c.id} className="ms-voice-card">
+                <span className="ms-voice-avatar">{c.avatar || '🎭'}</span>
+                <div>
+                  <div className="ms-voice-label">This is how <b>{c.name}</b> sounds:</div>
+                  <div className="ms-char-example">“{c.exampleLine || c.description}”</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
       <div className="ms-nav-row">
         <button className="ghost" onClick={onBack}>← Back</button>
         <button className="primary" disabled={!ready} onClick={onNext}>Next: Review Script →</button>
@@ -812,20 +853,40 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
       prompts: []
     }))
   }
-  // Generate the outline on first arrival (or after a reset).
+  // Generate the outline on first arrival (or after a reset), with a short
+  // beat so the work feels like intelligence, not a page load.
   const needsOutline = studio.scenes.length === 0
   useEffect(() => {
-    if (needsOutline) {
+    if (!needsOutline) return
+    const timer = setTimeout(() => {
       onUpdate((s) => {
         if (s.scenes.length) return s
         const scenes = generateSceneOutline(s)
         return scenes.length ? { ...s, scenes, status: 'brief_ready' } : s
       })
-    }
+    }, 500)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsOutline])
   if (needsOutline) {
-    return <div className="ms-stepbody"><p className="hint">Generating outline…</p></div>
+    return (
+      <div className="ms-stepbody">
+        <h3>Step 4 — Script & Scene Review</h3>
+        <p className="hint small ms-generating-note"><span className="ms-spinner" /> Generating your scene outline…</p>
+        <div className="ms-scene-list">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="ms-scene-skeleton ms-skeleton" style={{ animationDelay: `${i * 120}ms` }}>
+              <div className="ms-scene-numblock">{i + 1}</div>
+              <div className="ms-scene-body">
+                <div className="ms-skeleton-line w40" />
+                <div className="ms-skeleton-line w90" />
+                <div className="ms-skeleton-line w60" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   const patchScene = (i, patch) =>
@@ -991,15 +1052,17 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
       ) : null}
 
       <div className="row ms-export-row">
-        <CopyButton text={buildCopyAllText(prompts)} label="Copy All Prompts" className="primary" />
+        <CopyAllButton prompts={prompts} />
         <button className="ghost" onClick={exportMarkdown}>Export as Markdown</button>
         <button className="ghost" onClick={sendToCanvas} disabled={!prompts.length || !onSendToNodeCanvas}>Send to Node Canvas</button>
         {sentNote ? <span className="hint small ms-extract-note">{sentNote}</span> : null}
       </div>
 
       <div className="ms-prompt-list">
-        {prompts.map((p) => (
-          <PromptCard key={p.sceneNumber} prompt={p} />
+        {prompts.map((p, i) => (
+          <div key={p.sceneNumber} className="ms-prompt-enter" style={{ animationDelay: `${i * 50}ms` }}>
+            <PromptCard prompt={p} />
+          </div>
         ))}
         {!prompts.length ? <p className="hint">No prompts yet — go back to Step 4 and click "Generate Prompts".</p> : null}
       </div>
@@ -1164,6 +1227,7 @@ function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession
 export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary, onImportSession }) {
   const [step, setStep] = useState(0)
   const [wizardImportOpen, setWizardImportOpen] = useState(false)
+  const [stepDirection, setStepDirection] = useState('forward')
 
   // Reset the wizard to Brief whenever a different session opens.
   useEffect(() => {
@@ -1191,7 +1255,11 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
   const scenesReady = charsReady && studio.scenes.length > 0
   const maxReached = !briefReady ? 0 : !formatReady ? 1 : !charsReady ? 2 : !scenesReady ? 3 : 4
 
-  const go = (i) => setStep(Math.max(0, Math.min(STEPS.length - 1, i)))
+  const go = (i) => {
+    const next = Math.max(0, Math.min(STEPS.length - 1, i))
+    setStepDirection(next > step ? 'forward' : 'back')
+    setStep(next)
+  }
 
   function clearSession() {
     if (!window.confirm('Clear the Marketing Studio session? This resets the brief, format, characters, scenes, and prompts.')) return
@@ -1240,20 +1308,22 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
 
       <StepIndicator step={step} maxReached={maxReached} onJump={go} />
 
-      {step === 0 ? <BriefStep studio={studio} onUpdate={onUpdate} onNext={() => go(1)} productLibrary={productLibrary} onSaveProductToLibrary={onSaveProductToLibrary} onDeleteProductFromLibrary={onDeleteProductFromLibrary} /> : null}
-      {step === 1 ? <FormatStep studio={studio} onUpdate={onUpdate} onBack={() => go(0)} onNext={() => go(2)} /> : null}
-      {step === 2 ? <CharactersStep studio={studio} onUpdate={onUpdate} onBack={() => go(1)} onNext={() => go(3)} /> : null}
-      {step === 3 ? <ScriptStep studio={studio} onUpdate={onUpdate} onBack={() => go(2)} onNext={() => go(4)} /> : null}
-      {step === 4 ? (
-        <ExportStep
-          studio={studio}
-          onUpdate={onUpdate}
-          onBack={() => go(3)}
-          onSendToNodeCanvas={onSendToNodeCanvas}
-          onSaveSession={onSaveSession}
-          onClearSession={clearSession}
-        />
-      ) : null}
+      <div key={step} className={stepDirection === 'forward' ? 'ms-step-pane ms-slide-forward' : 'ms-step-pane'}>
+        {step === 0 ? <BriefStep studio={studio} onUpdate={onUpdate} onNext={() => go(1)} productLibrary={productLibrary} onSaveProductToLibrary={onSaveProductToLibrary} onDeleteProductFromLibrary={onDeleteProductFromLibrary} /> : null}
+        {step === 1 ? <FormatStep studio={studio} onUpdate={onUpdate} onBack={() => go(0)} onNext={() => go(2)} /> : null}
+        {step === 2 ? <CharactersStep studio={studio} onUpdate={onUpdate} onBack={() => go(1)} onNext={() => go(3)} /> : null}
+        {step === 3 ? <ScriptStep studio={studio} onUpdate={onUpdate} onBack={() => go(2)} onNext={() => go(4)} /> : null}
+        {step === 4 ? (
+          <ExportStep
+            studio={studio}
+            onUpdate={onUpdate}
+            onBack={() => go(3)}
+            onSendToNodeCanvas={onSendToNodeCanvas}
+            onSaveSession={onSaveSession}
+            onClearSession={clearSession}
+          />
+        ) : null}
+      </div>
     </section>
   )
 }

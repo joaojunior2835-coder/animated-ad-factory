@@ -2004,3 +2004,51 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 /* Session list rows */
 .ms-session-row-item { border-radius: 12px; padding: 12px 16px; }
 .ms-session-name { font-size: 15px; }
+
+/* UX flow (Higgsfield parity phase 3) */
+.ms-step-pane { min-width: 0; }
+.ms-slide-forward { animation: ms-slide-in 0.2s ease-out; }
+@keyframes ms-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.ms-format-card.selected { animation: ms-chosen 0.18s ease-out; }
+@keyframes ms-chosen {
+  0% { transform: scale(1); }
+  60% { transform: scale(1.03); }
+  100% { transform: scale(1.015); }
+}
+.ms-voice-preview {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2);
+  padding: 14px;
+}
+.ms-voice-preview:has(.ms-voice-card:only-child) { grid-template-columns: 1fr; }
+.ms-voice-card { display: flex; gap: 12px; align-items: flex-start; }
+.ms-voice-avatar { font-size: 2.6rem; line-height: 1; }
+.ms-voice-label { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.ms-generating-note { display: flex; align-items: center; gap: 8px; }
+.ms-spinner {
+  width: 14px; height: 14px; border-radius: 50%; display: inline-block;
+  border: 2px solid var(--border); border-top-color: var(--accent-2);
+  animation: ms-spin 0.7s linear infinite;
+}
+@keyframes ms-spin { to { transform: rotate(360deg); } }
+.ms-skeleton { animation: ms-pulse 1.1s ease-in-out infinite; }
+@keyframes ms-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.ms-skeleton-line { height: 12px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); }
+.ms-skeleton-line.w40 { width: 40%; }
+.ms-skeleton-line.w90 { width: 90%; height: 34px; }
+.ms-skeleton-line.w60 { width: 60%; }
+.ms-prompt-enter { animation: ms-fade-up 0.3s ease-out both; }
+@keyframes ms-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ms-copyall { transition: transform 0.1s ease; }
+.ms-copyall:active { transform: scale(0.96); }
+.ms-copyall.copied { background: #1f7a4d; border-color: #1f7a4d; color: #eafff3; }
+.ms-scene-skeleton {
+  display: flex; border: 1px solid var(--border); border-radius: 14px;
+  overflow: hidden; background: var(--panel-2);
+}
