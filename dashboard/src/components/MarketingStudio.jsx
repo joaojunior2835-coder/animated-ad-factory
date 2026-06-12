@@ -371,6 +371,43 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
   )
 }
 
+// ---- Format card with examples ----
+function FormatCard({ f, selected, onSelect }) {
+  const [showAllExamples, setShowAllExamples] = useState(false)
+  const examples = Array.isArray(f.examples) ? f.examples : []
+  return (
+    <div className={selected ? 'ms-format-card selected' : 'ms-format-card'}>
+      <div className="ms-format-head">
+        <span className="ms-format-icon">{f.icon}</span>
+        <h4>{f.name}</h4>
+      </div>
+      <p className="hint small">{f.description}</p>
+      <div className="ms-badge-row">
+        <span className="ms-badge">{f.clipRange} clips</span>
+        <span className="ms-badge">{f.aspectRatio}</span>
+        <span className="ms-badge ms-badge-style">{f.style}</span>
+      </div>
+      {f.note ? <div className="ms-format-note">⚠ {f.note}</div> : null}
+      {examples.length > 0 && (
+        <div className="ms-format-examples">
+          <p className="ms-format-example-line">{examples[0]}</p>
+          {showAllExamples && examples.slice(1).map((ex, i) => (
+            <p key={i} className="ms-format-example-line">{ex}</p>
+          ))}
+          {examples.length > 1 && (
+            <button className="ms-linklike ms-examples-toggle" onClick={() => setShowAllExamples((v) => !v)}>
+              {showAllExamples ? 'Show less' : `See more (${examples.length - 1} more)`}
+            </button>
+          )}
+        </div>
+      )}
+      <button className={selected ? 'ghost small' : 'primary small'} disabled={selected} onClick={onSelect}>
+        {selected ? 'Selected ✓' : 'Select'}
+      </button>
+    </div>
+  )
+}
+
 // ---- Step 2: Format selector ----
 function FormatStep({ studio, onUpdate, onBack, onNext }) {
   const [categoryFilter, setCategoryFilter] = useState('All')
@@ -407,27 +444,9 @@ function FormatStep({ studio, onUpdate, onBack, onNext }) {
         <div key={cat} className="ms-format-group">
           <h4 className="ms-format-cat-label">{cat}</h4>
           <div className="ms-format-grid">
-            {FORMATS.filter((f) => f.category === cat).map((f) => {
-              const sel = studio.format === f.id
-              return (
-                <div key={f.id} className={sel ? 'ms-format-card selected' : 'ms-format-card'}>
-                  <div className="ms-format-head">
-                    <span className="ms-format-icon">{f.icon}</span>
-                    <h4>{f.name}</h4>
-                  </div>
-                  <p className="hint small">{f.description}</p>
-                  <div className="ms-badge-row">
-                    <span className="ms-badge">{f.clipRange} clips</span>
-                    <span className="ms-badge">{f.aspectRatio}</span>
-                    <span className="ms-badge ms-badge-style">{f.style}</span>
-                  </div>
-                  {f.note ? <div className="ms-format-note">⚠ {f.note}</div> : null}
-                  <button className={sel ? 'ghost small' : 'primary small'} disabled={sel} onClick={() => select(f.id)}>
-                    {sel ? 'Selected ✓' : 'Select'}
-                  </button>
-                </div>
-              )
-            })}
+            {FORMATS.filter((f) => f.category === cat).map((f) => (
+              <FormatCard key={f.id} f={f} selected={studio.format === f.id} onSelect={() => select(f.id)} />
+            ))}
           </div>
         </div>
       ))}

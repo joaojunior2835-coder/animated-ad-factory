@@ -26,7 +26,12 @@ export const FORMATS = [
     clipCount: 7,
     clipRange: '6-8',
     aspectRatio: '9:16',
-    style: 'authentic/raw'
+    style: 'authentic/raw',
+    examples: [
+      'Scene 1: Creator holds product, speaks directly to camera',
+      'Scene 3: Close-up of product texture/application',
+      'Scene 6: Creator shares final result with big smile'
+    ]
   },
   {
     id: 'ugc_podcast',
@@ -37,7 +42,12 @@ export const FORMATS = [
     clipCount: 10,
     clipRange: '8-12',
     aspectRatio: '9:16',
-    style: 'conversational'
+    style: 'conversational',
+    examples: [
+      'Scene 1: Host introduces guest and product topic',
+      'Scene 5: Guest shares personal experience with the product',
+      'Scene 10: Both agree on final recommendation'
+    ]
   },
   {
     id: 'cinematic_product',
@@ -48,7 +58,12 @@ export const FORMATS = [
     clipCount: 7,
     clipRange: '6-8',
     aspectRatio: '16:9',
-    style: 'cinematic'
+    style: 'cinematic',
+    examples: [
+      'Scene 1: Product hero shot — macro texture detail',
+      'Scene 3: Ingredient origin story — nature footage',
+      'Scene 6: Lifestyle shot — person in aspirational setting'
+    ]
   },
   {
     id: 'ugc_testimonial',
@@ -59,7 +74,12 @@ export const FORMATS = [
     clipCount: 7,
     clipRange: '6-8',
     aspectRatio: '9:16',
-    style: 'authentic/raw'
+    style: 'authentic/raw',
+    examples: [
+      'Scene 1: Person admits the problem they had',
+      'Scene 3: Discovery moment — finding the product',
+      'Scene 7: Life after using the product for 30 days'
+    ]
   },
   {
     id: 'french_podcast',
@@ -71,7 +91,12 @@ export const FORMATS = [
     clipRange: '8-12',
     aspectRatio: '9:16',
     style: 'conversational/french',
-    note: 'Use Gemini Omni Flash in Google Flow. Never Seedance for French.'
+    note: 'Use Gemini Omni Flash in Google Flow. Never Seedance for French.',
+    examples: [
+      'Scene 1: Host asks guest about their experience with the product',
+      'Scene 4: Guest reveals the result after 2 weeks of use',
+      'Scene 8: Both hosts give their final verdict to camera'
+    ]
   },
   {
     id: 'unboxing',
@@ -83,7 +108,12 @@ export const FORMATS = [
     clipRange: '6-8',
     aspectRatio: '9:16',
     style: 'authentic/raw',
-    note: 'Scene 1: closed box. Scene 2: open reveal. Scene 3-N: reactions.'
+    note: 'Scene 1: closed box. Scene 2: open reveal. Scene 3-N: reactions.',
+    examples: [
+      'Scene 1: Closed box on clean surface, hands visible',
+      'Scene 2: Box opening, tissue paper reveal',
+      'Scene 5: First application reaction'
+    ]
   },
   {
     id: 'tutorial',
@@ -95,7 +125,12 @@ export const FORMATS = [
     clipRange: '8-10',
     aspectRatio: '9:16',
     style: 'educational',
-    note: 'Each scene = one step. Keep instructions simple and visual.'
+    note: 'Each scene = one step. Keep instructions simple and visual.',
+    examples: [
+      'Scene 1: Quick result reveal (hook)',
+      'Scene 3: Step 2 — apply to affected area',
+      'Scene 7: Before/after comparison'
+    ]
   },
   {
     id: 'product_review',
@@ -107,7 +142,12 @@ export const FORMATS = [
     clipRange: '6-8',
     aspectRatio: '9:16',
     style: 'authentic/raw',
-    note: 'Scene 1: hook/verdict. Scenes 2-N: reasons. Last: CTA.'
+    note: 'Scene 1: hook/verdict. Scenes 2-N: reasons. Last: CTA.',
+    examples: [
+      "Scene 1: Verdict first — 'Here\\'s my honest take after 30 days'",
+      'Scene 3: The one thing I wish was different',
+      'Scene 6: Who I\'d recommend this to'
+    ]
   }
 ]
 

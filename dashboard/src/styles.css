@@ -1790,6 +1790,11 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .ms-lib-flash { padding: 6px 10px; background: #1a3d29; color: #6fcf97; border-radius: 6px; font-size: 12px; }
 .ms-save-product-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 
+/* ---- Format examples (Tier 2) ---- */
+.ms-format-examples { margin-top: 8px; display: grid; gap: 4px; }
+.ms-format-example-line { font-size: 11px; font-style: italic; color: var(--muted); margin: 0; padding: 2px 6px; border-left: 2px solid var(--border); }
+.ms-examples-toggle { font-size: 11px; margin-top: 2px; }
+
 /* ---- Import from Markdown modal (Tier 2) ---- */
 .ms-import-modal-overlay { position: fixed; inset: 0; background: #0008; z-index: 1000; display: flex; align-items: center; justify-content: center; }
 .ms-import-modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 640px; max-width: 96vw; display: grid; gap: 12px; max-height: 80vh; overflow-y: auto; }
