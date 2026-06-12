@@ -1748,3 +1748,24 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .ms-cat-filter { display: flex; gap: 6px; margin: 6px 0 12px; }
 .ms-format-group { margin-bottom: 14px; }
 .ms-format-cat-label { margin: 8px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+
+/* Named sessions (Tier 1) */
+.ms-home-head { align-items: center; gap: 12px; margin-bottom: 12px; }
+.ms-empty-state {
+  text-align: center; padding: 48px 20px; border: 1px dashed var(--border);
+  border-radius: 12px; background: var(--panel-2); display: grid; gap: 12px; justify-items: center;
+}
+.ms-empty-state p { margin: 0; color: var(--muted); font-size: 15px; }
+.ms-session-list { display: grid; gap: 8px; }
+.ms-session-row-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); padding: 10px 14px;
+}
+.ms-session-info { display: grid; gap: 6px; }
+.ms-session-name {
+  background: none; border: none; color: var(--text); font: inherit; font-weight: 600;
+  text-align: left; cursor: text; padding: 2px 4px; border-radius: 6px;
+}
+.ms-session-name:hover { background: var(--bg); }
+.ms-session-name-input { width: 320px; }
+.ms-session-bar { align-items: center; gap: 14px; margin-top: 6px; }

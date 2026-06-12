@@ -250,6 +250,24 @@ check('formats: french_podcast is French, cinematic is Cinematic', FORMATS.find(
   check('settings: outline visualDescription carries the setting block', scenes.every((sc) => sc.visualDescription.includes('[Setting: Podcast Setup')))
 }
 
+// ---- Named sessions (Tier 1) ----
+{
+  const { createSession, updateSession, renameSession, deleteSession, sessionAutoName, loadSessions } = await import('../src/lib/marketingStudioModel.js')
+  const studio = sampleStudio('french_podcast', ['podcast_host_fr', 'podcast_guest_fr'], 'fr')
+  check('sessions: auto-name = product · format', sessionAutoName(studio) === 'NuitCalme · French Podcast (Omni)', sessionAutoName(studio))
+  check('sessions: empty studio → Untitled Session · date', sessionAutoName(emptyStudio()).startsWith('Untitled Session ·'))
+  const sess = createSession(emptyStudio())
+  check('sessions: createSession shape', !!sess.id && !!sess.name && sess.createdAt > 0 && sess.updatedAt > 0 && sess.studio.status === 'draft')
+  let list = [sess]
+  list = updateSession(list, sess.id, studio)
+  check('sessions: updateSession swaps studio + auto-renames', list[0].studio.product.name === 'NuitCalme' && list[0].name === 'NuitCalme · French Podcast (Omni)')
+  list = renameSession(list, sess.id, 'My Custom Name')
+  list = updateSession(list, sess.id, studio)
+  check('sessions: manual rename sticks through updates', list[0].name === 'My Custom Name')
+  check('sessions: deleteSession removes', deleteSession(list, sess.id).length === 0)
+  check('sessions: loadSessions no-ops outside the browser', Array.isArray(loadSessions()))
+}
+
 console.log('')
 console.log(`${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)

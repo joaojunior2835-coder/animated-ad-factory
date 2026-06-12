@@ -662,9 +662,110 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
   )
 }
 
+// ---- Session home (no active session) ----
+function SessionName({ session, onRename }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(session.name)
+  if (!editing) {
+    return (
+      <button className="ms-session-name" title="Click to rename" onClick={() => { setDraft(session.name); setEditing(true) }}>
+        {session.name}
+      </button>
+    )
+  }
+  const commit = () => {
+    onRename(session.id, draft)
+    setEditing(false)
+  }
+  return (
+    <input
+      className="ms-input ms-session-name-input"
+      value={draft}
+      autoFocus
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit()
+        if (e.key === 'Escape') setEditing(false)
+      }}
+    />
+  )
+}
+
+function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession, onRenameSession }) {
+  const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
+  return (
+    <section className="panel ms-panel">
+      <div className="panel-head">
+        <h2>🎬 Marketing Studio</h2>
+        <span className="tag">one brief → complete ad package · 100% local</span>
+      </div>
+
+      <div className="row between ms-home-head">
+        <p className="hint small">Each session is one ad package: brief, format, characters, scenes, prompts. Sessions save automatically on this machine.</p>
+        <button className="primary" onClick={onCreateSession}>+ New Studio Session</button>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div className="ms-empty-state">
+          <p>No sessions yet. Start your first ad.</p>
+          <button className="primary" onClick={onCreateSession}>Start your first ad →</button>
+        </div>
+      ) : (
+        <div className="ms-session-list">
+          {sorted.map((sess) => {
+            const f = formatById(sess.studio.format)
+            return (
+              <div key={sess.id} className="ms-session-row-item">
+                <div className="ms-session-info">
+                  <SessionName session={sess} onRename={onRenameSession} />
+                  <div className="ms-badge-row">
+                    {f ? <span className="ms-badge ms-badge-style">{f.icon} {f.name}</span> : <span className="ms-badge">no format yet</span>}
+                    <span className="ms-badge">{sess.studio.scenes.length ? `${sess.studio.scenes.length} scenes` : 'draft'}</span>
+                    <span className="ms-badge" title={new Date(sess.createdAt).toLocaleString()}>created {new Date(sess.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <div className="row">
+                  <button className="primary small" onClick={() => onOpenSession(sess.id)}>Open</button>
+                  <button
+                    className="ghost small danger"
+                    onClick={() => {
+                      if (window.confirm(`Delete session "${sess.name}"? This cannot be undone.`)) onDeleteSession(sess.id)
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ---- Wizard shell ----
-export default function MarketingStudio({ studio, onUpdate, onSendToNodeCanvas, onSaveSession, onClearSession }) {
+export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession }) {
   const [step, setStep] = useState(0)
+
+  // Reset the wizard to Brief whenever a different session opens.
+  useEffect(() => {
+    setStep(0)
+  }, [activeSessionId])
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || null
+  if (!activeSession) {
+    return (
+      <SessionHome
+        sessions={sessions}
+        onCreateSession={onCreateSession}
+        onOpenSession={onOpenSession}
+        onDeleteSession={onDeleteSession}
+        onRenameSession={onRenameSession}
+      />
+    )
+  }
 
   // The furthest step the current state allows jumping to.
   const briefReady = studio.product.name.trim() && studio.product.description.trim()
@@ -686,6 +787,11 @@ export default function MarketingStudio({ studio, onUpdate, onSendToNodeCanvas, 
       <div className="panel-head">
         <h2>🎬 Marketing Studio</h2>
         <span className="tag">one brief → complete ad package · 100% local</span>
+      </div>
+
+      <div className="row ms-session-bar">
+        <button className="ms-linklike" onClick={onCloseSession}>← All Sessions</button>
+        <SessionName session={activeSession} onRename={onRenameSession} />
       </div>
 
       <StepIndicator step={step} maxReached={maxReached} onJump={go} />

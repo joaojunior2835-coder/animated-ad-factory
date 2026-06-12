@@ -36,16 +36,23 @@ page.on('dialog', (d) => d.accept())
 
 try {
   await page.goto(BASE)
-  // Fresh start: clear any saved studio session, keep the rest.
-  await page.evaluate(() => localStorage.removeItem('aaf_marketing_studio_session'))
+  // Fresh start: clear saved studio sessions (new list key + legacy slot).
+  await page.evaluate(() => {
+    localStorage.removeItem('aaf_marketing_studio_sessions')
+    localStorage.removeItem('aaf_marketing_studio_session')
+  })
   await page.reload()
 
-  // ---- Nav ----
+  // ---- Nav + session home ----
   const navBtn = page.locator('nav.sidebar-left button', { hasText: 'Marketing Studio' })
   check('nav: 🎬 Marketing Studio appears in the left nav', (await navBtn.count()) === 1)
   await navBtn.click()
   await page.locator('.ms-panel h2', { hasText: 'Marketing Studio' }).waitFor()
-  check('wizard renders with step indicator (5 steps)', (await page.locator('.ms-step').count()) === 5)
+  check('session home shows empty state first', (await page.locator('.ms-empty-state').count()) === 1)
+  await page.locator('button', { hasText: 'New Studio Session' }).click()
+  await page.locator('.ms-step').first().waitFor()
+  check('new session opens the wizard (5 steps)', (await page.locator('.ms-step').count()) === 5)
+  check('back link to All Sessions present', (await page.locator('button', { hasText: 'All Sessions' }).count()) === 1)
   check('step 1 (Brief) is active', await page.locator('.ms-step.active .ms-step-label').textContent() === 'Brief')
 
   // ---- Step 1: brief ----
@@ -70,8 +77,14 @@ try {
   await nextToFormat.click()
 
   // ---- Step 2: format ----
-  await page.locator('.ms-format-grid').waitFor()
-  check('format grid shows 5 cards', (await page.locator('.ms-format-card').count()) === 5)
+  await page.locator('.ms-format-grid').first().waitFor()
+  check('format grid shows 8 cards in 3 category groups', (await page.locator('.ms-format-card').count()) === 8 && (await page.locator('.ms-format-group').count()) === 3)
+  check('category filter narrows to French', await (async () => {
+    await page.locator('.ms-cat-filter button', { hasText: 'French' }).click()
+    const n = await page.locator('.ms-format-card').count()
+    await page.locator('.ms-cat-filter button', { hasText: 'All' }).click()
+    return n === 1
+  })())
   check('french format note is shown', (await page.locator('.ms-format-note').count()) >= 1)
   const frCard = page.locator('.ms-format-card', { hasText: 'French Podcast' })
   await frCard.locator('button', { hasText: 'Select' }).click()
@@ -145,23 +158,31 @@ try {
   })
   check('node canvas gained 30 nodes (10 rows × prompt/gen/output)', nodeCount >= 30, `got ${nodeCount}`)
 
-  // Session persistence: save, reload, state survives. The wizard remounts on
-  // Brief — the step indicator lets us jump straight back to Export.
-  await page.locator('nav.sidebar-left button', { hasText: 'Marketing Studio' }).click()
-  await page.locator('.ms-step', { hasText: 'Export' }).click()
-  await page.locator('button', { hasText: 'Save Studio Session' }).click()
+  // Session persistence: sessions auto-save; reload → session home lists the
+  // named session; Open + step indicator jump straight back to Export.
   await page.reload()
   await page.locator('nav.sidebar-left button', { hasText: 'Marketing Studio' }).click()
-  await page.locator('.ms-panel').waitFor()
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('aaf_marketing_studio_session') || '{}'))
-  check('session auto-persisted with prompts', Array.isArray(saved.prompts) && saved.prompts.length === 10 && saved.product.name === 'NuitCalme')
-
-  // Clear session resets everything
+  await page.locator('.ms-session-row-item').first().waitFor()
+  const sessions = await page.evaluate(() => JSON.parse(localStorage.getItem('aaf_marketing_studio_sessions') || '[]'))
+  check('session auto-persisted with prompts', sessions.length === 1 && sessions[0].studio.prompts.length === 10 && sessions[0].studio.product.name === 'NuitCalme')
+  check('session auto-named from product + format', (await page.locator('.ms-session-name').first().textContent()).includes('NuitCalme'))
+  await page.locator('.ms-session-row-item').first().locator('button', { hasText: 'Open' }).click()
   await page.locator('.ms-step', { hasText: 'Export' }).click()
+  await page.locator('.ms-prompt-card').first().waitFor()
+  check('reopened session restores prompts on Export step', (await page.locator('.ms-prompt-card').count()) === 10)
+
+  // Clear session resets the active session's studio
   await page.locator('button', { hasText: 'Clear Session' }).click()
   await page.locator('.ms-step.active', { hasText: 'Brief' }).waitFor()
-  const cleared = await page.evaluate(() => JSON.parse(localStorage.getItem('aaf_marketing_studio_session') || '{}'))
-  check('clear session resets state + returns to Brief', cleared.product.name === '' && cleared.scenes.length === 0)
+  const clearedSessions = await page.evaluate(() => JSON.parse(localStorage.getItem('aaf_marketing_studio_sessions') || '[]'))
+  check('clear session resets state + returns to Brief', clearedSessions.length === 1 && clearedSessions[0].studio.product.name === '' && clearedSessions[0].studio.scenes.length === 0)
+
+  // Back to home + delete
+  await page.locator('button', { hasText: 'All Sessions' }).click()
+  await page.locator('.ms-session-row-item').first().waitFor()
+  await page.locator('.ms-session-row-item').first().locator('button', { hasText: 'Delete' }).click()
+  await page.locator('.ms-empty-state').waitFor()
+  check('delete session returns to empty state', (await page.evaluate(() => JSON.parse(localStorage.getItem('aaf_marketing_studio_sessions') || '[]'))).length === 0)
 } catch (e) {
   failed++
   fails.push('unhandled: ' + e.message)

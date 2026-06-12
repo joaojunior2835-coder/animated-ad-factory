@@ -31,7 +31,7 @@ import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
-import { emptyStudio, normalizeStudio } from './lib/marketingStudioModel.js'
+import { emptyStudio, normalizeStudio, loadSessions, saveSession, createSession, updateSession, renameSession, deleteSession } from './lib/marketingStudioModel.js'
 import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
@@ -48,25 +48,9 @@ const SPECIAL_NAV = [
   { key: 'marketing_studio', label: '🎬 Marketing Studio' }
 ]
 
-// Marketing Studio session persistence (independent from the project state).
-const STUDIO_KEY = 'aaf_marketing_studio_session'
-
-function loadStudio() {
-  try {
-    const raw = localStorage.getItem(STUDIO_KEY)
-    return raw ? JSON.parse(raw) : emptyStudio()
-  } catch {
-    return emptyStudio()
-  }
-}
-
-function saveStudio(studio) {
-  try {
-    localStorage.setItem(STUDIO_KEY, JSON.stringify(studio))
-  } catch {
-    // Storage may be unavailable (private mode, quota). Non-fatal.
-  }
-}
+// Marketing Studio sessions are persisted by the model helpers
+// (loadSessions/saveSession) under their own localStorage key, independent
+// from the project state.
 
 // Signature of the export-relevant Canvas data, for stale-sync detection.
 function canvasSignature(project) {
@@ -87,7 +71,8 @@ function syncedProject(project) {
 export default function App() {
   const [project, setProject] = useState(() => loadProject(emptyProject()))
   const [library, setLibrary] = useState(() => loadLibrary())
-  const [studio, setStudio] = useState(() => normalizeStudio(loadStudio()))
+  const [studioSessions, setStudioSessions] = useState(() => loadSessions())
+  const [activeStudioSessionId, setActiveStudioSessionId] = useState(null)
   const [active, setActive] = useState('brand')
   const [backupExists, setBackupExists] = useState(() => hasBackup())
   const [canvasPreviews, setCanvasPreviews] = useState({})
@@ -352,19 +337,38 @@ export default function App() {
   const setCanvasPreview = (id, dataUrl) => setCanvasPreviews((m) => ({ ...m, [id]: dataUrl }))
   const selectCompetitor = () => setSelectedMethod('competitor_recreation')
 
-  // ---- Marketing Studio (independent state; persisted under its own key) ----
-  const updateStudio = (fn) =>
-    setStudio((s) => {
-      const next = fn(s)
-      saveStudio(next)
+  // ---- Marketing Studio (named sessions; persisted under their own key) ----
+  const activeStudioSession = studioSessions.find((s) => s.id === activeStudioSessionId) || null
+  const activeStudio = activeStudioSession ? activeStudioSession.studio : emptyStudio()
+
+  const persistStudioSessions = (updater) =>
+    setStudioSessions((list) => {
+      const next = typeof updater === 'function' ? updater(list) : updater
+      saveSession(next)
       return next
     })
-  const saveStudioSession = () => saveStudio(studio)
-  const clearStudioSession = () => {
-    const fresh = emptyStudio()
-    setStudio(fresh)
-    saveStudio(fresh)
+
+  const updateStudio = (fn) =>
+    persistStudioSessions((list) => {
+      const cur = list.find((s) => s.id === activeStudioSessionId)
+      if (!cur) return list
+      return updateSession(list, activeStudioSessionId, fn(normalizeStudio(cur.studio)))
+    })
+
+  const createStudioSession = () => {
+    const session = createSession(emptyStudio())
+    persistStudioSessions((list) => [session, ...list])
+    setActiveStudioSessionId(session.id)
   }
+  const openStudioSession = (id) => setActiveStudioSessionId(id)
+  const closeStudioSession = () => setActiveStudioSessionId(null)
+  const deleteStudioSession = (id) => {
+    persistStudioSessions((list) => deleteSession(list, id))
+    if (id === activeStudioSessionId) setActiveStudioSessionId(null)
+  }
+  const renameStudioSession = (id, name) => persistStudioSessions((list) => renameSession(list, id, name))
+  const saveStudioSession = () => persistStudioSessions((list) => list) // sessions persist on every change; explicit save re-writes
+  const clearStudioSession = () => updateStudio(() => emptyStudio())
 
   // Send studio prompts to the Node Canvas as Prompt → Image Gen (mock) → Output
   // rows — same appended-row pattern as Import Scenes. Returns the row count.
@@ -661,8 +665,15 @@ export default function App() {
     if (active === 'marketing_studio') {
       return (
         <MarketingStudio
-          studio={studio}
+          sessions={studioSessions}
+          activeSessionId={activeStudioSessionId}
+          studio={activeStudio}
           onUpdate={updateStudio}
+          onCreateSession={createStudioSession}
+          onOpenSession={openStudioSession}
+          onCloseSession={closeStudioSession}
+          onDeleteSession={deleteStudioSession}
+          onRenameSession={renameStudioSession}
           onSendToNodeCanvas={sendStudioToNodeCanvas}
           onSaveSession={saveStudioSession}
           onClearSession={clearStudioSession}
@@ -855,7 +866,7 @@ export default function App() {
     if (item.key === 'handoff') return false
     if (item.key === 'canvas') return (project.canvas && project.canvas.scenes && project.canvas.scenes.length > 0) || false
     if (item.key === 'node_canvas') return (project.node_canvas && project.node_canvas.nodes && project.node_canvas.nodes.length > 0) || false
-    if (item.key === 'marketing_studio') return (studio.product.name || '').trim().length > 0
+    if (item.key === 'marketing_studio') return studioSessions.length > 0
     if (item.kind === 'clips') return project.clips.length > 0
     if (item.kind === 'export') return false
     return (project[item.key] || '').trim().length > 0

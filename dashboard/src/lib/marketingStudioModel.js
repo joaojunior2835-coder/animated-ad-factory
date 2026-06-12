@@ -916,6 +916,103 @@ export function extractBriefFromText(text) {
   return { product, brief, filledKeys }
 }
 
+// ---- Named saved sessions (localStorage list; replaces the single slot) ----
+
+export const SESSION_STORAGE_KEY = 'aaf_marketing_studio_sessions'
+const LEGACY_SESSION_KEY = 'aaf_marketing_studio_session'
+
+// Auto-name: "Calme · French Podcast (Omni)" or "Untitled Session · 12/06/2026".
+export function sessionAutoName(studio) {
+  const s = normalizeStudio(studio)
+  const product = str(s.product.name).trim()
+  const format = formatById(s.format)
+  if (product) return format ? `${product} · ${format.name}` : product
+  return `Untitled Session · ${new Date().toLocaleDateString()}`
+}
+
+function normalizeSession(x) {
+  const o = x && typeof x === 'object' ? x : {}
+  return {
+    id: str(o.id) || `ms_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    name: str(o.name).trim() || 'Untitled Session',
+    name_custom: !!o.name_custom,
+    createdAt: Number(o.createdAt) || Date.now(),
+    updatedAt: Number(o.updatedAt) || Date.now(),
+    studio: normalizeStudio(o.studio)
+  }
+}
+
+// Read all sessions. Migrates the legacy single-slot session (if any, non-empty)
+// into the list on first load.
+export function loadSessions() {
+  let sessions = []
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) sessions = parsed.map(normalizeSession)
+    }
+  } catch {
+    sessions = []
+  }
+  if (sessions.length === 0) {
+    try {
+      const legacy = localStorage.getItem(LEGACY_SESSION_KEY)
+      if (legacy) {
+        const studio = normalizeStudio(JSON.parse(legacy))
+        if (studio.product.name.trim() || studio.scenes.length || studio.format) {
+          sessions = [createSession(studio)]
+          saveSession(sessions)
+        }
+        localStorage.removeItem(LEGACY_SESSION_KEY)
+      }
+    } catch {
+      // Legacy slot unreadable — start fresh.
+    }
+  }
+  return sessions
+}
+
+export function saveSession(sessions) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(Array.isArray(sessions) ? sessions : []))
+  } catch {
+    // Storage unavailable (private mode, quota). Non-fatal.
+  }
+}
+
+export function createSession(studio) {
+  const s = normalizeStudio(studio)
+  return {
+    id: `ms_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    name: sessionAutoName(s),
+    name_custom: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    studio: s
+  }
+}
+
+// Update a session's studio. Auto-renames unless the user renamed it manually.
+export function updateSession(sessions, id, studio) {
+  return (Array.isArray(sessions) ? sessions : []).map((sess) =>
+    sess.id === id
+      ? { ...sess, studio: normalizeStudio(studio), updatedAt: Date.now(), name: sess.name_custom ? sess.name : sessionAutoName(studio) }
+      : sess
+  )
+}
+
+export function renameSession(sessions, id, name) {
+  const clean = str(name).trim()
+  return (Array.isArray(sessions) ? sessions : []).map((sess) =>
+    sess.id === id ? { ...sess, name: clean || sess.name, name_custom: !!clean, updatedAt: Date.now() } : sess
+  )
+}
+
+export function deleteSession(sessions, id) {
+  return (Array.isArray(sessions) ? sessions : []).filter((sess) => sess.id !== id)
+}
+
 // ---- Export helpers (pure string builders) ----
 
 export function modelsNeeded(prompts) {
