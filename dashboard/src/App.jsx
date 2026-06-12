@@ -31,7 +31,7 @@ import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
-import { emptyStudio, normalizeStudio, loadSessions, saveSession, createSession, updateSession, renameSession, deleteSession } from './lib/marketingStudioModel.js'
+import { emptyStudio, normalizeStudio, loadSessions, saveSession, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary } from './lib/marketingStudioModel.js'
 import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
@@ -72,6 +72,7 @@ export default function App() {
   const [project, setProject] = useState(() => loadProject(emptyProject()))
   const [library, setLibrary] = useState(() => loadLibrary())
   const [studioSessions, setStudioSessions] = useState(() => loadSessions())
+  const [productLibrary, setProductLibrary] = useState(() => loadProductLibrary())
   const [activeStudioSessionId, setActiveStudioSessionId] = useState(null)
   const [active, setActive] = useState('brand')
   const [backupExists, setBackupExists] = useState(() => hasBackup())
@@ -369,6 +370,13 @@ export default function App() {
   const renameStudioSession = (id, name) => persistStudioSessions((list) => renameSession(list, id, name))
   const saveStudioSession = () => persistStudioSessions((list) => list) // sessions persist on every change; explicit save re-writes
   const clearStudioSession = () => updateStudio(() => emptyStudio())
+
+  const updateProductLibrary = (fn) =>
+    setProductLibrary((lib) => {
+      const next = typeof fn === 'function' ? fn(lib) : fn
+      saveProductLibrary(next)
+      return next
+    })
 
   // Send studio prompts to the Node Canvas as Prompt → Image Gen (mock) → Output
   // rows — same appended-row pattern as Import Scenes. Returns the row count.
@@ -677,6 +685,10 @@ export default function App() {
           onSendToNodeCanvas={sendStudioToNodeCanvas}
           onSaveSession={saveStudioSession}
           onClearSession={clearStudioSession}
+          productLibrary={productLibrary}
+          onUpdateProductLibrary={updateProductLibrary}
+          onSaveProductToLibrary={(product) => updateProductLibrary((lib) => saveProductToLibrary(lib, product))}
+          onDeleteProductFromLibrary={(id) => updateProductLibrary((lib) => deleteProductFromLibrary(lib, id))}
         />
       )
     }

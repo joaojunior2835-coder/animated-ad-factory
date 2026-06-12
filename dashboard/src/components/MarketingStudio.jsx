@@ -121,13 +121,18 @@ function StepIndicator({ step, maxReached, onJump }) {
 }
 
 // ---- Step 1: Product Brief ----
-function BriefStep({ studio, onUpdate, onNext }) {
+function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary }) {
   const [pasted, setPasted] = useState('')
   const [filledKeys, setFilledKeys] = useState([])
   const [hookApplied, setHookApplied] = useState('')
+  const [libOpen, setLibOpen] = useState(false)
+  const [loadedFlash, setLoadedFlash] = useState('')
+  const [savedFlash, setSavedFlash] = useState(false)
   const hookFieldRef = useRef(null)
   const p = studio.product
   const b = studio.brief
+  const library = Array.isArray(productLibrary) ? productLibrary : []
+  const sortedLib = [...library].sort((a, b2) => (b2.savedAt || 0) - (a.savedAt || 0))
 
   const setProduct = (key, value) => onUpdate((s) => ({ ...s, product: { ...s.product, [key]: value } }))
   const setBrief = (key, value) => onUpdate((s) => ({ ...s, brief: { ...s.brief, [key]: value } }))
@@ -170,10 +175,55 @@ function BriefStep({ studio, onUpdate, onNext }) {
 
   const ready = p.name.trim().length > 0 && p.description.trim().length > 0
 
+  function loadProduct(entry) {
+    onUpdate((s) => ({ ...s, product: { ...s.product, ...entry.product } }))
+    setLoadedFlash(entry.name)
+    setTimeout(() => setLoadedFlash(''), 2000)
+  }
+
+  function saveToLibrary() {
+    if (!p.name.trim()) return
+    onSaveProductToLibrary(p)
+    setSavedFlash(true)
+    setTimeout(() => setSavedFlash(false), 2000)
+  }
+
   return (
     <div className="ms-stepbody">
       <h3>Step 1 — Product Brief</h3>
       <p className="hint small">One structured brief drives the whole package. Product name + description are required; everything else sharpens the script.</p>
+
+      <div className="ms-product-lib">
+        <button className="ms-lib-toggle" onClick={() => setLibOpen((o) => !o)}>
+          📦 My Products ({library.length}) {libOpen ? '▲' : '▼'}
+        </button>
+        {libOpen && (
+          <div className="ms-lib-body">
+            {loadedFlash ? <div className="ms-lib-flash">Loaded: {loadedFlash}</div> : null}
+            {sortedLib.length === 0 ? (
+              <p className="hint small ms-lib-empty">No saved products yet.</p>
+            ) : (
+              <div className="ms-lib-list">
+                {sortedLib.map((entry) => (
+                  <div key={entry.id} className="ms-lib-row">
+                    <div className="ms-lib-info">
+                      <span className="ms-lib-name">{entry.name}</span>
+                      {entry.product && entry.product.category ? <span className="ms-badge">{entry.product.category}</span> : null}
+                      <span className="hint small">{new Date(entry.savedAt).toLocaleDateString()}</span>
+                    </div>
+                    <div className="row">
+                      <button className="ghost small" onClick={() => loadProduct(entry)}>Load</button>
+                      <button className="ghost small danger" onClick={() => {
+                        if (window.confirm(`Delete "${entry.name}" from your product library?`)) onDeleteProductFromLibrary(entry.id)
+                      }}>Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="ms-grid2">
         <label className="field">
@@ -302,6 +352,13 @@ function BriefStep({ studio, onUpdate, onNext }) {
             {filledKeys.length ? <span className="hint small ms-extract-note">{filledKeys.length} field(s) auto-filled (green border)</span> : null}
           </div>
         ) : null}
+      </div>
+
+      <div className="ms-save-product-row">
+        <button className="ghost small" disabled={!p.name.trim()} onClick={saveToLibrary} title={p.name.trim() ? 'Save current product brief to your library for reuse' : 'Enter a product name first'}>
+          💾 Save to My Products
+        </button>
+        {savedFlash ? <span className="ms-extract-note hint small">Saved ✓</span> : null}
       </div>
 
       <div className="ms-nav-row">
@@ -793,7 +850,7 @@ function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession
 }
 
 // ---- Wizard shell ----
-export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession }) {
+export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary }) {
   const [step, setStep] = useState(0)
 
   // Reset the wizard to Brief whenever a different session opens.
@@ -843,7 +900,7 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
 
       <StepIndicator step={step} maxReached={maxReached} onJump={go} />
 
-      {step === 0 ? <BriefStep studio={studio} onUpdate={onUpdate} onNext={() => go(1)} /> : null}
+      {step === 0 ? <BriefStep studio={studio} onUpdate={onUpdate} onNext={() => go(1)} productLibrary={productLibrary} onSaveProductToLibrary={onSaveProductToLibrary} onDeleteProductFromLibrary={onDeleteProductFromLibrary} /> : null}
       {step === 1 ? <FormatStep studio={studio} onUpdate={onUpdate} onBack={() => go(0)} onNext={() => go(2)} /> : null}
       {step === 2 ? <CharactersStep studio={studio} onUpdate={onUpdate} onBack={() => go(1)} onNext={() => go(3)} /> : null}
       {step === 3 ? <ScriptStep studio={studio} onUpdate={onUpdate} onBack={() => go(2)} onNext={() => go(4)} /> : null}

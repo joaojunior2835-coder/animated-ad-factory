@@ -1054,6 +1054,53 @@ export function deleteSession(sessions, id) {
   return (Array.isArray(sessions) ? sessions : []).filter((sess) => sess.id !== id)
 }
 
+// ---- Product Library (Tier 2) ----
+
+export const PRODUCT_LIBRARY_KEY = 'aaf_product_library'
+
+function slugifyName(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'product'
+}
+
+export function loadProductLibrary() {
+  try {
+    const raw = localStorage.getItem(PRODUCT_LIBRARY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export function saveProductLibrary(products) {
+  try {
+    localStorage.setItem(PRODUCT_LIBRARY_KEY, JSON.stringify(Array.isArray(products) ? products : []))
+  } catch {
+    // Storage unavailable — non-fatal.
+  }
+}
+
+export function saveProductToLibrary(library, product) {
+  const list = Array.isArray(library) ? library : []
+  const slug = slugifyName(str(product && product.name))
+  const existing = list.find((e) => slugifyName(str(e.name)) === slug)
+  const entry = {
+    id: existing ? existing.id : `${slug}_${Date.now()}`,
+    name: str(product && product.name).trim() || 'Untitled',
+    savedAt: Date.now(),
+    product: { ...product }
+  }
+  if (existing) {
+    return list.map((e) => (e.id === existing.id ? entry : e))
+  }
+  return [...list, entry]
+}
+
+export function deleteProductFromLibrary(library, id) {
+  return (Array.isArray(library) ? library : []).filter((e) => e.id !== id)
+}
+
 // ---- Export helpers (pure string builders) ----
 
 export function modelsNeeded(prompts) {

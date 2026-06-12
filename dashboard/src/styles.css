@@ -1775,3 +1775,57 @@ button.danger { color: var(--danger); border-color: var(--danger); }
   margin-top: 14px; padding: 12px; border: 1px solid var(--border);
   border-radius: 10px; background: var(--panel-2); display: grid; gap: 8px;
 }
+
+/* ---- Product Library (Tier 2) ---- */
+.ms-product-lib { margin-bottom: 14px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.ms-lib-toggle { width: 100%; text-align: left; padding: 10px 14px; background: var(--panel-2); border: none; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text); }
+.ms-lib-toggle:hover { background: var(--panel-2); filter: brightness(1.1); }
+.ms-lib-body { padding: 10px 14px; display: grid; gap: 6px; max-height: 240px; overflow-y: auto; }
+.ms-lib-list { display: grid; gap: 6px; }
+.ms-lib-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.ms-lib-row:last-child { border-bottom: none; }
+.ms-lib-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ms-lib-name { font-weight: 600; font-size: 13px; }
+.ms-lib-empty { margin: 0; padding: 6px 0; }
+.ms-lib-flash { padding: 6px 10px; background: #1a3d29; color: #6fcf97; border-radius: 6px; font-size: 12px; }
+.ms-save-product-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+
+/* ---- Import from Markdown modal (Tier 2) ---- */
+.ms-import-modal-overlay { position: fixed; inset: 0; background: #0008; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.ms-import-modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 640px; max-width: 96vw; display: grid; gap: 12px; max-height: 80vh; overflow-y: auto; }
+.ms-import-modal h3 { margin: 0; }
+.ms-import-result { padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+.ms-import-result.ok { background: #1a3d29; color: #6fcf97; }
+.ms-import-result.warn { background: #3a2a10; color: #f0a85a; }
+
+/* ---- Character gallery upgrade (Tier 2) ---- */
+.ms-char-avatar { font-size: 2rem; line-height: 1; display: block; margin-bottom: 4px; }
+.ms-char-personality { font-style: italic; font-size: 12px; color: var(--muted); margin: 4px 0; }
+.ms-char-example { font-size: 12px; border-left: 2px solid var(--border); padding-left: 8px; color: var(--muted); margin: 4px 0; }
+.ms-char-best { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.ms-char-best-badge { font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--accent-2); color: var(--accent-2); }
+.ms-char-card.format-match { border-color: #2f9e63; }
+.ms-char-format-match { font-size: 11px; color: #6fcf97; margin-top: 4px; }
+.ms-char-lang-mismatch { font-size: 11px; color: #f0a85a; margin-top: 2px; }
+.ms-char-custom-form { display: grid; gap: 8px; }
+.ms-custom-char-list { display: grid; gap: 4px; margin-top: 8px; }
+.ms-custom-char-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+
+/* ---- Hook search (Tier 2) ---- */
+.ms-hook-search-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.ms-hook-search-input { flex: 1; min-width: 160px; }
+.ms-hook-no-results { color: var(--muted); font-size: 13px; }
+
+/* ---- Setting search (Tier 2) ---- */
+.ms-setting-search { width: 100%; margin-bottom: 4px; font-size: 12px; }
+.ms-browse-settings-btn { font-size: 12px; }
+.ms-browse-modal-overlay { position: fixed; inset: 0; background: #0008; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.ms-browse-modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 760px; max-width: 96vw; display: grid; gap: 14px; max-height: 80vh; overflow-y: auto; }
+.ms-browse-modal h3 { margin: 0; }
+.ms-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.ms-setting-browse-card { padding: 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: border-color 0.15s; }
+.ms-setting-browse-card:hover { border-color: var(--accent-2); }
+.ms-setting-browse-card h5 { margin: 0 0 4px; font-size: 13px; }
+.ms-setting-browse-card .hint { margin: 2px 0; font-size: 11px; }
+.ms-setting-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.ms-setting-tag { font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
