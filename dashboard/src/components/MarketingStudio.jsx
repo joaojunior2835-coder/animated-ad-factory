@@ -617,7 +617,7 @@ function CharacterPicker({ title, value, briefLanguage, onPick, selectedFormat }
                 <div className="ms-char-best">
                   {c.bestFormats.map((fid) => {
                     const fmt = FORMATS.find((f) => f.id === fid)
-                    return fmt ? <span key={fid} className="ms-char-best-badge">{fmt.icon} {fmt.name.split(' ')[0]}</span> : null
+                    return fmt ? <span key={fid} className="ms-char-best-badge">{fmt.icon} {fmt.name.replace(/^UGC\s+/, '').replace(/\s*\(.*\)$/, '')}</span> : null
                   })}
                 </div>
               ) : null}

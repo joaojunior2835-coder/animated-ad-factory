@@ -144,7 +144,7 @@ export const FORMATS = [
     style: 'authentic/raw',
     note: 'Scene 1: hook/verdict. Scenes 2-N: reasons. Last: CTA.',
     examples: [
-      "Scene 1: Verdict first — 'Here\\'s my honest take after 30 days'",
+      'Scene 1: Verdict first — "Here’s my honest take after 30 days"',
       'Scene 3: The one thing I wish was different',
       'Scene 6: Who I\'d recommend this to'
     ]
