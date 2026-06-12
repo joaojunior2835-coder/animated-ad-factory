@@ -1736,3 +1736,10 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 }
 .ms-hook-chip:hover { border-color: var(--accent-2); color: var(--accent-2); }
 .ms-hook-chip.applied { border-color: #2f9e63; color: #6fcf97; }
+
+/* Scene settings (Tier 1) */
+.ms-setting-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.ms-setting-field { min-width: 220px; margin: 0; }
+.ms-setting-preview { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; padding-bottom: 10px; }
+.ms-bulk-setting { gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.ms-bulk-select { width: auto; min-width: 200px; }

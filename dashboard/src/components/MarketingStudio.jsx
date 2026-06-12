@@ -3,6 +3,9 @@ import {
   FORMATS,
   CHARACTERS,
   hooksForLanguage,
+  SETTINGS_LIBRARY,
+  settingById,
+  applySettingToDescription,
   CUSTOM_CHARACTER_PREFIX,
   STUDIO_DURATIONS,
   CLIP_DURATIONS,
@@ -421,6 +424,32 @@ function SceneCard({ scene, onPatch, onRegenerate }) {
         <span className="field-label">Visual description</span>
         <textarea className="ms-input" rows={2} value={scene.visualDescription} onChange={(e) => onPatch({ visualDescription: e.target.value })} />
       </label>
+      <div className="ms-setting-row">
+        <label className="field ms-setting-field">
+          <span className="field-label">Scene setting</span>
+          <select
+            className="ms-input"
+            value={scene.settingId || ''}
+            onChange={(e) => {
+              const id = e.target.value
+              onPatch({ settingId: id, visualDescription: applySettingToDescription(scene.visualDescription, id) })
+            }}
+          >
+            <option value="">(none)</option>
+            {SETTINGS_LIBRARY.map((st) => (
+              <option key={st.id} value={st.id}>{st.name}</option>
+            ))}
+          </select>
+        </label>
+        {(() => {
+          const st = settingById(scene.settingId)
+          return st ? (
+            <span className="ms-setting-preview" title={`${st.description} — ${st.lightingNote}`}>
+              {st.name} <span className="ms-badge ms-badge-style">{st.visualMood}</span>
+            </span>
+          ) : null
+        })()}
+      </div>
       <label className="field ms-clipdur">
         <span className="field-label">Clip duration</span>
         <div className="ms-toggle-row">
@@ -434,6 +463,18 @@ function SceneCard({ scene, onPatch, onRegenerate }) {
 }
 
 function ScriptStep({ studio, onUpdate, onBack, onNext }) {
+  const [bulkSetting, setBulkSetting] = useState('')
+
+  function applySettingToAll() {
+    if (!bulkSetting) return
+    const anySet = studio.scenes.some((sc) => sc.settingId)
+    if (anySet && !window.confirm('Some scenes already have a setting. Replace the setting on ALL scenes?')) return
+    onUpdate((s) => ({
+      ...s,
+      scenes: s.scenes.map((sc) => ({ ...sc, settingId: bulkSetting, visualDescription: applySettingToDescription(sc.visualDescription, bulkSetting) })),
+      prompts: []
+    }))
+  }
   // Generate the outline on first arrival (or after a reset).
   const needsOutline = studio.scenes.length === 0
   useEffect(() => {
@@ -486,6 +527,17 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
       <p className="hint small">
         {studio.scenes.length} scenes · estimated {total}s (target {studio.brief.duration}s). Edit any line — prompts are generated from what you approve here.
       </p>
+
+      <div className="ms-bulk-setting row">
+        <span className="field-label">Apply setting to all scenes:</span>
+        <select className="ms-input ms-bulk-select" value={bulkSetting} onChange={(e) => setBulkSetting(e.target.value)}>
+          <option value="">(choose a setting)</option>
+          {SETTINGS_LIBRARY.map((st) => (
+            <option key={st.id} value={st.id}>{st.name}</option>
+          ))}
+        </select>
+        <button className="ghost small" disabled={!bulkSetting} onClick={applySettingToAll}>Apply to all</button>
+      </div>
 
       <div className="ms-scene-list">
         {studio.scenes.map((sc, i) => (

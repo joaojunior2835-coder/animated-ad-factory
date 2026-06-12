@@ -186,6 +186,58 @@ export function hooksForLanguage(lang) {
   return HOOK_LIBRARY.filter((h) => h.language === l || h.language === 'any')
 }
 
+// ---- Settings / scene library (where the story unfolds) ----
+export const SETTINGS_LIBRARY = [
+  // Indoor
+  { id: 'bedroom_morning', name: 'Bedroom Morning', description: 'Bedroom, morning light, warm and intimate', visualMood: 'warm and intimate morning mood', lightingNote: 'soft morning window light', tags: ['indoor', 'ugc', 'cozy'] },
+  { id: 'minimalist_kitchen', name: 'Minimalist Kitchen', description: 'Clean kitchen, natural light, fresh/healthy mood', visualMood: 'fresh, healthy, uncluttered mood', lightingNote: 'bright natural daylight on clean surfaces', tags: ['indoor', 'food', 'wellness'] },
+  { id: 'bathroom_mirror', name: 'Bathroom Mirror', description: 'Bathroom mirror, soft light, personal/vulnerable', visualMood: 'personal, vulnerable, honest mood', lightingNote: 'soft vanity light around the mirror', tags: ['indoor', 'skincare', 'personal'] },
+  { id: 'home_office', name: 'Home Office', description: 'Home office, focused energy, productive mood', visualMood: 'focused, productive energy', lightingNote: 'desk lamp glow with soft daylight fill', tags: ['indoor', 'work'] },
+  { id: 'cozy_sofa', name: 'Cozy Sofa', description: 'Living room sofa, warm evening light, relaxed', visualMood: 'relaxed, end-of-day comfort', lightingNote: 'warm evening lamp light', tags: ['indoor', 'ugc', 'cozy'] },
+  // Outdoor
+  { id: 'golden_hour_park', name: 'Golden Hour Park', description: 'Park at golden hour, warm backlight, aspirational', visualMood: 'aspirational, glowing, optimistic mood', lightingNote: 'warm golden-hour backlight', tags: ['outdoor', 'lifestyle'] },
+  { id: 'urban_street', name: 'Urban Street', description: 'City street, dynamic energy, modern lifestyle', visualMood: 'dynamic, modern street energy', lightingNote: 'open daylight with storefront bounce', tags: ['outdoor', 'city'] },
+  { id: 'rooftop_city', name: 'Rooftop City View', description: 'Rooftop with city view, ambitious/elevated mood', visualMood: 'ambitious, elevated mood above the skyline', lightingNote: 'clear sky light, city haze in the background', tags: ['outdoor', 'city', 'premium'] },
+  { id: 'beach_morning', name: 'Beach Morning', description: 'Beach at sunrise, fresh start energy', visualMood: 'fresh-start, clean-slate energy', lightingNote: 'pale sunrise light off the water', tags: ['outdoor', 'wellness'] },
+  { id: 'cafe_terrace', name: 'Café Terrace', description: 'Outdoor café terrace, European lifestyle feel', visualMood: 'unhurried European lifestyle feel', lightingNote: 'dappled daylight under an awning', tags: ['outdoor', 'lifestyle', 'french'] },
+  // Studio / neutral
+  { id: 'clean_white_studio', name: 'Clean White Studio', description: 'White background, product-focused, clinical trust', visualMood: 'product-focused, clinical trust', lightingNote: 'even shadowless studio light on white', tags: ['studio', 'product'] },
+  { id: 'dark_moody_studio', name: 'Dark Moody Studio', description: 'Dark background, luxury/premium feel', visualMood: 'luxury, premium restraint', lightingNote: 'hard rim light against deep shadow', tags: ['studio', 'premium'] },
+  { id: 'gradient_studio', name: 'Gradient Studio', description: 'Soft gradient background, modern/tech feel', visualMood: 'modern, techy calm', lightingNote: 'soft diffused light over a gradient backdrop', tags: ['studio', 'tech'] },
+  // Special
+  { id: 'podcast_setup', name: 'Podcast Setup', description: 'Two chairs facing slightly inward, mic visible, professional but warm', visualMood: 'professional but warm conversation mood', lightingNote: 'warm key light per speaker, soft background falloff', tags: ['special', 'podcast'] },
+  { id: 'gym_locker', name: 'Gym Locker Room', description: 'Gym locker room, fitness/transformation context', visualMood: 'fitness, transformation context', lightingNote: 'bright overhead gym lighting', tags: ['special', 'fitness'] }
+]
+
+export function settingById(id) {
+  return SETTINGS_LIBRARY.find((s) => s.id === id) || null
+}
+
+// Default scene setting per format (auto-selected when the outline generates).
+export function defaultSettingForFormat(formatId) {
+  const map = {
+    ugc_talking_head: 'cozy_sofa',
+    ugc_testimonial: 'bedroom_morning',
+    ugc_podcast: 'podcast_setup',
+    french_podcast: 'podcast_setup',
+    cinematic_product: 'clean_white_studio',
+    unboxing: 'cozy_sofa',
+    tutorial: 'minimalist_kitchen',
+    product_review: 'cozy_sofa'
+  }
+  return map[formatId] || 'clean_white_studio'
+}
+
+// Append a setting's mood + lighting to a scene's visual description (idempotent
+// enough for UI use: strips a previously applied setting suffix first).
+const SETTING_SUFFIX_RE = / \[Setting: [^\]]*\]$/
+export function applySettingToDescription(description, settingId) {
+  const setting = settingById(settingId)
+  const base = str(description).replace(SETTING_SUFFIX_RE, '').trim()
+  if (!setting) return base
+  return `${base} [Setting: ${setting.name} — ${setting.visualMood}; ${setting.lightingNote}]`
+}
+
 export const CUSTOM_CHARACTER_PREFIX = 'custom:'
 
 // Resolve a character id (or a "custom:<description>" entry) to a character
@@ -475,6 +527,17 @@ function cinematicScene(num, purpose, characterId, studio, lang, shotType, visua
 // podcast alternates speakers; talking head keeps one speaker; cinematic
 // mixes product shots and voiceover scenes; French formats speak French.
 export function generateSceneOutline(studio) {
+  const scenes = buildSceneOutline(studio)
+  const s = normalizeStudio(studio)
+  const settingId = defaultSettingForFormat(s.format)
+  return scenes.map((sc) => ({
+    ...sc,
+    settingId,
+    visualDescription: applySettingToDescription(sc.visualDescription, settingId)
+  }))
+}
+
+function buildSceneOutline(studio) {
   const s = normalizeStudio(studio)
   const format = formatById(s.format)
   if (!format) return []

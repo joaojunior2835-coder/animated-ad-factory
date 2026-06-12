@@ -213,6 +213,28 @@ check('formats: 5 formats', FORMATS.length === 5)
   check('hooks: unique ids', new Set(HOOK_LIBRARY.map((h) => h.id)).size === HOOK_LIBRARY.length)
 }
 
+// ---- Settings library (Tier 1) ----
+{
+  const { SETTINGS_LIBRARY, settingById, defaultSettingForFormat, applySettingToDescription } = await import('../src/lib/marketingStudioModel.js')
+  check('settings: at least 15 settings', SETTINGS_LIBRARY.length >= 15, `got ${SETTINGS_LIBRARY.length}`)
+  check('settings: shape complete', SETTINGS_LIBRARY.every((st) => st.id && st.name && st.description && st.visualMood && st.lightingNote && Array.isArray(st.tags)))
+  check('settings: unique ids', new Set(SETTINGS_LIBRARY.map((st) => st.id)).size === SETTINGS_LIBRARY.length)
+  check('settings: podcast formats default to podcast_setup', defaultSettingForFormat('french_podcast') === 'podcast_setup' && defaultSettingForFormat('ugc_podcast') === 'podcast_setup')
+  check('settings: cinematic defaults to clean_white_studio', defaultSettingForFormat('cinematic_product') === 'clean_white_studio')
+  check('settings: settingById resolves', settingById('volcano') === null && settingById('gym_locker').name === 'Gym Locker Room')
+
+  const applied = applySettingToDescription('A desk by a window', 'home_office')
+  check('settings: apply appends mood + lighting', applied.includes('[Setting: Home Office') && applied.includes('focused, productive energy') && applied.includes('desk lamp glow'))
+  const reapplied = applySettingToDescription(applied, 'gym_locker')
+  check('settings: re-apply replaces previous suffix (idempotent)', !reapplied.includes('Home Office') && reapplied.includes('Gym Locker Room') && reapplied.startsWith('A desk by a window'))
+
+  // Outline carries the default setting on every scene.
+  const studio = sampleStudio('french_podcast', ['podcast_host_fr', 'podcast_guest_fr'], 'fr')
+  const scenes = generateSceneOutline(studio)
+  check('settings: outline auto-assigns settingId on every scene', scenes.every((sc) => sc.settingId === 'podcast_setup'))
+  check('settings: outline visualDescription carries the setting block', scenes.every((sc) => sc.visualDescription.includes('[Setting: Podcast Setup')))
+}
+
 console.log('')
 console.log(`${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)
