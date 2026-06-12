@@ -17,6 +17,36 @@ Implementation:
 - Tests: `npm run test:studio` (114 model checks) and
   `node scripts/dev-probe-marketing-studio.mjs` (31 in-browser checks; dev server must be running)
 
+## Tier 1 additions (post gap-analysis)
+
+After the live Higgsfield walkthrough (`MARKETING_STUDIO_GAP_ANALYSIS.md`), the
+studio gained:
+
+- **Named saved sessions** — the studio opens on a Session Home (list of saved
+  sessions, newest first, inline rename, Open/Delete, empty-state CTA). Each
+  session is one ad package, auto-saved on every change under
+  `aaf_marketing_studio_sessions` and auto-named `Product · Format`
+  ("Calme · French Podcast (Omni)"); manual renames stick. The old single-slot
+  session migrates automatically.
+- **Hook library** — 17 proven openers (8 FR, 7 EN, 2 universal) as clickable
+  chips in Step 1, filtered by brief language; hover shows the full line, click
+  drops it into the hook field; 🎲 Surprise me picks one.
+- **Settings library** — 15 named scene settings (Bedroom Morning → Gym Locker
+  Room), each with a visual mood + lighting note. Every generated scene gets a
+  format default (podcasts → Podcast Setup, cinematic → Clean White Studio…);
+  a per-scene dropdown and an "apply to all" control swap them, appending a
+  `[Setting: …]` block to the visual description (idempotent on re-pick).
+- **3 new formats + categories** — Unboxing / First Reaction, Tutorial / How To
+  (numbered step arc), and Product Review (verdict-first with an honest con),
+  all passing the same omni-v51 rule checks. Step 2 groups formats under
+  UGC / French / Cinematic with a category filter bar.
+- **Output settings** — platform target (TikTok/Reels/Feed/Shorts/YouTube/
+  Facebook, auto-setting aspect ratio), an aspect-ratio override
+  (9:16/16:9/1:1/4:3 vs format default), and a quality hint
+  (Standard/High/Maximum). The override drives every prompt's setup header;
+  quality (when not Standard) is appended to headers; the markdown export
+  gains an Output Settings block; the Step 5 summary shows all three.
+
 ## The 5 wizard steps
 
 1. **Brief** — product name*, description*, key benefit/hook, target audience,
