@@ -30,7 +30,9 @@ import ValidationPanel from './components/ValidationPanel.jsx'
 import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
-import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits, propagateResultToOutputs } from './lib/nodeCanvasModel.js'
+import MarketingStudio from './components/MarketingStudio.jsx'
+import { emptyStudio, normalizeStudio } from './lib/marketingStudioModel.js'
+import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
 import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
@@ -42,8 +44,29 @@ const SPECIAL_NAV = [
   { key: 'script', label: 'Script Import' },
   { key: 'handoff', label: 'AI Handoff' },
   { key: 'canvas', label: 'Canvas' },
-  { key: 'node_canvas', label: 'Node Canvas' }
+  { key: 'node_canvas', label: 'Node Canvas' },
+  { key: 'marketing_studio', label: '🎬 Marketing Studio' }
 ]
+
+// Marketing Studio session persistence (independent from the project state).
+const STUDIO_KEY = 'aaf_marketing_studio_session'
+
+function loadStudio() {
+  try {
+    const raw = localStorage.getItem(STUDIO_KEY)
+    return raw ? JSON.parse(raw) : emptyStudio()
+  } catch {
+    return emptyStudio()
+  }
+}
+
+function saveStudio(studio) {
+  try {
+    localStorage.setItem(STUDIO_KEY, JSON.stringify(studio))
+  } catch {
+    // Storage may be unavailable (private mode, quota). Non-fatal.
+  }
+}
 
 // Signature of the export-relevant Canvas data, for stale-sync detection.
 function canvasSignature(project) {
@@ -64,6 +87,7 @@ function syncedProject(project) {
 export default function App() {
   const [project, setProject] = useState(() => loadProject(emptyProject()))
   const [library, setLibrary] = useState(() => loadLibrary())
+  const [studio, setStudio] = useState(() => normalizeStudio(loadStudio()))
   const [active, setActive] = useState('brand')
   const [backupExists, setBackupExists] = useState(() => hasBackup())
   const [canvasPreviews, setCanvasPreviews] = useState({})
@@ -327,6 +351,34 @@ export default function App() {
   }
   const setCanvasPreview = (id, dataUrl) => setCanvasPreviews((m) => ({ ...m, [id]: dataUrl }))
   const selectCompetitor = () => setSelectedMethod('competitor_recreation')
+
+  // ---- Marketing Studio (independent state; persisted under its own key) ----
+  const updateStudio = (fn) =>
+    setStudio((s) => {
+      const next = fn(s)
+      saveStudio(next)
+      return next
+    })
+  const saveStudioSession = () => saveStudio(studio)
+  const clearStudioSession = () => {
+    const fresh = emptyStudio()
+    setStudio(fresh)
+    saveStudio(fresh)
+  }
+
+  // Send studio prompts to the Node Canvas as Prompt → Image Gen (mock) → Output
+  // rows — same appended-row pattern as Import Scenes. Returns the row count.
+  function sendStudioToNodeCanvas(prompts) {
+    const list = Array.isArray(prompts) ? prompts : []
+    if (!list.length) return 0
+    const rows = list.map((p) => ({
+      scene_number: p.sceneNumber,
+      what_happens: `Marketing Studio clip ${p.sceneNumber} — ${p.setupHeader}`,
+      output_prompt: p.promptText
+    }))
+    updateNodeCanvas((c) => addSceneNodesToCanvas(normalizeNodeCanvas(c), rows))
+    return rows.length
+  }
 
   function applyCanvasImport(scenes, parsed) {
     setProject((p) => {
@@ -606,6 +658,17 @@ export default function App() {
         />
       )
     }
+    if (active === 'marketing_studio') {
+      return (
+        <MarketingStudio
+          studio={studio}
+          onUpdate={updateStudio}
+          onSendToNodeCanvas={sendStudioToNodeCanvas}
+          onSaveSession={saveStudioSession}
+          onClearSession={clearStudioSession}
+        />
+      )
+    }
     if (active === 'handoff') {
       return (
         <AiHandoff
@@ -792,6 +855,7 @@ export default function App() {
     if (item.key === 'handoff') return false
     if (item.key === 'canvas') return (project.canvas && project.canvas.scenes && project.canvas.scenes.length > 0) || false
     if (item.key === 'node_canvas') return (project.node_canvas && project.node_canvas.nodes && project.node_canvas.nodes.length > 0) || false
+    if (item.key === 'marketing_studio') return (studio.product.name || '').trim().length > 0
     if (item.kind === 'clips') return project.clips.length > 0
     if (item.kind === 'export') return false
     return (project[item.key] || '').trim().length > 0
