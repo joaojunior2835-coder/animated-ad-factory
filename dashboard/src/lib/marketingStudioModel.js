@@ -1094,6 +1094,145 @@ export function deleteSession(sessions, id) {
   return (Array.isArray(sessions) ? sessions : []).filter((sess) => sess.id !== id)
 }
 
+// ---- Recreate From Package (Tier 2) ----
+
+// Parse an exported Markdown package back into a partial studio object.
+// Never throws — always returns { ok, studio, errors }.
+export function parseMarkdownPackage(markdownText) {
+  const errors = []
+  const studio = emptyStudio()
+
+  try {
+    const text = String(markdownText || '')
+    const lines = text.split(/\r?\n/)
+
+    // Product brief section
+    const grabField = (re) => {
+      for (const l of lines) {
+        const m = re.exec(l)
+        if (m && str(m[1]).trim()) return str(m[1]).trim().replace(/^\*+|\*+$/g, '')
+      }
+      return ''
+    }
+
+    const productName = grabField(/^\s*-\s+\*\*Product:\*\*\s+(.+)/i) || grabField(/^#\s+(.+?)\s+[—–-]/)
+    if (productName) studio.product.name = productName.replace(/\s+—.*$/, '').trim()
+
+    const description = grabField(/^\s*-\s+\*\*Description:\*\*\s+(.+)/i)
+    if (description) studio.product.description = description
+
+    const benefits = grabField(/^\s*-\s+\*\*Benefits?:\*\*\s+(.+)/i)
+    if (benefits) studio.product.benefits = benefits.split(/;\s*/).filter(Boolean)
+
+    const audience = grabField(/^\s*-\s+\*\*Target audience:\*\*\s+(.+)/i)
+    if (audience) studio.product.targetAudience = audience
+
+    const ingredient = grabField(/^\s*-\s+\*\*Key ingredient[^:]*:\*\*\s+(.+)/i)
+    if (ingredient) studio.product.keyIngredient = ingredient
+
+    const claim = grabField(/^\s*-\s+\*\*Claim boundary:\*\*\s+(.+)/i)
+    if (claim) studio.product.claimBoundary = claim
+
+    const landingPage = grabField(/^\s*-\s+\*\*Landing page:\*\*\s+(https?:\/\/\S+)/i)
+    if (landingPage) studio.product.landingPageUrl = landingPage
+
+    const category = grabField(/^\s*-\s+\*\*Category:\*\*\s+(.+)/i)
+    if (category) studio.product.category = category
+
+    const langVal = grabField(/^\s*-\s+\*\*Language:\*\*\s+(\w+)/i)
+    if (langVal) studio.brief.language = langVal.toLowerCase() === 'en' ? 'en' : 'fr'
+
+    // Format: look for "**Format:** <name>" line
+    const formatLine = grabField(/^\s*-\s+\*\*Format:\*\*\s+(.+)/i)
+    if (formatLine) {
+      const matched = FORMATS.find((f) => formatLine.toLowerCase().includes(f.name.toLowerCase()) || formatLine.toLowerCase().includes(f.id))
+      if (matched) studio.format = matched.id
+      else errors.push(`Format not recognized: "${formatLine}"`)
+    }
+
+    // Scenes: parse the markdown table
+    const scenes = []
+    let inTable = false
+    const tableRowRe = /^\|\s*(\d+)\s*\|\s*(\d+)s\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]*)\|/
+
+    for (const line of lines) {
+      if (/^\|\s*#\s*\|/.test(line)) { inTable = true; continue }
+      if (/^\|\s*---/.test(line)) continue
+      if (inTable && line.trim().startsWith('|')) {
+        const m = tableRowRe.exec(line)
+        if (m) {
+          scenes.push({
+            sceneNumber: Number(m[1]),
+            clipDuration: Number(m[2]) || 6,
+            duration: Number(m[2]) || 6,
+            purpose: str(m[3]).trim().toLowerCase().replace(/\s+/g, '_'),
+            shotType: str(m[4]).trim(),
+            emotionalBeat: str(m[5]).trim(),
+            dialogueLine: str(m[6]).trim(),
+            visualDescription: '',
+            character: '',
+            settingId: ''
+          })
+        }
+      } else if (inTable && !line.trim().startsWith('|')) {
+        inTable = false
+      }
+    }
+    if (scenes.length) studio.scenes = scenes
+
+    // Prompts: parse "### Clip N" blocks
+    const prompts = []
+    let inBlock = false
+    let currentClip = null
+    let inCodeBlock = false
+    let codeLines = []
+
+    for (const line of lines) {
+      const clipHeader = /^###\s+Clip\s+(\d+)/.exec(line)
+      if (clipHeader) {
+        if (currentClip && codeLines.length) {
+          const [setupHeader, , ...rest] = codeLines
+          currentClip.setupHeader = str(setupHeader).trim()
+          currentClip.promptText = rest.join('\n').trim()
+          prompts.push(currentClip)
+        }
+        currentClip = { sceneNumber: Number(clipHeader[1]), setupHeader: '', promptText: '', model: '', notes: '', duration: 6, aspectRatio: '9:16', attachFrame: '' }
+        codeLines = []
+        inBlock = true
+        inCodeBlock = false
+        continue
+      }
+      if (inBlock) {
+        if (line.trim() === '```text' || line.trim() === '```') {
+          if (inCodeBlock) {
+            inCodeBlock = false
+          } else {
+            inCodeBlock = true
+          }
+          continue
+        }
+        if (inCodeBlock) codeLines.push(line)
+      }
+    }
+    // flush last block
+    if (currentClip && codeLines.length) {
+      const [setupHeader, , ...rest] = codeLines
+      currentClip.setupHeader = str(setupHeader).trim()
+      currentClip.promptText = rest.join('\n').trim()
+      prompts.push(currentClip)
+    }
+    if (prompts.length) studio.prompts = prompts
+
+    if (!studio.product.name) errors.push('Product name not found in the package header.')
+    if (!scenes.length) errors.push('No scene table found — scenes could not be parsed.')
+
+    return { ok: errors.filter((e) => !e.startsWith('Format not')).length === 0 && !!studio.product.name, studio, errors }
+  } catch (e) {
+    errors.push(`Parse error: ${e && e.message ? e.message : String(e)}`)
+    return { ok: false, studio, errors }
+  }
+}
+
 // ---- Product Library (Tier 2) ----
 
 export const PRODUCT_LIBRARY_KEY = 'aaf_product_library'

@@ -361,6 +361,13 @@ export default function App() {
     persistStudioSessions((list) => [session, ...list])
     setActiveStudioSessionId(session.id)
   }
+
+  const importStudioSession = (studioData, name) => {
+    const session = createSession(studioData)
+    const namedSession = name ? { ...session, name, name_custom: true } : session
+    persistStudioSessions((list) => [namedSession, ...list])
+    setActiveStudioSessionId(namedSession.id)
+  }
   const openStudioSession = (id) => setActiveStudioSessionId(id)
   const closeStudioSession = () => setActiveStudioSessionId(null)
   const deleteStudioSession = (id) => {
@@ -689,6 +696,7 @@ export default function App() {
           onUpdateProductLibrary={updateProductLibrary}
           onSaveProductToLibrary={(product) => updateProductLibrary((lib) => saveProductToLibrary(lib, product))}
           onDeleteProductFromLibrary={(id) => updateProductLibrary((lib) => deleteProductFromLibrary(lib, id))}
+          onImportSession={importStudioSession}
         />
       )
     }

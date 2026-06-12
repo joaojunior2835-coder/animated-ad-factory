@@ -29,7 +29,9 @@ import {
   buildStudioMarkdown,
   modelsNeeded,
   totalPromptDuration,
-  emptyStudio
+  emptyStudio,
+  normalizeStudio,
+  parseMarkdownPackage
 } from '../lib/marketingStudioModel.js'
 
 const STEPS = [
@@ -785,6 +787,50 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
   )
 }
 
+// ---- Import from Markdown modal ----
+function ImportMarkdownModal({ onClose, onImport }) {
+  const [text, setText] = useState('')
+  const [result, setResult] = useState(null)
+
+  function doImport() {
+    const r = parseMarkdownPackage(text)
+    setResult(r)
+    if (r.studio && r.studio.product && r.studio.product.name) {
+      onImport(r)
+    }
+  }
+
+  return (
+    <div className="ms-import-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="ms-import-modal">
+        <h3>📥 Import from Markdown Package</h3>
+        <p className="hint small">Paste a previously exported Marketing Studio Markdown package. Scenes, prompts, format, and product brief will be restored.</p>
+        <textarea
+          className="ms-input"
+          rows={12}
+          value={text}
+          placeholder="Paste your exported Markdown package here…"
+          onChange={(e) => { setText(e.target.value); setResult(null) }}
+        />
+        {result && (
+          <div className={`ms-import-result ${result.ok ? 'ok' : 'warn'}`}>
+            {result.ok ? `Imported ${result.studio.scenes.length} scenes, ${result.studio.prompts.length} prompts ✓` : 'Partial import:'}
+            {result.errors.length > 0 && (
+              <ul style={{ margin: '4px 0 0', paddingLeft: '18px' }}>
+                {result.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+        <div className="row" style={{ gap: '8px' }}>
+          <button className="primary" disabled={!text.trim()} onClick={doImport}>Import</button>
+          <button className="ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ---- Session home (no active session) ----
 function SessionName({ session, onRename }) {
   const [editing, setEditing] = useState(false)
@@ -815,7 +861,8 @@ function SessionName({ session, onRename }) {
   )
 }
 
-function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession, onRenameSession }) {
+function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession, onRenameSession, onImportMarkdown }) {
+  const [importOpen, setImportOpen] = useState(false)
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
   return (
     <section className="panel ms-panel">
@@ -826,8 +873,21 @@ function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession
 
       <div className="row between ms-home-head">
         <p className="hint small">Each session is one ad package: brief, format, characters, scenes, prompts. Sessions save automatically on this machine.</p>
-        <button className="primary" onClick={onCreateSession}>+ New Studio Session</button>
+        <div className="row" style={{ gap: '8px' }}>
+          <button className="ghost" onClick={() => setImportOpen(true)}>📥 Import from Markdown</button>
+          <button className="primary" onClick={onCreateSession}>+ New Studio Session</button>
+        </div>
       </div>
+
+      {importOpen && (
+        <ImportMarkdownModal
+          onClose={() => setImportOpen(false)}
+          onImport={(r) => {
+            onImportMarkdown(r.studio, r.studio.product.name ? `${r.studio.product.name} · Imported` : 'Imported Session')
+            setImportOpen(false)
+          }}
+        />
+      )}
 
       {sorted.length === 0 ? (
         <div className="ms-empty-state">
@@ -869,8 +929,9 @@ function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession
 }
 
 // ---- Wizard shell ----
-export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary }) {
+export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary, onImportSession }) {
   const [step, setStep] = useState(0)
+  const [wizardImportOpen, setWizardImportOpen] = useState(false)
 
   // Reset the wizard to Brief whenever a different session opens.
   useEffect(() => {
@@ -886,6 +947,7 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
         onOpenSession={onOpenSession}
         onDeleteSession={onDeleteSession}
         onRenameSession={onRenameSession}
+        onImportMarkdown={(studioData, name) => onImportSession && onImportSession(studioData, name)}
       />
     )
   }
@@ -915,7 +977,30 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
       <div className="row ms-session-bar">
         <button className="ms-linklike" onClick={onCloseSession}>← All Sessions</button>
         <SessionName session={activeSession} onRename={onRenameSession} />
+        <span style={{ flex: 1 }} />
+        <button className="ghost small" onClick={() => setWizardImportOpen(true)}>📥 Import</button>
       </div>
+
+      {wizardImportOpen && (
+        <ImportMarkdownModal
+          onClose={() => setWizardImportOpen(false)}
+          onImport={(r) => {
+            // Merge into current session: overwrite scenes + prompts, keep format/characters if not in imported
+            onUpdate((s) => {
+              const imported = normalizeStudio(r.studio)
+              return {
+                ...s,
+                scenes: imported.scenes.length ? imported.scenes : s.scenes,
+                prompts: imported.prompts.length ? imported.prompts : s.prompts,
+                format: imported.format || s.format,
+                product: imported.product.name ? imported.product : s.product,
+                brief: imported.brief.language ? imported.brief : s.brief
+              }
+            })
+            setWizardImportOpen(false)
+          }}
+        />
+      )}
 
       <StepIndicator step={step} maxReached={maxReached} onJump={go} />
 
