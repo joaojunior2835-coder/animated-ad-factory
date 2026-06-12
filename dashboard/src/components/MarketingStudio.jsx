@@ -125,11 +125,51 @@ function StepIndicator({ step, maxReached, onJump }) {
   )
 }
 
+// ---- Hook search bar (Tier 2) ----
+function HookSearchBar({ language, onChangeLanguage, onFilter }) {
+  const [query, setQuery] = useState('')
+  const [langFilter, setLangFilter] = useState(language)
+
+  // Sync when parent language changes (e.g. user changes brief language toggle)
+  useEffect(() => { setLangFilter(language) }, [language])
+
+  useEffect(() => {
+    const q = query.trim().toLowerCase()
+    onFilter(() => (h) => {
+      const langOk = langFilter === 'all' ? true : (h.language === langFilter || h.language === 'any')
+      const textOk = !q || h.name.toLowerCase().includes(q) || h.text.toLowerCase().includes(q)
+      return langOk && textOk
+    })
+  }, [query, langFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function pickLang(l) {
+    setLangFilter(l)
+    if (l !== 'all') onChangeLanguage(l)
+  }
+
+  return (
+    <div className="ms-hook-search-bar">
+      <input
+        className="ms-input ms-hook-search-input"
+        placeholder="🔍 Search hooks…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <div className="ms-toggle-row">
+        <button className={langFilter === 'fr' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => pickLang('fr')}>🇫🇷 FR</button>
+        <button className={langFilter === 'en' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => pickLang('en')}>🇬🇧 EN</button>
+        <button className={langFilter === 'all' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => pickLang('all')}>All</button>
+      </div>
+    </div>
+  )
+}
+
 // ---- Step 1: Product Brief ----
 function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary }) {
   const [pasted, setPasted] = useState('')
   const [filledKeys, setFilledKeys] = useState([])
   const [hookApplied, setHookApplied] = useState('')
+  const [hookFilter, setHookFilter] = useState(null)
   const [libOpen, setLibOpen] = useState(false)
   const [loadedFlash, setLoadedFlash] = useState('')
   const [savedFlash, setSavedFlash] = useState(false)
@@ -152,6 +192,9 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
   const filled = (key) => (filledKeys.includes(key) ? ' ms-autofilled' : '')
 
   const hooks = hooksForLanguage(b.language)
+  // HookSearchBar owns both language and text filtering; use all hooks as the pool
+  const allHooks = [...hooks]
+  const filteredHooks = hookFilter ? allHooks.filter(hookFilter) : allHooks
 
   function applyHook(hook) {
     setBrief('hook', hook.text)
@@ -164,8 +207,9 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
   }
 
   function surpriseHook() {
-    if (!hooks.length) return
-    applyHook(hooks[Math.floor(Math.random() * hooks.length)])
+    const pool = filteredHooks.length ? filteredHooks : hooks
+    if (!pool.length) return
+    applyHook(pool[Math.floor(Math.random() * pool.length)])
   }
 
   function extract() {
@@ -330,22 +374,33 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
 
       <div className="ms-hook-library">
         <div className="row between">
-          <span className="field-label">Hook Inspiration ({b.language.toUpperCase()})</span>
-          <button className="ghost small" onClick={surpriseHook} title="Pick a random hook and apply it">🎲 Surprise me</button>
+          <span className="field-label">Hook Inspiration</span>
+          <button className="ghost small" onClick={surpriseHook} title="Pick a random hook from filtered results and apply it">🎲 Surprise me</button>
         </div>
-        <div className="ms-hook-chips">
-          {hooks.map((h) => (
-            <button
-              key={h.id}
-              className={hookApplied === h.id ? 'ms-hook-chip applied' : 'ms-hook-chip'}
-              title={h.text}
-              onClick={() => applyHook(h)}
-            >
-              {hookApplied === h.id ? '✓ ' : ''}{h.name}
-            </button>
-          ))}
-        </div>
-        <p className="hint small">Hover a chip to read the opener; click to drop it into the hook field above (it overwrites the field — finish the line for your product).</p>
+        <HookSearchBar
+          language={b.language}
+          onChangeLanguage={(l) => setBrief('language', l)}
+          onFilter={(fn) => setHookFilter(() => fn)}
+        />
+        {filteredHooks.length === 0 ? (
+          <div className="ms-hook-no-results hint small">
+            No hooks match. <button className="ms-linklike" onClick={() => setHookFilter(null)}>Clear search</button>
+          </div>
+        ) : (
+          <div className="ms-hook-chips">
+            {filteredHooks.map((h) => (
+              <button
+                key={h.id}
+                className={hookApplied === h.id ? 'ms-hook-chip applied' : 'ms-hook-chip'}
+                title={h.text}
+                onClick={() => applyHook(h)}
+              >
+                {hookApplied === h.id ? '✓ ' : ''}{h.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="hint small">Hover a chip to read the opener; click to drop it into the hook field above.</p>
       </div>
 
       <div className="ms-paste-box">
@@ -609,18 +664,58 @@ function CharactersStep({ studio, onUpdate, onBack, onNext }) {
   )
 }
 
-// ---- Step 4: Script & scene review ----
-function SceneCard({ scene, onPatch, onRegenerate }) {
-  const ch = characterById(scene.character)
+// ---- Browse All Settings modal (Tier 2) ----
+function BrowseSettingsModal({ onClose, onSelect, focusedSceneNum }) {
+  const [query, setQuery] = useState('')
+  const filtered = SETTINGS_LIBRARY.filter((st) => {
+    const q = query.trim().toLowerCase()
+    return !q || st.name.toLowerCase().includes(q) || (st.description && st.description.toLowerCase().includes(q)) || (Array.isArray(st.tags) && st.tags.some((t) => t.includes(q)))
+  })
   return (
-    <div className="ms-scene-card">
+    <div className="ms-browse-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="ms-browse-modal">
+        <div className="row between">
+          <h3>Browse All Settings</h3>
+          <button className="ghost small" onClick={onClose}>✕ Close</button>
+        </div>
+        {focusedSceneNum ? <p className="hint small">Clicking a setting will apply it to Scene {focusedSceneNum}.</p> : <p className="hint small ms-badge ms-badge-warn" style={{ display: 'inline-block' }}>Select a scene first</p>}
+        <input className="ms-input" placeholder="🔍 Search settings…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="ms-settings-grid">
+          {filtered.map((st) => (
+            <div key={st.id} className="ms-setting-browse-card" onClick={() => { if (focusedSceneNum) { onSelect(st.id); onClose() } }}>
+              <h5>{st.name}</h5>
+              <p className="hint">{st.description}</p>
+              <p className="hint" style={{ fontStyle: 'italic' }}>{st.lightingNote}</p>
+              <div className="ms-setting-tags">
+                {(st.tags || []).map((t) => <span key={t} className="ms-setting-tag">{t}</span>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---- Step 4: Script & scene review ----
+function SceneCard({ scene, onPatch, onRegenerate, onFocus, isFocused }) {
+  const [settingSearch, setSettingSearch] = useState('')
+  const ch = characterById(scene.character)
+
+  const filteredSettings = SETTINGS_LIBRARY.filter((st) => {
+    const q = settingSearch.trim().toLowerCase()
+    return !q || st.name.toLowerCase().includes(q) || (st.description && st.description.toLowerCase().includes(q))
+  })
+
+  return (
+    <div className={`ms-scene-card${isFocused ? ' ms-scene-focused' : ''}`} onClick={onFocus}>
       <div className="ms-scene-head">
         <span className="ms-scene-num">Scene {scene.sceneNumber}</span>
         <span className="ms-badge">{scene.clipDuration}s</span>
         <span className="ms-badge ms-badge-style">{purposeLabel(scene.purpose)}</span>
         <span className="ms-badge">{scene.emotionalBeat}</span>
         <span className="ms-scene-spacer" />
-        <button className="ghost small" onClick={onRegenerate} title="Re-derive this scene from the brief (discards edits to this scene)">Regenerate Scene</button>
+        <button className="ghost small" onClick={(e) => { e.stopPropagation(); onRegenerate() }} title="Re-derive this scene from the brief (discards edits to this scene)">Regenerate Scene</button>
       </div>
       <div className="ms-scene-meta">
         <span><b>Shot:</b> {scene.shotType}</span>
@@ -637,6 +732,13 @@ function SceneCard({ scene, onPatch, onRegenerate }) {
       <div className="ms-setting-row">
         <label className="field ms-setting-field">
           <span className="field-label">Scene setting</span>
+          <input
+            className="ms-input ms-setting-search"
+            placeholder="🔍 Filter settings…"
+            value={settingSearch}
+            onChange={(e) => setSettingSearch(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+          />
           <select
             className="ms-input"
             value={scene.settingId || ''}
@@ -646,7 +748,7 @@ function SceneCard({ scene, onPatch, onRegenerate }) {
             }}
           >
             <option value="">(none)</option>
-            {SETTINGS_LIBRARY.map((st) => (
+            {filteredSettings.map((st) => (
               <option key={st.id} value={st.id}>{st.name}</option>
             ))}
           </select>
@@ -674,6 +776,10 @@ function SceneCard({ scene, onPatch, onRegenerate }) {
 
 function ScriptStep({ studio, onUpdate, onBack, onNext }) {
   const [bulkSetting, setBulkSetting] = useState('')
+  const [focusedSceneIndex, setFocusedSceneIndex] = useState(null)
+  const [browseSettingsOpen, setBrowseSettingsOpen] = useState(false)
+
+  const focusedScene = focusedSceneIndex !== null ? studio.scenes[focusedSceneIndex] : null
 
   function applySettingToAll() {
     if (!bulkSetting) return
@@ -747,11 +853,30 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
           ))}
         </select>
         <button className="ghost small" disabled={!bulkSetting} onClick={applySettingToAll}>Apply to all</button>
+        <button className="ghost small ms-browse-settings-btn" onClick={() => setBrowseSettingsOpen(true)}>🗂 Browse All Settings</button>
       </div>
+
+      {browseSettingsOpen && (
+        <BrowseSettingsModal
+          onClose={() => setBrowseSettingsOpen(false)}
+          focusedSceneNum={focusedScene ? focusedScene.sceneNumber : null}
+          onSelect={(settingId) => {
+            if (focusedSceneIndex === null) return
+            patchScene(focusedSceneIndex, { settingId, visualDescription: applySettingToDescription(studio.scenes[focusedSceneIndex].visualDescription, settingId) })
+          }}
+        />
+      )}
 
       <div className="ms-scene-list">
         {studio.scenes.map((sc, i) => (
-          <SceneCard key={sc.sceneNumber} scene={sc} onPatch={(patch) => patchScene(i, patch)} onRegenerate={() => regenOne(i)} />
+          <SceneCard
+            key={sc.sceneNumber}
+            scene={sc}
+            onPatch={(patch) => patchScene(i, patch)}
+            onRegenerate={() => regenOne(i)}
+            onFocus={() => setFocusedSceneIndex(i)}
+            isFocused={focusedSceneIndex === i}
+          />
         ))}
       </div>
 

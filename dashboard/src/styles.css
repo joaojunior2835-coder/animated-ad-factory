@@ -1816,6 +1816,9 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .ms-custom-char-list { display: grid; gap: 4px; margin-top: 8px; }
 .ms-custom-char-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
 
+/* ---- Focused scene card (Tier 2) ---- */
+.ms-scene-focused { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2); }
+
 /* ---- Hook search (Tier 2) ---- */
 .ms-hook-search-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
 .ms-hook-search-input { flex: 1; min-width: 160px; }
