@@ -391,20 +391,21 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
             No hooks match. <button className="ms-linklike" onClick={() => setHookFilter(null)}>Clear search</button>
           </div>
         ) : (
-          <div className="ms-hook-chips">
+          <div className="ms-hook-cards">
             {filteredHooks.map((h) => (
               <button
                 key={h.id}
-                className={hookApplied === h.id ? 'ms-hook-chip applied' : 'ms-hook-chip'}
+                className={hookApplied === h.id ? 'ms-hook-chip ms-hook-card applied' : 'ms-hook-chip ms-hook-card'}
                 title={h.text}
                 onClick={() => applyHook(h)}
               >
-                {hookApplied === h.id ? '✓ ' : ''}{h.name}
+                <span className="ms-hook-card-name">{hookApplied === h.id ? '✓ ' : ''}{h.name}</span>
+                <span className="ms-hook-card-text">“{h.text}”</span>
               </button>
             ))}
           </div>
         )}
-        <p className="hint small">Hover a chip to read the opener; click to drop it into the hook field above.</p>
+        <p className="hint small">Click an opener to drop it into the hook field above — then finish the line for your product.</p>
       </div>
 
       <div className="ms-paste-box">
@@ -440,12 +441,14 @@ function FormatCard({ f, selected, onSelect }) {
   const [showAllExamples, setShowAllExamples] = useState(false)
   const examples = Array.isArray(f.examples) ? f.examples : []
   return (
-    <div className={selected ? 'ms-format-card selected' : 'ms-format-card'}>
+    <div className={`ms-format-card ms-cat-${(f.category || 'UGC').toLowerCase()}${selected ? ' selected' : ''}`}>
       <div className="ms-format-head">
         <span className="ms-format-icon">{f.icon}</span>
-        <h4>{f.name}</h4>
+        <div className="ms-format-titleblock">
+          <h4>{f.name}</h4>
+          <p className="ms-format-desc">{f.description}</p>
+        </div>
       </div>
-      <p className="hint small">{f.description}</p>
       <div className="ms-badge-row">
         <span className="ms-badge">{f.clipRange} clips</span>
         <span className="ms-badge">{f.aspectRatio}</span>
@@ -713,69 +716,81 @@ function SceneCard({ scene, onPatch, onRegenerate, onFocus, isFocused }) {
     return !q || searchNorm(st.name).includes(q) || searchNorm(st.description).includes(q)
   })
 
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const st = settingById(scene.settingId)
+
   return (
     <div className={`ms-scene-card${isFocused ? ' ms-scene-focused' : ''}`} onClick={onFocus}>
-      <div className="ms-scene-head">
-        <span className="ms-scene-num">Scene {scene.sceneNumber}</span>
-        <span className="ms-badge">{scene.clipDuration}s</span>
-        <span className="ms-badge ms-badge-style">{purposeLabel(scene.purpose)}</span>
-        <span className="ms-badge">{scene.emotionalBeat}</span>
-        <span className="ms-scene-spacer" />
-        <button className="ghost small" onClick={(e) => { e.stopPropagation(); onRegenerate() }} title="Re-derive this scene from the brief (discards edits to this scene)">Regenerate Scene</button>
-      </div>
-      <div className="ms-scene-meta">
-        <span><b>Shot:</b> {scene.shotType}</span>
-        <span><b>Character:</b> {ch ? ch.name : scene.character || '—'}</span>
-      </div>
-      <label className="field">
-        <span className="field-label">Dialogue line</span>
-        <textarea className="ms-input" rows={2} value={scene.dialogueLine} onChange={(e) => onPatch({ dialogueLine: e.target.value })} />
-      </label>
-      <label className="field">
-        <span className="field-label">Visual description</span>
-        <textarea className="ms-input" rows={2} value={scene.visualDescription} onChange={(e) => onPatch({ visualDescription: e.target.value })} />
-      </label>
-      <div className="ms-setting-row">
-        <label className="field ms-setting-field">
-          <span className="field-label">Scene setting</span>
-          <input
-            className="ms-input ms-setting-search"
-            placeholder="🔍 Filter settings…"
-            value={settingSearch}
-            onChange={(e) => setSettingSearch(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-          />
-          <select
-            className="ms-input"
-            value={scene.settingId || ''}
-            onChange={(e) => {
-              const id = e.target.value
-              onPatch({ settingId: id, visualDescription: applySettingToDescription(scene.visualDescription, id) })
-            }}
-          >
-            <option value="">(none)</option>
-            {filteredSettings.map((st) => (
-              <option key={st.id} value={st.id}>{st.name}</option>
+      <div className="ms-scene-numblock" aria-hidden="true">{scene.sceneNumber}</div>
+      <div className="ms-scene-body">
+        <div className="ms-scene-head">
+          <span className="ms-scene-num">Scene {scene.sceneNumber}</span>
+          <span className="ms-badge ms-badge-style">{purposeLabel(scene.purpose)}</span>
+          <span className="ms-badge">{scene.emotionalBeat}</span>
+          <span className="ms-scene-spacer" />
+          <div className="ms-toggle-row ms-duration-pills" title="Clip duration">
+            {CLIP_DURATIONS.map((d) => (
+              <button key={d} className={scene.clipDuration === d ? 'ms-toggle ms-pill active' : 'ms-toggle ms-pill'} onClick={(e) => { e.stopPropagation(); onPatch({ clipDuration: d, duration: d }) }}>{d}s</button>
             ))}
-          </select>
-        </label>
-        {(() => {
-          const st = settingById(scene.settingId)
-          return st ? (
-            <span className="ms-setting-preview" title={`${st.description} — ${st.lightingNote}`}>
-              {st.name} <span className="ms-badge ms-badge-style">{st.visualMood}</span>
-            </span>
-          ) : null
-        })()}
-      </div>
-      <label className="field ms-clipdur">
-        <span className="field-label">Clip duration</span>
-        <div className="ms-toggle-row">
-          {CLIP_DURATIONS.map((d) => (
-            <button key={d} className={scene.clipDuration === d ? 'ms-toggle active' : 'ms-toggle'} onClick={() => onPatch({ clipDuration: d, duration: d })}>{d}s</button>
-          ))}
+          </div>
+          <button className="ghost small" onClick={(e) => { e.stopPropagation(); onRegenerate() }} title="Re-derive this scene from the brief (discards edits to this scene)">↺ Regenerate</button>
         </div>
-      </label>
+
+        <textarea
+          className="ms-input ms-dialogue-hero"
+          rows={2}
+          value={scene.dialogueLine}
+          placeholder="(no dialogue — visual clip)"
+          onChange={(e) => onPatch({ dialogueLine: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+        />
+        <div className="ms-scene-meta">
+          <span>{ch ? `🗣 ${ch.name}` : scene.character ? `🗣 ${scene.character}` : '🎞 voiceover / visual'}</span>
+          <span className="ms-scene-shot">{scene.shotType}</span>
+          {st ? (
+            <span className="ms-setting-tag" title={`${st.description} — ${st.lightingNote}`}>📍 {st.name} · {st.visualMood}</span>
+          ) : null}
+          <span className="ms-scene-spacer" />
+          <button className="ms-linklike ms-details-toggle" onClick={(e) => { e.stopPropagation(); setDetailsOpen((v) => !v) }}>
+            {detailsOpen ? '▾ Hide visual & setting' : '▸ Visual & setting'}
+          </button>
+        </div>
+
+        {detailsOpen ? (
+          <div className="ms-scene-details">
+            <label className="field">
+              <span className="field-label">Visual description (what the camera shoots)</span>
+              <textarea className="ms-input" rows={2} value={scene.visualDescription} onChange={(e) => onPatch({ visualDescription: e.target.value })} onClick={(e) => e.stopPropagation()} />
+            </label>
+            <div className="ms-setting-row">
+              <label className="field ms-setting-field">
+                <span className="field-label">Scene setting</span>
+                <input
+                  className="ms-input ms-setting-search"
+                  placeholder="🔍 Filter settings…"
+                  value={settingSearch}
+                  onChange={(e) => setSettingSearch(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <select
+                  className="ms-input"
+                  value={scene.settingId || ''}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    onPatch({ settingId: id, visualDescription: applySettingToDescription(scene.visualDescription, id) })
+                  }}
+                >
+                  <option value="">(none)</option>
+                  {filteredSettings.map((s2) => (
+                    <option key={s2.id} value={s2.id}>{s2.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -899,9 +914,12 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
         <pre className="ms-script-pre">{fullScript || '(no dialogue)'}</pre>
       </div>
 
+      <button className="primary ms-generate-btn" disabled={!studio.scenes.length} onClick={generatePrompts}>
+        ✦ Generate Prompts
+      </button>
       <div className="ms-nav-row">
         <button className="ghost" onClick={onBack}>← Back</button>
-        <button className="primary" disabled={!studio.scenes.length} onClick={generatePrompts}>Generate Prompts →</button>
+        <span />
       </div>
     </div>
   )
@@ -1079,9 +1097,10 @@ function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
   return (
     <section className="panel ms-panel">
-      <div className="panel-head">
-        <h2>🎬 Marketing Studio</h2>
-        <span className="tag">one brief → complete ad package · 100% local</span>
+      <div className="ms-hero">
+        <span className="ms-hero-eyebrow">Marketing Studio</span>
+        <h2 className="ms-hero-title">Turn one brief<br />into a complete ad package</h2>
+        <p className="ms-hero-sub">Scene-by-scene scripts and paste-ready prompts — UGC, podcast, or cinematic. 100% local, no credits.</p>
       </div>
 
       <div className="row between ms-home-head">
@@ -1180,11 +1199,15 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
     setStep(0)
   }
 
+  const productTitle = studio.product.name.trim()
+  const fmt = formatById(studio.format)
+
   return (
     <section className="panel ms-panel">
-      <div className="panel-head">
-        <h2>🎬 Marketing Studio</h2>
-        <span className="tag">one brief → complete ad package · 100% local</span>
+      <div className="ms-hero ms-hero-compact">
+        <span className="ms-hero-eyebrow">Marketing Studio</span>
+        <h2 className="ms-hero-title">{productTitle || 'New ad package'}</h2>
+        {fmt ? <p className="ms-hero-sub">{fmt.icon} {fmt.name} · {effectiveAspectRatio(studio)} · {studioLanguage(studio).toUpperCase()}</p> : <p className="ms-hero-sub">Name the product, pick a format, approve the script — the prompts write themselves.</p>}
       </div>
 
       <div className="row ms-session-bar">

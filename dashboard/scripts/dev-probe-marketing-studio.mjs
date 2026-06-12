@@ -47,7 +47,7 @@ try {
   const navBtn = page.locator('nav.sidebar-left button', { hasText: 'Marketing Studio' })
   check('nav: 🎬 Marketing Studio appears in the left nav', (await navBtn.count()) === 1)
   await navBtn.click()
-  await page.locator('.ms-panel h2', { hasText: 'Marketing Studio' }).waitFor()
+  await page.locator('.ms-hero-eyebrow', { hasText: 'Marketing Studio' }).waitFor()
   check('session home shows empty state first', (await page.locator('.ms-empty-state').count()) === 1)
   await page.locator('button', { hasText: 'New Studio Session' }).click()
   await page.locator('.ms-step').first().waitFor()
@@ -118,7 +118,7 @@ try {
   check('edited dialogue appears in full script', (await page.locator('.ms-script-pre').textContent()).includes(edited))
 
   // Per-scene regenerate restores the template line
-  await page.locator('.ms-scene-card').nth(1).locator('button', { hasText: 'Regenerate Scene' }).click()
+  await page.locator('.ms-scene-card').nth(1).locator('button', { hasText: 'Regenerate' }).click()
   const restored = await page.locator('.ms-scene-card').nth(1).locator('textarea').first().inputValue()
   check('Regenerate Scene restores the derived line', restored !== edited && restored.length > 0, restored)
 

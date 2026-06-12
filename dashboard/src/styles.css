@@ -1852,3 +1852,155 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .ms-aside-stats { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); font-size: 13px; }
 .ms-aside-rules { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
 .ms-aside-rules ul { margin: 0; padding-left: 16px; font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+
+/* ============================================================
+   MARKETING STUDIO — Higgsfield-parity visual pass
+   (later rules override the earlier MS sections by cascade)
+   ============================================================ */
+
+.ms-panel { max-width: 1180px; padding: 24px 28px; }
+
+/* Hero: condensed display headline + eyebrow, like the studio landing */
+.ms-hero { margin: 4px 0 20px; }
+.ms-hero-eyebrow {
+  display: block; font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 6px;
+}
+.ms-hero-title {
+  margin: 0; font-size: 40px; line-height: 1.02; text-transform: uppercase;
+  font-weight: 800; letter-spacing: 0.5px;
+  font-stretch: condensed;
+}
+.ms-hero-compact .ms-hero-title { font-size: 30px; }
+.ms-hero-sub { margin: 8px 0 0; color: var(--muted); font-size: 13.5px; max-width: 640px; }
+
+/* Step indicator: progress, not breadcrumb */
+.ms-steps { gap: 0; margin: 18px 0 26px; border: 1px solid var(--border); border-radius: 999px; padding: 4px; background: var(--panel-2); width: fit-content; }
+.ms-step { padding: 6px 14px; border-radius: 999px; }
+.ms-step.active { background: #2b5fb8; }
+.ms-step.active .ms-step-num { background: #fff; border-color: #fff; color: #2b5fb8; }
+.ms-step.active .ms-step-label { color: #eaf2ff; }
+.ms-step.done .ms-step-label { color: var(--text); }
+.ms-step-arrow { display: none; }
+
+/* Step bodies: room to breathe */
+.ms-stepbody { display: grid; gap: 14px; }
+.ms-stepbody h3 { font-size: 20px; margin: 8px 0 0; letter-spacing: 0.2px; }
+.ms-stepbody > .hint { margin-top: -8px; }
+
+/* Format cards: creative options, example-first */
+.ms-format-grid { gap: 14px; }
+.ms-format-card {
+  position: relative; padding: 16px 16px 14px; border-radius: 14px; gap: 10px;
+  overflow: hidden;
+}
+.ms-format-card::before {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 4px;
+  background: var(--accent-2);
+}
+.ms-format-card.ms-cat-ugc::before { background: #6fcf97; }
+.ms-format-card.ms-cat-french::before { background: #6ea8fe; }
+.ms-format-card.ms-cat-cinematic::before { background: #f0a85a; }
+.ms-format-card:hover { transform: translateY(-3px); }
+.ms-format-card.selected { transform: scale(1.015); box-shadow: 0 0 0 1px var(--accent-2), 0 8px 24px #0008; }
+.ms-format-icon { font-size: 34px; line-height: 1; }
+.ms-format-titleblock h4 { margin: 0; font-size: 15px; }
+.ms-format-desc { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.ms-format-examples { border-top: 1px dashed var(--border); padding-top: 8px; display: grid; gap: 4px; }
+.ms-format-example-line { margin: 0; font-style: italic; font-size: 12.5px; color: var(--text); opacity: 0.85; }
+.ms-format-example-line::before { content: '▸ '; color: var(--muted); }
+.ms-examples-toggle { font-size: 11.5px; justify-self: start; }
+
+/* Character cards: avatar-forward with a speech bubble */
+.ms-char-grid { gap: 12px; max-height: 480px; }
+.ms-char-card { border-radius: 14px; padding: 14px; gap: 8px; align-items: flex-start; transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease; }
+.ms-char-card:hover { transform: translateY(-2px); }
+.ms-char-avatar { font-size: 3.4rem; line-height: 1; }
+.ms-char-name { font-size: 15px; font-weight: 700; }
+.ms-char-personality { font-style: italic; color: var(--muted); font-size: 12.5px; }
+.ms-char-example {
+  position: relative; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 12px; padding: 8px 10px; font-size: 12.5px; line-height: 1.5;
+  color: var(--text);
+}
+.ms-char-example::after {
+  content: ''; position: absolute; left: 18px; bottom: -6px; width: 10px; height: 10px;
+  background: var(--bg); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.ms-char-best { display: flex; gap: 4px; flex-wrap: wrap; }
+.ms-char-best-badge { font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
+.ms-char-card.format-match { border-color: #2f9e63; }
+.ms-char-format-match {
+  font-size: 11.5px; color: #6fcf97; background: #2f9e6322; border-radius: 8px;
+  padding: 3px 8px; font-weight: 600;
+}
+.ms-char-lang-mismatch { font-size: 11.5px; color: #f0a85a; }
+.ms-char-card.selected { box-shadow: 0 0 0 2px var(--accent-2), 0 6px 18px #0007; }
+
+/* Hook cards: full text visible, 3-up, scrollable */
+.ms-hook-cards {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  max-height: 240px; overflow-y: auto; padding-right: 4px;
+}
+@media (max-width: 1000px) { .ms-hook-cards { grid-template-columns: 1fr 1fr; } }
+.ms-hook-card {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left;
+  border-radius: 12px; padding: 10px 12px; white-space: normal;
+}
+.ms-hook-card .ms-hook-card-name { font-weight: 700; font-size: 12.5px; letter-spacing: 0.3px; text-transform: uppercase; }
+.ms-hook-card .ms-hook-card-text { font-size: 12.5px; font-style: italic; opacity: 0.85; line-height: 1.45; }
+.ms-hook-card.applied { background: #2f9e6314; }
+
+/* Scene cards: storyboard frames */
+.ms-scene-list { gap: 12px; }
+.ms-scene-card {
+  display: flex; gap: 0; padding: 0; border-radius: 14px; overflow: hidden;
+  cursor: default;
+}
+.ms-scene-numblock {
+  flex: none; width: 64px; display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 800; color: var(--muted);
+  background: var(--bg); border-right: 1px solid var(--border);
+}
+.ms-scene-focused .ms-scene-numblock { color: var(--accent-2); }
+.ms-scene-body { flex: 1; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.ms-dialogue-hero {
+  font-size: 15.5px; line-height: 1.55; font-weight: 500;
+  background: var(--bg); border-radius: 10px; resize: vertical;
+}
+.ms-scene-meta { align-items: center; gap: 12px; }
+.ms-scene-shot { opacity: 0.85; }
+.ms-setting-tag {
+  font-size: 11.5px; color: var(--accent-2); border: 1px solid #6ea8fe44;
+  background: #6ea8fe11; border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 320px;
+}
+.ms-details-toggle { font-size: 12px; text-decoration: none; color: var(--muted); }
+.ms-details-toggle:hover { color: var(--text); }
+.ms-scene-details { border-top: 1px dashed var(--border); padding-top: 8px; display: grid; gap: 6px; }
+.ms-duration-pills { gap: 3px; }
+.ms-pill { padding: 3px 9px; font-size: 11.5px; border-radius: 999px; }
+
+/* Generate Prompts: the moment of creation */
+.ms-generate-btn {
+  width: 100%; padding: 14px; font-size: 15px; font-weight: 700; letter-spacing: 0.4px;
+  border-radius: 12px; text-transform: uppercase;
+}
+
+/* Prompt cards: production slates */
+.ms-prompt-card { border-radius: 14px; padding: 14px 16px; }
+.ms-setup-header {
+  background: #0a0c10; border-left: 3px solid var(--accent);
+  font-size: 13px; letter-spacing: 0.2px; padding: 10px 12px;
+}
+.ms-prompt-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.7; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+}
+.ms-summary-bar { border-radius: 12px; padding: 12px 16px; }
+
+/* Session list rows */
+.ms-session-row-item { border-radius: 12px; padding: 12px 16px; }
+.ms-session-name { font-size: 15px; }
