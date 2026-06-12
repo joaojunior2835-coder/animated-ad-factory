@@ -17,6 +17,34 @@ Implementation:
 - Tests: `npm run test:studio` (114 model checks) and
   `node scripts/dev-probe-marketing-studio.mjs` (31 in-browser checks; dev server must be running)
 
+## Higgsfield-parity pass (post live walkthrough)
+
+A six-phase pass driven by direct navigation of Higgsfield's Marketing Studio
+(see `MARKETING_STUDIO_GAP_ANALYSIS.md` and `PHASE_5_CHANGES.md`):
+
+- **Six QA fixes** — normalized product load (accent-safe round-trip is a
+  permanent probe regression), per-format default characters
+  (`getDefaultCharactersForFormat`, manual picks always win), one-sentence
+  ≤15-word scene-1 hooks (`clampHookLine`), >10% duration-overshoot warnings
+  on Steps 4-5, a neutral studio side panel (no more project-export noise),
+  and accent-insensitive search (`searchNorm`) for hooks + settings.
+- **Visual redesign** — display hero with eyebrow + live product title, pill
+  progress indicator, example-first format cards with category accent strips,
+  avatar-forward character cards with speech-bubble voice samples, full-text
+  hook cards, storyboard scene frames (large number block, dialogue as the
+  hero element, visual/setting collapsed behind a toggle), production-slate
+  prompt cards in monospace.
+- **UX flow** — auto-focused product name, live session naming, chosen-state
+  format animation, character voice preview panel, 500ms outline-generation
+  skeleton, full-width ✦ Generate Prompts button, staggered prompt reveal,
+  count-confirming Copy All, forward slide-in step transitions.
+- **Content quality** — reverse-chronology 10-scene podcast arc with an
+  explicit host/guest speaker map (guest opens with the result), 6-scene
+  talking-head arc, verdict-first 7-scene testimonial arc;
+  product/ingredient/audience-aware dialogue templates; `GESTURE_MAP`
+  (emotional beat → scene-specific body language); cinematographer-grade
+  two-shot visual descriptions; motion-only cinematic prompts.
+
 ## Tier 1 additions (post gap-analysis)
 
 After the live Higgsfield walkthrough (`MARKETING_STUDIO_GAP_ANALYSIS.md`), the
