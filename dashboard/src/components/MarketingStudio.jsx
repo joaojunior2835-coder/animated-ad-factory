@@ -7,6 +7,11 @@ import {
   SETTINGS_LIBRARY,
   settingById,
   applySettingToDescription,
+  ASPECT_OPTIONS,
+  QUALITY_HINTS,
+  PLATFORMS,
+  platformById,
+  effectiveAspectRatio,
   CUSTOM_CHARACTER_PREFIX,
   STUDIO_DURATIONS,
   CLIP_DURATIONS,
@@ -126,6 +131,13 @@ function BriefStep({ studio, onUpdate, onNext }) {
 
   const setProduct = (key, value) => onUpdate((s) => ({ ...s, product: { ...s.product, [key]: value } }))
   const setBrief = (key, value) => onUpdate((s) => ({ ...s, brief: { ...s.brief, [key]: value } }))
+  const setOutput = (patch) => onUpdate((s) => ({ ...s, output: { ...s.output, ...patch }, prompts: [] }))
+
+  function pickPlatform(id) {
+    const platform = platformById(id)
+    // Platform implies its aspect ratio; clearing the platform keeps the ratio.
+    setOutput(platform ? { platform: id, aspectRatio: platform.aspectRatio } : { platform: '' })
+  }
 
   const filled = (key) => (filledKeys.includes(key) ? ' ms-autofilled' : '')
 
@@ -228,6 +240,38 @@ function BriefStep({ studio, onUpdate, onNext }) {
         <span className="field-label">Landing page URL (optional, for reference)</span>
         <input className={`ms-input${filled('product.landingPageUrl')}`} value={p.landingPageUrl} placeholder="https://…" onChange={(e) => setProduct('landingPageUrl', e.target.value)} />
       </label>
+
+      <div className="ms-output-settings">
+        <span className="field-label">Output Settings</span>
+        <div className="ms-grid2">
+          <label className="field">
+            <span className="field-label">Platform target (auto-sets aspect ratio)</span>
+            <select className="ms-input" value={studio.output.platform} onChange={(e) => pickPlatform(e.target.value)}>
+              <option value="">(none — manual)</option>
+              {PLATFORMS.map((pl) => (
+                <option key={pl.id} value={pl.id}>{pl.name} ({pl.aspectRatio})</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Quality hint (label only — appears in export)</span>
+            <div className="ms-toggle-row">
+              {QUALITY_HINTS.map((q) => (
+                <button key={q} className={studio.output.qualityHint === q ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setOutput({ qualityHint: q })}>{q}</button>
+              ))}
+            </div>
+          </label>
+        </div>
+        <label className="field">
+          <span className="field-label">Aspect ratio override (current: {effectiveAspectRatio(studio)})</span>
+          <div className="ms-toggle-row">
+            <button className={!studio.output.aspectRatio ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setOutput({ aspectRatio: '', platform: '' })} title="Use the selected format's default ratio">Format default</button>
+            {ASPECT_OPTIONS.map((ar) => (
+              <button key={ar} className={studio.output.aspectRatio === ar ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setOutput({ aspectRatio: ar })}>{ar}</button>
+            ))}
+          </div>
+        </label>
+      </div>
 
       <div className="ms-hook-library">
         <div className="row between">
@@ -632,6 +676,9 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
         <span><b>Total estimated duration:</b> {total}s (target {studio.brief.duration}s)</span>
         <span><b>Models needed:</b> {models.length ? models.join(', ') : '—'}</span>
         <span><b>Language:</b> {lang.toUpperCase()}</span>
+        <span><b>Aspect:</b> {effectiveAspectRatio(studio)}{studio.output.aspectRatio ? ' (override)' : ''}</span>
+        <span><b>Quality:</b> {studio.output.qualityHint}</span>
+        {studio.output.platform ? <span className="ms-badge ms-badge-style">{(platformById(studio.output.platform) || {}).name}</span> : null}
       </div>
 
       <div className="row ms-export-row">

@@ -268,6 +268,30 @@ check('formats: french_podcast is French, cinematic is Cinematic', FORMATS.find(
   check('sessions: loadSessions no-ops outside the browser', Array.isArray(loadSessions()))
 }
 
+// ---- Output settings (Tier 1) ----
+{
+  const { PLATFORMS, platformById, effectiveAspectRatio, buildStudioMarkdown: md } = await import('../src/lib/marketingStudioModel.js')
+  check('platforms: 6 targets with ratios', PLATFORMS.length === 6 && PLATFORMS.every((p) => p.id && p.name && p.aspectRatio))
+  check('platforms: tiktok 9:16, youtube 16:9, feed 1:1', platformById('tiktok').aspectRatio === '9:16' && platformById('youtube').aspectRatio === '16:9' && platformById('instagram_feed').aspectRatio === '1:1')
+
+  const studio = sampleStudio('french_podcast', ['podcast_host_fr', 'podcast_guest_fr'], 'fr')
+  check('output: format default ratio when no override', effectiveAspectRatio(studio) === '9:16')
+  studio.output = { aspectRatio: '16:9', qualityHint: 'High', platform: 'youtube' }
+  check('output: override wins', effectiveAspectRatio(studio) === '16:9')
+
+  const scenes = generateSceneOutline(studio)
+  const prompts = generateOmniPrompts(studio, scenes)
+  check('output: override changes every setupHeader + prompt aspectRatio', prompts.every((p) => p.setupHeader.includes(' · 16:9 · ') && p.aspectRatio === '16:9'))
+  check('output: quality hint appears in setupHeader when not Standard', prompts.every((p) => p.setupHeader.endsWith('· Quality: High')))
+  const std = normalizeStudio({ ...studio, output: { aspectRatio: '', qualityHint: 'Standard', platform: '' } })
+  const stdPrompts = generateOmniPrompts(std, generateSceneOutline(std))
+  check('output: Standard quality keeps the header clean', stdPrompts.every((p) => !p.setupHeader.includes('Quality:')))
+
+  const markdown = md(studio, scenes, prompts)
+  check('output: markdown header has Platform/Aspect/Quality/clips/duration', markdown.includes('## Output Settings') && markdown.includes('**Platform:** YouTube') && markdown.includes('**Aspect Ratio:** 16:9 (override)') && markdown.includes('**Quality:** High') && markdown.includes(`**Total clips:** ${prompts.length}`))
+  check('output: normalize drops bad values', JSON.stringify(normalizeStudio({ output: { aspectRatio: '5:4', qualityHint: 'Ultra', platform: 'myspace' } }).output) === JSON.stringify({ aspectRatio: '', qualityHint: 'Standard', platform: '' }))
+}
+
 console.log('')
 console.log(`${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)

@@ -309,6 +309,30 @@ export const STUDIO_DURATIONS = [15, 30, 45, 60]
 export const CLIP_DURATIONS = [4, 6, 8, 10]
 export const PRODUCT_CATEGORIES = ['supplement', 'skincare', 'food & drink', 'fitness', 'wellness', 'other']
 
+// ---- Output settings (Tier 1) ----
+export const ASPECT_OPTIONS = ['9:16', '16:9', '1:1', '4:3']
+export const QUALITY_HINTS = ['Standard', 'High', 'Maximum']
+export const PLATFORMS = [
+  { id: 'tiktok', name: 'TikTok', aspectRatio: '9:16' },
+  { id: 'instagram_reels', name: 'Instagram Reels', aspectRatio: '9:16' },
+  { id: 'instagram_feed', name: 'Instagram Feed', aspectRatio: '1:1' },
+  { id: 'youtube_shorts', name: 'YouTube Shorts', aspectRatio: '9:16' },
+  { id: 'youtube', name: 'YouTube', aspectRatio: '16:9' },
+  { id: 'facebook', name: 'Facebook', aspectRatio: '16:9' }
+]
+
+export function platformById(id) {
+  return PLATFORMS.find((p) => p.id === id) || null
+}
+
+// The aspect ratio every prompt uses: studio override wins, else format default.
+export function effectiveAspectRatio(studio) {
+  const s = normalizeStudio(studio)
+  if (s.output.aspectRatio) return s.output.aspectRatio
+  const format = formatById(s.format)
+  return format ? format.aspectRatio : '9:16'
+}
+
 export function emptyStudio() {
   return {
     product: {
@@ -332,6 +356,11 @@ export function emptyStudio() {
       tone: '',
       language: 'fr',
       duration: 30
+    },
+    output: {
+      aspectRatio: '',
+      qualityHint: 'Standard',
+      platform: ''
     },
     scenes: [],
     prompts: [],
@@ -380,6 +409,14 @@ export function normalizeStudio(data) {
       language: b.language === 'en' ? 'en' : 'fr',
       duration: STUDIO_DURATIONS.includes(duration) ? duration : 30
     },
+    output: (() => {
+      const o = d.output && typeof d.output === 'object' ? d.output : {}
+      return {
+        aspectRatio: ASPECT_OPTIONS.includes(o.aspectRatio) ? o.aspectRatio : '',
+        qualityHint: QUALITY_HINTS.includes(o.qualityHint) ? o.qualityHint : 'Standard',
+        platform: PLATFORMS.some((p) => p.id === o.platform) ? o.platform : ''
+      }
+    })(),
     scenes: Array.isArray(d.scenes) ? d.scenes : [],
     prompts: Array.isArray(d.prompts) ? d.prompts : [],
     status: STUDIO_STATUSES.includes(d.status) ? d.status : 'draft'
@@ -785,6 +822,10 @@ export function generateOmniPrompts(studio, scenes) {
   const lang = studioLanguage(s)
   const isPodcast = isTwoCharacterFormat(format.id)
   const isVisualFormat = NO_DIALOGUE_FORMATS.includes(format.id)
+  // Studio-level overrides: aspect ratio (platform/override wins over the format
+  // default) and a quality hint surfaced in the setup header when not Standard.
+  const aspectRatio = effectiveAspectRatio(s)
+  const qualitySuffix = s.output.qualityHint && s.output.qualityHint !== 'Standard' ? ` · Quality: ${s.output.qualityHint}` : ''
 
   return scenes.map((scene) => {
     const num = Number(scene.sceneNumber) || 0
@@ -828,7 +869,7 @@ export function generateOmniPrompts(studio, scenes) {
       if (format.id === 'french_podcast') notes.push('Use Gemini Omni Flash in Google Flow. Never Seedance for French.')
     }
 
-    const setupHeader = `${shortModelName(model)} · ${format.aspectRatio} · select [${clipDuration}s] · attach Frame [${num}]`
+    const setupHeader = `${shortModelName(model)} · ${aspectRatio} · select [${clipDuration}s] · attach Frame [${num}]${qualitySuffix}`
 
     return {
       sceneNumber: num,
@@ -837,7 +878,7 @@ export function generateOmniPrompts(studio, scenes) {
       setupHeader,
       attachFrame: `Frame ${num}`,
       duration: clipDuration,
-      aspectRatio: format.aspectRatio,
+      aspectRatio,
       notes: notes.join(' ')
     }
   })
@@ -1046,6 +1087,17 @@ export function buildStudioMarkdown(studio, scenes, prompts) {
 
   out.push(`# ${title} — Marketing Studio Package`, '')
   out.push('> Generated locally by the Animated Ad Factory Marketing Studio. Paste-ready prompts — no API was called.', '')
+
+  const platform = platformById(s.output.platform)
+  const promptListForHeader = Array.isArray(prompts) ? prompts : []
+  out.push('## Output Settings', '')
+  out.push(`- **Platform:** ${platform ? platform.name : '(not set)'}`)
+  out.push(`- **Aspect Ratio:** ${effectiveAspectRatio(s)}${s.output.aspectRatio ? ' (override)' : ' (format default)'}`)
+  out.push(`- **Quality:** ${s.output.qualityHint}`)
+  out.push(`- **Language:** ${lang.toUpperCase()}`)
+  out.push(`- **Total clips:** ${promptListForHeader.length}`)
+  out.push(`- **Estimated duration:** ${totalPromptDuration(promptListForHeader)}s`)
+  out.push('')
 
   out.push('## Product Brief Summary', '')
   out.push(`- **Product:** ${title}`)

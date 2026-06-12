@@ -1769,3 +1769,9 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .ms-session-name:hover { background: var(--bg); }
 .ms-session-name-input { width: 320px; }
 .ms-session-bar { align-items: center; gap: 14px; margin-top: 6px; }
+
+/* Output settings (Tier 1) */
+.ms-output-settings {
+  margin-top: 14px; padding: 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--panel-2); display: grid; gap: 8px;
+}
