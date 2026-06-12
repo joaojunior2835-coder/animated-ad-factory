@@ -174,6 +174,30 @@ export const METHODS = [
     export_profile: ['Static Concepts', 'Export Formats']
   },
   {
+    id: 'marketing_studio',
+    name: 'Marketing Studio',
+    description: 'One brief → complete ad package. UGC, podcast, or cinematic.',
+    icon: '🎬',
+    category: 'studio',
+    phases: ['brief', 'format', 'character', 'script', 'prompts', 'export'],
+    best_for: 'Turning one product brief into a full scene-by-scene prompt package (Omni Flash / Seedance) without leaving the dashboard.',
+    required_inputs: ['Product name + description', 'Format choice', 'Character pick'],
+    optional_inputs: ['Competitor analysis paste', 'Claim boundary', 'Landing page URL'],
+    stages: ['Product Brief', 'Format', 'Characters', 'Script & Scenes', 'Prompts & Export'],
+    outputs: ['Scene-by-scene outline', 'Paste-ready Omni Flash / Seedance prompts', 'Full script', 'Markdown production package'],
+    recommended_tools: ['google_flow', 'seedance'],
+    validation_rules: ['Product name + description required before format', 'Scene 1 is the hook, last scene is the CTA', 'Duration never in prompt text (setup header only)'],
+    export_sections: ['Product Brief Summary', 'Scene Outline', 'Prompts'],
+
+    required_project_fields: [],
+    required_stage_fields: [],
+    required_clip_fields: [],
+    optional_clip_fields: [],
+    validation_profile: [pn, ml],
+    ai_return_schema_notes: 'Marketing Studio generates its package locally (pure JS) — no AI return schema. Use the Marketing Studio wizard in the left nav.',
+    export_profile: ['Product Brief Summary', 'Scene Outline', 'Prompts']
+  },
+  {
     id: 'hook_testing_pack',
     name: 'Hook Testing Pack',
     description: 'A batch of hook variations (visual + verbal) to test scroll-stopping power.',

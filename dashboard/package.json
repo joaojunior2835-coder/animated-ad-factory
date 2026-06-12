@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:docs": "node scripts/smoke-test-doc-importer.mjs",
+    "test:studio": "node scripts/smoke-test-marketing-studio.mjs",
     "qa:canvas": "node scripts/qa-canvas-speed-batch.mjs",
     "qa:e2e": "node scripts/qa-e2e.mjs",
     "qa:all": "npm run build && npm run test:docs && npm run qa:canvas && npm run qa:e2e",
