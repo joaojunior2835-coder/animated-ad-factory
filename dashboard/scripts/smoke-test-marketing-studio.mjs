@@ -292,6 +292,122 @@ check('formats: french_podcast is French, cinematic is Cinematic', FORMATS.find(
   check('output: normalize drops bad values', JSON.stringify(normalizeStudio({ output: { aspectRatio: '5:4', qualityHint: 'Ultra', platform: 'myspace' } }).output) === JSON.stringify({ aspectRatio: '', qualityHint: 'Standard', platform: '' }))
 }
 
+// ---- Tier 2: Product library ----
+{
+  const { saveProductToLibrary, deleteProductFromLibrary, loadProductLibrary, PRODUCT_LIBRARY_KEY } = await import('../src/lib/marketingStudioModel.js')
+  const product1 = { name: 'NuitCalme', description: 'An evening drink.', benefits: ['calm evenings'], targetAudience: 'women 30-45', keyIngredient: 'saffron', claimBoundary: 'no medical claims', category: 'wellness', imageUrls: [], landingPageUrl: '', keyIngredient2: '' }
+  const product2 = { name: 'GlowSerum', description: 'A night serum.', benefits: ['calm skin'], targetAudience: 'women 25-40', keyIngredient: 'bakuchiol', claimBoundary: '', category: 'skincare', imageUrls: [], landingPageUrl: '' }
+
+  let lib = []
+  lib = saveProductToLibrary(lib, product1)
+  check('product-library: saveProductToLibrary adds entry', lib.length === 1 && lib[0].name === 'NuitCalme')
+  check('product-library: entry has id, name, savedAt, product', !!lib[0].id && !!lib[0].savedAt && !!lib[0].product)
+
+  lib = saveProductToLibrary(lib, product2)
+  check('product-library: second product added', lib.length === 2)
+
+  // Save same product again → should update, not duplicate
+  const sameName = { ...product1, description: 'Updated description.' }
+  lib = saveProductToLibrary(lib, sameName)
+  check('product-library: re-saving same slugified name deduplicates', lib.length === 2)
+  check('product-library: updated entry has new description', lib.find((e) => e.name === 'NuitCalme').product.description === 'Updated description.')
+
+  // Delete
+  const idToDelete = lib.find((e) => e.name === 'GlowSerum').id
+  lib = deleteProductFromLibrary(lib, idToDelete)
+  check('product-library: deleteProductFromLibrary removes entry', lib.length === 1 && lib[0].name === 'NuitCalme')
+
+  // loadProductLibrary outside browser → []
+  check('product-library: loadProductLibrary returns array outside browser', Array.isArray(loadProductLibrary()))
+}
+
+// ---- Tier 2: parseMarkdownPackage round-trip ----
+{
+  const { parseMarkdownPackage, buildStudioMarkdown, generateOmniPrompts } = await import('../src/lib/marketingStudioModel.js')
+  const studio = sampleStudio('ugc_talking_head', ['confident_woman_fr'], 'fr')
+  const scenes = generateSceneOutline(studio)
+  const prompts = generateOmniPrompts(studio, scenes)
+  const markdown = buildStudioMarkdown(studio, scenes, prompts)
+
+  // Round-trip: parse the exported markdown back
+  const parsed = parseMarkdownPackage(markdown)
+  check('parseMarkdownPackage: never throws (ok is boolean)', typeof parsed.ok === 'boolean')
+  check('parseMarkdownPackage: errors is an array', Array.isArray(parsed.errors))
+  check('parseMarkdownPackage: studio is an object', parsed.studio && typeof parsed.studio === 'object')
+  check('parseMarkdownPackage: product name recovered', parsed.studio.product.name === 'NuitCalme', parsed.studio.product.name)
+  check('parseMarkdownPackage: scene count matches', parsed.studio.scenes.length === scenes.length, `got ${parsed.studio.scenes.length} expected ${scenes.length}`)
+  check('parseMarkdownPackage: format recovered', parsed.studio.format === 'ugc_talking_head', parsed.studio.format)
+
+  // Partial input (no scene table)
+  const partial = parseMarkdownPackage('# TestProduct — Marketing Studio Package\n- **Product:** TestProduct\n')
+  check('parseMarkdownPackage: partial input does not throw', typeof partial.ok === 'boolean')
+  check('parseMarkdownPackage: partial input has product name', partial.studio.product.name === 'TestProduct')
+
+  // Garbage input — must not throw
+  const garbage = parseMarkdownPackage('not a markdown package at all 🎉')
+  check('parseMarkdownPackage: garbage input returns ok:false gracefully', garbage.ok === false || garbage.errors.length > 0)
+
+  // Empty input
+  const empty = parseMarkdownPackage('')
+  check('parseMarkdownPackage: empty string does not throw', typeof empty.ok === 'boolean')
+}
+
+// ---- Tier 2: character upgrades ----
+{
+  const { CHARACTERS } = await import('../src/lib/marketingStudioModel.js')
+  check('characters: all 8 have avatar field', CHARACTERS.every((c) => typeof c.avatar === 'string' && c.avatar.length > 0))
+  check('characters: all 8 have personality field', CHARACTERS.every((c) => typeof c.personality === 'string' && c.personality.length > 0))
+  check('characters: all 8 have exampleLine field', CHARACTERS.every((c) => typeof c.exampleLine === 'string' && c.exampleLine.length > 0))
+  check('characters: all 8 have bestFormats array', CHARACTERS.every((c) => Array.isArray(c.bestFormats) && c.bestFormats.length > 0))
+  check('characters: bestFormats reference valid format ids', CHARACTERS.every((c) => c.bestFormats.every((fid) => FORMATS.find((f) => f.id === fid))))
+  check('characters: confident_woman_fr avatar is 👩‍💼', CHARACTERS.find((c) => c.id === 'confident_woman_fr').avatar === '👩‍💼')
+  check('characters: podcast_host_fr in french_podcast bestFormats', CHARACTERS.find((c) => c.id === 'podcast_host_fr').bestFormats.includes('french_podcast'))
+}
+
+// ---- Tier 2: hook search ----
+{
+  const { HOOK_LIBRARY, hooksForLanguage } = await import('../src/lib/marketingStudioModel.js')
+  // Simulate the filter logic used by HookSearchBar
+  const filterHooks = (hooks, lang, query) => {
+    const q = query.trim().toLowerCase()
+    return hooks.filter((h) => {
+      const langOk = lang === 'all' ? true : (h.language === lang || h.language === 'any')
+      const textOk = !q || h.name.toLowerCase().includes(q) || h.text.toLowerCase().includes(q)
+      return langOk && textOk
+    })
+  }
+
+  const frHooks = filterHooks(HOOK_LIBRARY, 'fr', '')
+  check('hook-search: fr filter returns fr + any hooks', frHooks.every((h) => h.language === 'fr' || h.language === 'any'))
+
+  const frAvant = filterHooks(HOOK_LIBRARY, 'fr', 'avant')
+  check('hook-search: fr + query "avant" returns only hooks containing that text', frAvant.length > 0 && frAvant.every((h) => (h.name.toLowerCase().includes('avant') || h.text.toLowerCase().includes('avant')) && (h.language === 'fr' || h.language === 'any')))
+
+  const allEmpty = filterHooks(HOOK_LIBRARY, 'all', '')
+  check('hook-search: all + empty query returns all hooks', allEmpty.length === HOOK_LIBRARY.length)
+
+  const allQuery = filterHooks(HOOK_LIBRARY, 'all', 'problem')
+  check('hook-search: all + query "problem" returns matching hooks from any language', allQuery.length > 0 && allQuery.every((h) => h.name.toLowerCase().includes('problem') || h.text.toLowerCase().includes('problem')))
+}
+
+// ---- Tier 2: generateOmniPrompts with aspect ratio override ----
+{
+  const studio = sampleStudio('ugc_talking_head', ['confident_woman_fr'], 'fr')
+  studio.output = { aspectRatio: '16:9', qualityHint: 'High', platform: '' }
+  const scenes = generateSceneOutline(studio)
+  const prompts = generateOmniPrompts(studio, scenes)
+  check('aspect-ratio-override: setupHeader contains 16:9', prompts.every((p) => p.setupHeader.includes(' · 16:9 · ')))
+  check('aspect-ratio-override: prompt aspectRatio field is 16:9', prompts.every((p) => p.aspectRatio === '16:9'))
+  check('aspect-ratio-override: quality hint in header', prompts.every((p) => p.setupHeader.includes('Quality: High')))
+}
+
+// ---- Tier 2: format examples ----
+{
+  const { FORMATS } = await import('../src/lib/marketingStudioModel.js')
+  check('formats: all 8 have examples array', FORMATS.every((f) => Array.isArray(f.examples) && f.examples.length >= 3))
+  check('formats: french_podcast has french-flavored example', FORMATS.find((f) => f.id === 'french_podcast').examples[0].toLowerCase().includes('host') || FORMATS.find((f) => f.id === 'french_podcast').examples[0].toLowerCase().includes('scene'))
+}
+
 console.log('')
 console.log(`${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)
