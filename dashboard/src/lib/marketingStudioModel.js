@@ -14,12 +14,15 @@
 // ---- Formats ----
 // clipCount is the exact scene count generateSceneOutline produces;
 // clipRange is the display badge ("8-12 clips").
+export const FORMAT_CATEGORIES = ['UGC', 'French', 'Cinematic']
+
 export const FORMATS = [
   {
     id: 'ugc_talking_head',
     name: 'UGC Talking Head',
     description: '1 person speaking to camera',
     icon: '🎤',
+    category: 'UGC',
     clipCount: 7,
     clipRange: '6-8',
     aspectRatio: '9:16',
@@ -30,6 +33,7 @@ export const FORMATS = [
     name: 'UGC Podcast',
     description: '2-person podcast format',
     icon: '🎙️',
+    category: 'UGC',
     clipCount: 10,
     clipRange: '8-12',
     aspectRatio: '9:16',
@@ -40,6 +44,7 @@ export const FORMATS = [
     name: 'Cinematic Product',
     description: 'Product hero shots + voiceover',
     icon: '🎥',
+    category: 'Cinematic',
     clipCount: 7,
     clipRange: '6-8',
     aspectRatio: '16:9',
@@ -50,6 +55,7 @@ export const FORMATS = [
     name: 'UGC Testimonial',
     description: 'Problem→solution story arc',
     icon: '💬',
+    category: 'UGC',
     clipCount: 7,
     clipRange: '6-8',
     aspectRatio: '9:16',
@@ -60,11 +66,48 @@ export const FORMATS = [
     name: 'French Podcast (Omni)',
     description: '2-person French language podcast',
     icon: '🇫🇷',
+    category: 'French',
     clipCount: 10,
     clipRange: '8-12',
     aspectRatio: '9:16',
     style: 'conversational/french',
     note: 'Use Gemini Omni Flash in Google Flow. Never Seedance for French.'
+  },
+  {
+    id: 'unboxing',
+    name: 'Unboxing / First Reaction',
+    description: 'Person opens the product on camera',
+    icon: '📦',
+    category: 'UGC',
+    clipCount: 7,
+    clipRange: '6-8',
+    aspectRatio: '9:16',
+    style: 'authentic/raw',
+    note: 'Scene 1: closed box. Scene 2: open reveal. Scene 3-N: reactions.'
+  },
+  {
+    id: 'tutorial',
+    name: 'Tutorial / How To',
+    description: 'Step-by-step product use demonstration',
+    icon: '🧭',
+    category: 'UGC',
+    clipCount: 9,
+    clipRange: '8-10',
+    aspectRatio: '9:16',
+    style: 'educational',
+    note: 'Each scene = one step. Keep instructions simple and visual.'
+  },
+  {
+    id: 'product_review',
+    name: 'Product Review',
+    description: 'Honest review format with pros/cons',
+    icon: '⭐',
+    category: 'UGC',
+    clipCount: 7,
+    clipRange: '6-8',
+    aspectRatio: '9:16',
+    style: 'authentic/raw',
+    note: 'Scene 1: hook/verdict. Scenes 2-N: reasons. Last: CTA.'
   }
 ]
 
@@ -407,6 +450,16 @@ function lineFor(purpose, studio, lang) {
       return t(lang, 'Je pensais que c’était trop beau pour être vrai. J’avais tort.', 'I thought it was too good to be true. I was wrong.')
     case 'cta':
       return str(b.cta).trim() || t(lang, `Essayez ${name} — le lien est juste en dessous.`, `Try ${name} — the link is right below.`)
+    // Unboxing beats
+    case 'unbox_open':
+      return t(lang, `Ça vient d’arriver — on ouvre ${name} ensemble.`, `It just arrived — let’s open ${name} together.`)
+    case 'unbox_reaction':
+      return t(lang, 'Honnêtement ? C’est encore mieux que sur les photos.', 'Honestly? It’s even better than the photos.')
+    // Review beats
+    case 'review_verdict':
+      return str(b.hook).trim() || t(lang, `Mon avis honnête sur ${name}, après un mois complet.`, `My honest review of ${name}, after a full month.`)
+    case 'review_con':
+      return t(lang, 'Le seul vrai bémol : il faut être régulier pour voir l’effet.', 'The one real downside: you have to be consistent to see results.')
     // Podcast-specific conversational beats
     case 'podcast_hook':
       return str(b.hook).trim() || t(lang, `Aujourd’hui on parle d’un sujet que tout le monde évite.`, 'Today we’re talking about a topic everyone avoids.')
@@ -436,6 +489,11 @@ function voLineFor(purpose, studio, lang) {
 
 // Per-purpose emotional beat label.
 const EMOTIONAL_BEATS = {
+  unbox_open: 'anticipation',
+  unbox_reaction: 'satisfaction',
+  review_verdict: 'trust',
+  review_con: 'reassurance',
+  tutorial_step: 'confidence',
   hook: 'curiosity',
   problem: 'frustration',
   agitation: 'tension',
@@ -477,6 +535,11 @@ export function purposeLabel(purpose) {
     podcast_reveal: 'Product Reveal',
     podcast_mechanism_q: 'Mechanism Question',
     podcast_reaction: 'Reaction',
+    unbox_open: 'Open / Reveal',
+    unbox_reaction: 'First Reaction',
+    review_verdict: 'Verdict',
+    review_con: 'Honest Con',
+    tutorial_step: 'Step',
     product_hero: 'Product Hero',
     lifestyle: 'Lifestyle',
     macro_detail: 'Macro Detail',
@@ -577,6 +640,74 @@ function buildSceneOutline(studio) {
       const speaker = i % 2 === 0 ? c1 : c2
       const sc = speakerScene(i + 1, purpose, speaker, s, lang, setting)
       sc.shotType = 'podcast two-shot — static camera, speaker framed at desk'
+      return sc
+    })
+  }
+
+  if (format.id === 'unboxing') {
+    const setting = 'Desk or table with the sealed delivery box, handheld UGC framing'
+    const arc = ['hook', 'unbox_open', 'unbox_reaction', 'benefit', 'mechanism', 'proof', 'cta']
+    return arc.slice(0, format.clipCount).map((purpose, i) => {
+      const sc = speakerScene(i + 1, purpose, c1, s, lang, setting)
+      if (purpose === 'hook') sc.shotType = 'talking head — sealed box held up to camera'
+      if (purpose === 'unbox_open') sc.shotType = 'close-up — hands opening the box'
+      if (purpose === 'unbox_reaction') sc.shotType = 'talking head — product in hand, first look'
+      return sc
+    })
+  }
+
+  if (format.id === 'tutorial') {
+    const setting = 'Clean work surface, product and tools laid out, top-light'
+    const name = str(s.product.name).trim() || t(lang, 'le produit', 'the product')
+    const frSteps = [
+      `Première étape : on prépare ${name}, ça prend trente secondes.`,
+      'Ensuite, on suit la dose indiquée — pas plus, pas moins.',
+      'Étape trois : on mélange doucement et on laisse agir.',
+      'Le geste qui change tout, c’est la régularité, chaque jour.',
+      'Étape cinq : on l’intègre dans la routine du soir.',
+      'Petit conseil : préparez tout à l’avance, c’est plus simple.',
+      'Dernière étape : on observe la différence semaine après semaine.'
+    ]
+    const enSteps = [
+      `Step one: get ${name} ready — it takes thirty seconds.`,
+      'Next, follow the indicated dose — no more, no less.',
+      'Step three: mix it gently and let it work.',
+      'The move that changes everything is doing it daily.',
+      'Step five: build it into your evening routine.',
+      'Quick tip: prepare everything ahead — it’s much easier.',
+      'Last step: watch the difference build week after week.'
+    ]
+    const stepCount = format.clipCount - 2
+    const scenes = [speakerScene(1, 'hook', c1, s, lang, setting)]
+    for (let i = 0; i < stepCount; i++) {
+      const line = t(lang, frSteps[i % frSteps.length], enSteps[i % enSteps.length])
+      const clipDuration = durationForLine(line)
+      scenes.push({
+        sceneNumber: i + 2,
+        duration: clipDuration,
+        purpose: 'tutorial_step',
+        shotType: 'demo shot — hands and product, instructive framing',
+        character: c1,
+        dialogueLine: line,
+        visualDescription: setting,
+        emotionalBeat: EMOTIONAL_BEATS.tutorial_step,
+        clipDuration
+      })
+    }
+    scenes.push(speakerScene(format.clipCount, 'cta', c1, s, lang, setting))
+    return scenes
+  }
+
+  if (format.id === 'product_review') {
+    const setting = 'Lived-in room, product on the table in front, honest framing'
+    const arc = ['hook', 'discovery', 'benefit', 'mechanism', 'review_con', 'proof', 'cta']
+    return arc.slice(0, format.clipCount).map((purpose, i) => {
+      const sc = speakerScene(i + 1, purpose, c1, s, lang, setting)
+      if (purpose === 'hook') {
+        sc.dialogueLine = lineFor('review_verdict', s, lang)
+        sc.clipDuration = durationForLine(sc.dialogueLine)
+        sc.duration = sc.clipDuration
+      }
       return sc
     })
   }

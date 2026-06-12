@@ -198,7 +198,22 @@ check('normalizeStudio: bad language → fr', normalizeStudio({ brief: { languag
 }
 
 check('characters: 8 starter characters', CHARACTERS.length === 8)
-check('formats: 5 formats', FORMATS.length === 5)
+check('formats: 8 formats', FORMATS.length === 8)
+check('formats: every format has a category', FORMATS.every((f) => ['UGC', 'French', 'Cinematic'].includes(f.category)))
+check('formats: french_podcast is French, cinematic is Cinematic', FORMATS.find((f) => f.id === 'french_podcast').category === 'French' && FORMATS.find((f) => f.id === 'cinematic_product').category === 'Cinematic')
+
+// New-format arc specifics
+{
+  const unbox = generateSceneOutline(sampleStudio('unboxing', ['confident_woman_fr'], 'fr'))
+  check('unboxing: scene 2 is the open/reveal', unbox[1] && unbox[1].purpose === 'unbox_open')
+  check('unboxing: scene 3 is the first reaction', unbox[2] && unbox[2].purpose === 'unbox_reaction')
+  const tut = generateSceneOutline(sampleStudio('tutorial', ['confident_woman_fr'], 'fr'))
+  check('tutorial: 9 scenes with 7 steps between hook and CTA', tut.length === 9 && tut.slice(1, -1).every((sc) => sc.purpose === 'tutorial_step'))
+  check('tutorial: steps are distinct lines', new Set(tut.slice(1, -1).map((sc) => sc.dialogueLine)).size === 7)
+  const rev = generateSceneOutline(sampleStudio('product_review', ['confident_woman_fr'], 'fr'))
+  check('product_review: scene 1 is the verdict hook', rev[0] && /avis honnête|honest review/i.test(rev[0].dialogueLine), rev[0] && rev[0].dialogueLine)
+  check('product_review: includes an honest con', rev.some((sc) => sc.purpose === 'review_con'))
+}
 
 // ---- Hook library (Tier 1) ----
 {

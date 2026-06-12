@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   FORMATS,
+  FORMAT_CATEGORIES,
   CHARACTERS,
   hooksForLanguage,
   SETTINGS_LIBRARY,
@@ -271,6 +272,7 @@ function BriefStep({ studio, onUpdate, onNext }) {
 
 // ---- Step 2: Format selector ----
 function FormatStep({ studio, onUpdate, onBack, onNext }) {
+  const [categoryFilter, setCategoryFilter] = useState('All')
   const selected = formatById(studio.format)
   const select = (id) =>
     onUpdate((s) => {
@@ -278,6 +280,8 @@ function FormatStep({ studio, onUpdate, onBack, onNext }) {
       const sameKind = isTwoCharacterFormat(s.format) === isTwoCharacterFormat(id)
       return { ...s, format: id, characters: sameKind ? s.characters : [], scenes: [], prompts: [] }
     })
+
+  const visibleCategories = FORMAT_CATEGORIES.filter((cat) => (categoryFilter === 'All' || categoryFilter === cat) && FORMATS.some((f) => f.category === cat))
 
   return (
     <div className="ms-stepbody">
@@ -290,29 +294,42 @@ function FormatStep({ studio, onUpdate, onBack, onNext }) {
         <p className="hint small">Pick the ad format. It decides the clip count, aspect ratio, and which prompt rules apply.</p>
       )}
 
-      <div className="ms-format-grid">
-        {FORMATS.map((f) => {
-          const sel = studio.format === f.id
-          return (
-            <div key={f.id} className={sel ? 'ms-format-card selected' : 'ms-format-card'}>
-              <div className="ms-format-head">
-                <span className="ms-format-icon">{f.icon}</span>
-                <h4>{f.name}</h4>
-              </div>
-              <p className="hint small">{f.description}</p>
-              <div className="ms-badge-row">
-                <span className="ms-badge">{f.clipRange} clips</span>
-                <span className="ms-badge">{f.aspectRatio}</span>
-                <span className="ms-badge ms-badge-style">{f.style}</span>
-              </div>
-              {f.note ? <div className="ms-format-note">⚠ {f.note}</div> : null}
-              <button className={sel ? 'ghost small' : 'primary small'} disabled={sel} onClick={() => select(f.id)}>
-                {sel ? 'Selected ✓' : 'Select'}
-              </button>
-            </div>
-          )
-        })}
+      <div className="ms-cat-filter">
+        {['All', ...FORMAT_CATEGORIES].map((cat) => (
+          <button key={cat} className={categoryFilter === cat ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setCategoryFilter(cat)}>
+            {cat}
+          </button>
+        ))}
       </div>
+
+      {visibleCategories.map((cat) => (
+        <div key={cat} className="ms-format-group">
+          <h4 className="ms-format-cat-label">{cat}</h4>
+          <div className="ms-format-grid">
+            {FORMATS.filter((f) => f.category === cat).map((f) => {
+              const sel = studio.format === f.id
+              return (
+                <div key={f.id} className={sel ? 'ms-format-card selected' : 'ms-format-card'}>
+                  <div className="ms-format-head">
+                    <span className="ms-format-icon">{f.icon}</span>
+                    <h4>{f.name}</h4>
+                  </div>
+                  <p className="hint small">{f.description}</p>
+                  <div className="ms-badge-row">
+                    <span className="ms-badge">{f.clipRange} clips</span>
+                    <span className="ms-badge">{f.aspectRatio}</span>
+                    <span className="ms-badge ms-badge-style">{f.style}</span>
+                  </div>
+                  {f.note ? <div className="ms-format-note">⚠ {f.note}</div> : null}
+                  <button className={sel ? 'ghost small' : 'primary small'} disabled={sel} onClick={() => select(f.id)}>
+                    {sel ? 'Selected ✓' : 'Select'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
 
       <div className="ms-nav-row">
         <button className="ghost" onClick={onBack}>← Back</button>
