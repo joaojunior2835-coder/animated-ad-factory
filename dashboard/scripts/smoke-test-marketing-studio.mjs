@@ -408,6 +408,28 @@ check('formats: french_podcast is French, cinematic is Cinematic', FORMATS.find(
   check('formats: french_podcast has french-flavored example', FORMATS.find((f) => f.id === 'french_podcast').examples[0].toLowerCase().includes('host') || FORMATS.find((f) => f.id === 'french_podcast').examples[0].toLowerCase().includes('scene'))
 }
 
+// ---- QA fixes (Higgsfield parity phase 1) ----
+{
+  const { searchNorm, clampHookLine, getDefaultCharactersForFormat, saveProductToLibrary } = await import('../src/lib/marketingStudioModel.js')
+  check('fix6: searchNorm strips accents both sides', searchNorm('Avant / Après').includes('apres') && searchNorm('APRÈS') === 'apres')
+  check('fix3: clampHookLine keeps first sentence only', clampHookLine('Première phrase courte. Deuxième phrase qui ne doit pas apparaître.') === 'Première phrase courte.')
+  check('fix3: clampHookLine clamps to 15 words', clampHookLine(Array(25).fill('mot').join(' ')).split(/\s+/).length <= 16)
+  check('fix3: scene 1 hook is a single sentence ≤15 words', (() => {
+    const s = sampleStudio('french_podcast', ['podcast_host_fr', 'podcast_guest_fr'], 'fr')
+    s.brief.hook = 'Vos envies de sucre ne sont pas un manque de volonté. Et ce soir je vais tout vous expliquer en détail.'
+    const sc = generateSceneOutline(s)[0]
+    return !sc.dialogueLine.includes('expliquer') && sc.dialogueLine.split(/\s+/).length <= 16
+  })())
+  check('fix2: podcast formats default to host+guest', JSON.stringify(getDefaultCharactersForFormat('french_podcast')) === JSON.stringify(['podcast_host_fr', 'podcast_guest_fr']))
+  check('fix2: every format has a non-empty default cast', FORMATS.every((f) => getDefaultCharactersForFormat(f.id).length > 0))
+  check('fix2: charactersManual flag survives normalize', normalizeStudio({ charactersManual: true }).charactersManual === true && normalizeStudio({}).charactersManual === false)
+  check('fix1: product description round-trips with accents (model)', (() => {
+    const desc = 'Goût agréable, rituel après-dîner. Réduire le stress.'
+    const lib = saveProductToLibrary([], { ...emptyStudio().product, name: 'Calme', description: desc })
+    return lib[0].product.description === desc
+  })())
+}
+
 console.log('')
 console.log(`${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)

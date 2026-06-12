@@ -91,14 +91,17 @@ try {
   check('selected card highlighted', await frCard.evaluate((el) => el.classList.contains('selected')))
   await page.locator('button', { hasText: 'Next: Choose Characters' }).click()
 
-  // ---- Step 3: characters (two pickers for podcast) ----
+  // ---- Step 3: characters (two pickers for podcast; defaults pre-selected) ----
   await page.locator('.ms-char-pair').waitFor()
   check('two pickers (Host + Guest) for podcast format', (await page.locator('.ms-char-picker').count()) === 2)
+  // FIX 2: picking French Podcast pre-selects the podcast host + guest.
+  check('podcast defaults pre-selected (Host)', await page.locator('.ms-char-picker').nth(0).locator('.ms-char-card.selected', { hasText: 'Podcast Host (FR)' }).count() === 1)
+  check('podcast defaults pre-selected (Guest)', await page.locator('.ms-char-picker').nth(1).locator('.ms-char-card.selected', { hasText: 'Podcast Guest (FR)' }).count() === 1)
   const nextToScript = page.locator('button', { hasText: 'Next: Review Script' })
-  check('Next disabled until both characters picked', await nextToScript.isDisabled())
+  check('Next enabled with defaults', !(await nextToScript.isDisabled()))
+  // Manual picks still work and override defaults.
   await page.locator('.ms-char-picker').nth(0).locator('.ms-char-card', { hasText: 'Podcast Host (FR)' }).click()
   await page.locator('.ms-char-picker').nth(1).locator('.ms-char-card', { hasText: 'Podcast Guest (FR)' }).click()
-  check('Next enabled after both picked', !(await nextToScript.isDisabled()))
   await nextToScript.click()
 
   // ---- Step 4: script & scenes ----
@@ -176,6 +179,23 @@ try {
   await page.locator('.ms-step.active', { hasText: 'Brief' }).waitFor()
   const clearedSessions = await page.evaluate(() => JSON.parse(localStorage.getItem('aaf_marketing_studio_sessions') || '[]'))
   check('clear session resets state + returns to Brief', clearedSessions.length === 1 && clearedSessions[0].studio.product.name === '' && clearedSessions[0].studio.scenes.length === 0)
+
+  // FIX 1 regression: product description round-trips with accents intact.
+  await page.locator('.ms-step', { hasText: 'Brief' }).click()
+  const DESC = 'Goût agréable, rituel après-dîner pour réduire le stress.'
+  await page.locator('input.ms-input').first().fill('Calme')
+  await page.locator('textarea.ms-input').first().fill(DESC)
+  await page.locator('button', { hasText: 'Save to My Products' }).click()
+  await page.locator('textarea.ms-input').first().fill('overwritten')
+  await page.locator('.ms-lib-toggle').click()
+  await page.locator('.ms-lib-row button', { hasText: 'Load' }).first().click()
+  const roundTrip = await page.locator('textarea.ms-input').first().inputValue()
+  check('fix1: accented description round-trips exactly', roundTrip === DESC, roundTrip)
+
+  // FIX 6: hook search finds Après with unaccented query.
+  await page.locator('.ms-hook-search-input').fill('apres')
+  check('fix6: "apres" finds the Avant / Après hook', (await page.locator('.ms-hook-chip', { hasText: 'Avant / Après' }).count()) === 1)
+  await page.locator('.ms-hook-search-input').fill('')
 
   // Back to home + delete
   await page.locator('button', { hasText: 'All Sessions' }).click()

@@ -936,16 +936,41 @@ export default function App() {
 
         <main className="main">{renderMain()}</main>
 
-        <JsonPreview
-          project={project}
-          onExport={handleExport}
-          onExportJson={handleExportJson}
-          onSaveSnapshot={saveSnapshot}
-          snapshotDirty={snapshotDirty}
-          onImport={handleImportFile}
-          onLoadExample={handleLoadExample}
-          onReset={handleReset}
-        />
+        {active === 'marketing_studio' ? (
+          // The project JSON / export readiness panel is about the MAIN project —
+          // it has nothing to do with studio sessions and reads as false alarms
+          // here ("export blocked", issue counts). Show a neutral studio aside.
+          <aside className="sidebar-right ms-aside">
+            <h3>Marketing Studio</h3>
+            <p className="hint small">Prompt packages, not videos. Everything on this panel of the workflow is generated locally — no credits, no API calls.</p>
+            <div className="ms-aside-stats">
+              <div><b>{studioSessions.length}</b> saved session{studioSessions.length === 1 ? '' : 's'}</div>
+              <div><b>{productLibrary.length}</b> product{productLibrary.length === 1 ? '' : 's'} in library</div>
+            </div>
+            <p className="hint small">Sessions auto-save on this machine. Export a Markdown package from Step 5 to share or re-import later.</p>
+            <div className="ms-aside-rules">
+              <h4>Prompt rules in force</h4>
+              <ul>
+                <li>Duration lives in the setup header, never in the prompt</li>
+                <li>The attached frame carries identity — no appearance text</li>
+                <li>Podcast speakers look at each other, not the camera</li>
+                <li>Every dialogue clip ends with the natural-pace tail</li>
+                <li>French dialogue never routes to Seedance</li>
+              </ul>
+            </div>
+          </aside>
+        ) : (
+          <JsonPreview
+            project={project}
+            onExport={handleExport}
+            onExportJson={handleExportJson}
+            onSaveSnapshot={saveSnapshot}
+            snapshotDirty={snapshotDirty}
+            onImport={handleImportFile}
+            onLoadExample={handleLoadExample}
+            onReset={handleReset}
+          />
+        )}
       </div>
     </div>
   )

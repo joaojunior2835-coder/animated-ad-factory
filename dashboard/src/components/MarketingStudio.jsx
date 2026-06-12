@@ -34,6 +34,8 @@ import {
   parseMarkdownPackage,
   loadCustomCharacters,
   saveCustomCharacters,
+  searchNorm,
+  getDefaultCharactersForFormat,
   CUSTOM_CHARACTERS_KEY
 } from '../lib/marketingStudioModel.js'
 
@@ -134,10 +136,10 @@ function HookSearchBar({ language, onChangeLanguage, onFilter }) {
   useEffect(() => { setLangFilter(language) }, [language])
 
   useEffect(() => {
-    const q = query.trim().toLowerCase()
+    const q = searchNorm(query.trim())
     onFilter(() => (h) => {
       const langOk = langFilter === 'all' ? true : (h.language === langFilter || h.language === 'any')
-      const textOk = !q || h.name.toLowerCase().includes(q) || h.text.toLowerCase().includes(q)
+      const textOk = !q || searchNorm(h.name).includes(q) || searchNorm(h.text).includes(q)
       return langOk && textOk
     })
   }, [query, langFilter]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -225,7 +227,9 @@ function BriefStep({ studio, onUpdate, onNext, productLibrary, onSaveProductToLi
   const ready = p.name.trim().length > 0 && p.description.trim().length > 0
 
   function loadProduct(entry) {
-    onUpdate((s) => ({ ...s, product: { ...s.product, ...entry.product } }))
+    // Full normalized replace (never a merge) so stale keys from older saves
+    // can't leak in and every Step 1 field reflects exactly the saved product.
+    onUpdate((s) => ({ ...s, product: normalizeStudio({ product: entry.product }).product }))
     setLoadedFlash(entry.name)
     setTimeout(() => setLoadedFlash(''), 2000)
   }
@@ -474,9 +478,11 @@ function FormatStep({ studio, onUpdate, onBack, onNext }) {
   const selected = formatById(studio.format)
   const select = (id) =>
     onUpdate((s) => {
-      // Changing format resets characters when the picker count changes.
+      // Best-match characters apply on format selection (FIX 2) unless the
+      // user picked characters manually; manual picks survive same-kind swaps.
       const sameKind = isTwoCharacterFormat(s.format) === isTwoCharacterFormat(id)
-      return { ...s, format: id, characters: sameKind ? s.characters : [], scenes: [], prompts: [] }
+      const keepManual = s.charactersManual && sameKind && s.characters.length > 0
+      return { ...s, format: id, characters: keepManual ? s.characters : getDefaultCharactersForFormat(id), charactersManual: keepManual ? s.charactersManual : false, scenes: [], prompts: [] }
     })
 
   const visibleCategories = FORMAT_CATEGORIES.filter((cat) => (categoryFilter === 'All' || categoryFilter === cat) && FORMATS.some((f) => f.category === cat))
@@ -635,7 +641,7 @@ function CharactersStep({ studio, onUpdate, onBack, onNext }) {
     onUpdate((s) => {
       const chars = [...s.characters]
       chars[index] = id
-      return { ...s, characters: chars.slice(0, two ? 2 : 1).map((x) => x || ''), scenes: [], prompts: [] }
+      return { ...s, characters: chars.slice(0, two ? 2 : 1).map((x) => x || ''), charactersManual: true, scenes: [], prompts: [] }
     })
 
   const ready = two ? !!(studio.characters[0] && studio.characters[1]) : !!studio.characters[0]
@@ -668,8 +674,8 @@ function CharactersStep({ studio, onUpdate, onBack, onNext }) {
 function BrowseSettingsModal({ onClose, onSelect, focusedSceneNum }) {
   const [query, setQuery] = useState('')
   const filtered = SETTINGS_LIBRARY.filter((st) => {
-    const q = query.trim().toLowerCase()
-    return !q || st.name.toLowerCase().includes(q) || (st.description && st.description.toLowerCase().includes(q)) || (Array.isArray(st.tags) && st.tags.some((t) => t.includes(q)))
+    const q = searchNorm(query.trim())
+    return !q || searchNorm(st.name).includes(q) || searchNorm(st.description).includes(q) || (Array.isArray(st.tags) && st.tags.some((t) => searchNorm(t).includes(q)))
   })
   return (
     <div className="ms-browse-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -703,8 +709,8 @@ function SceneCard({ scene, onPatch, onRegenerate, onFocus, isFocused }) {
   const ch = characterById(scene.character)
 
   const filteredSettings = SETTINGS_LIBRARY.filter((st) => {
-    const q = settingSearch.trim().toLowerCase()
-    return !q || st.name.toLowerCase().includes(q) || (st.description && st.description.toLowerCase().includes(q))
+    const q = searchNorm(settingSearch.trim())
+    return !q || searchNorm(st.name).includes(q) || searchNorm(st.description).includes(q)
   })
 
   return (
@@ -843,6 +849,11 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
       <p className="hint small">
         {studio.scenes.length} scenes · estimated {total}s (target {studio.brief.duration}s). Edit any line — prompts are generated from what you approve here.
       </p>
+      {total > studio.brief.duration * 1.1 ? (
+        <div className="ms-overshoot-warning">
+          ⚠ The outline runs {total}s — {total - studio.brief.duration}s over your {studio.brief.duration}s target. Trim dialogue lines or drop a scene to fit.
+        </div>
+      ) : null}
 
       <div className="ms-bulk-setting row">
         <span className="field-label">Apply setting to all scenes:</span>
@@ -954,6 +965,12 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
         <span><b>Quality:</b> {studio.output.qualityHint}</span>
         {studio.output.platform ? <span className="ms-badge ms-badge-style">{(platformById(studio.output.platform) || {}).name}</span> : null}
       </div>
+
+      {total > studio.brief.duration * 1.1 ? (
+        <div className="ms-overshoot-warning">
+          ⚠ Total clip time is {total}s — {total - studio.brief.duration}s over the {studio.brief.duration}s target. The edit will need cuts.
+        </div>
+      ) : null}
 
       <div className="row ms-export-row">
         <CopyButton text={buildCopyAllText(prompts)} label="Copy All Prompts" className="primary" />

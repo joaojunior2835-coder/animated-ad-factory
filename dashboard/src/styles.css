@@ -1837,3 +1837,18 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .ms-setting-browse-card .hint { margin: 2px 0; font-size: 11px; }
 .ms-setting-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
 .ms-setting-tag { font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+
+/* QA fixes (Higgsfield parity phase 1) */
+.ms-overshoot-warning {
+  margin: 8px 0; padding: 10px 12px; border-radius: 10px; font-size: 13px;
+  color: #f0a85a; border: 1px solid #f0a85a55; background: #f0a85a14;
+}
+.ms-aside {
+  border-left: 1px solid var(--border); padding: 16px; overflow-y: auto;
+  background: var(--panel); display: flex; flex-direction: column; gap: 12px;
+}
+.ms-aside h3 { margin: 0; font-size: 15px; }
+.ms-aside h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.ms-aside-stats { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); font-size: 13px; }
+.ms-aside-rules { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
+.ms-aside-rules ul { margin: 0; padding-left: 16px; font-size: 12px; color: var(--muted); display: grid; gap: 4px; }

@@ -270,6 +270,27 @@ export const CHARACTERS = [
 ]
 
 // localStorage key for custom characters (Tier 2)
+// Accent-insensitive search normalization: "apres" matches "Après".
+export function searchNorm(s) {
+  return str(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+// Best default characters per format (FIX 2). Applied on format selection
+// unless the user has manually picked characters.
+export function getDefaultCharactersForFormat(formatId) {
+  const map = {
+    french_podcast: ['podcast_host_fr', 'podcast_guest_fr'],
+    ugc_podcast: ['podcast_host_fr', 'podcast_guest_fr'],
+    ugc_talking_head: ['confident_woman_fr'],
+    ugc_testimonial: ['testimonial_woman'],
+    cinematic_product: ['expert_woman_en'],
+    unboxing: ['young_woman_ugc'],
+    tutorial: ['expert_woman_en'],
+    product_review: ['friendly_man_fr']
+  }
+  return map[formatId] || []
+}
+
 export const CUSTOM_CHARACTERS_KEY = 'aaf_custom_characters'
 
 export function loadCustomCharacters() {
@@ -442,6 +463,7 @@ export function emptyStudio() {
     },
     format: null,
     characters: [],
+    charactersManual: false,
     brief: {
       hook: '',
       problem: '',
@@ -494,6 +516,7 @@ export function normalizeStudio(data) {
     },
     format: formatById(d.format) ? d.format : null,
     characters: Array.isArray(d.characters) ? d.characters.map(str).filter(Boolean).slice(0, 2) : [],
+    charactersManual: !!d.charactersManual,
     brief: {
       hook: str(b.hook),
       problem: str(b.problem),
@@ -546,6 +569,14 @@ export function studioLanguage(studio) {
   return studio && studio.brief && studio.brief.language === 'en' ? 'en' : 'fr'
 }
 
+// A hook must be ONE punchy line (FIX 3): first sentence only, max 15 words.
+export function clampHookLine(line) {
+  const first = str(line).trim().split(/(?<=[.!?…])\s+/)[0] || ''
+  const words = first.split(/\s+/).filter(Boolean)
+  if (words.length <= 15) return first
+  return words.slice(0, 15).join(' ').replace(/[,;:]?$/, '') + '…'
+}
+
 // Deterministic dialogue line per purpose. User-provided brief fields win;
 // templates fill the gaps. All templates stay within the 25-word clip budget.
 function lineFor(purpose, studio, lang) {
@@ -557,8 +588,10 @@ function lineFor(purpose, studio, lang) {
   const benefit = (p.benefits && p.benefits[0]) || ''
 
   switch (purpose) {
-    case 'hook':
-      return str(b.hook).trim() || t(lang, `Personne ne vous a dit la vérité sur ${name}.`, `Nobody told you the truth about ${name}.`)
+    case 'hook': {
+      const h = clampHookLine(b.hook)
+      return h || t(lang, `Personne ne vous a dit la vérité sur ${name}.`, `Nobody told you the truth about ${name}.`)
+    }
     case 'problem':
       return str(b.problem).trim() || t(lang, audience ? `Si vous êtes ${audience}, vous connaissez ce problème par cœur.` : 'Vous connaissez ce problème par cœur, et rien ne marche vraiment.', audience ? `If you're ${audience}, you know this problem by heart.` : 'You know this problem by heart, and nothing really works.')
     case 'agitation':
@@ -587,13 +620,17 @@ function lineFor(purpose, studio, lang) {
     case 'unbox_reaction':
       return t(lang, 'Honnêtement ? C’est encore mieux que sur les photos.', 'Honestly? It’s even better than the photos.')
     // Review beats
-    case 'review_verdict':
-      return str(b.hook).trim() || t(lang, `Mon avis honnête sur ${name}, après un mois complet.`, `My honest review of ${name}, after a full month.`)
+    case 'review_verdict': {
+      const h = clampHookLine(b.hook)
+      return h || t(lang, `Mon avis honnête sur ${name}, après un mois complet.`, `My honest review of ${name}, after a full month.`)
+    }
     case 'review_con':
       return t(lang, 'Le seul vrai bémol : il faut être régulier pour voir l’effet.', 'The one real downside: you have to be consistent to see results.')
     // Podcast-specific conversational beats
-    case 'podcast_hook':
-      return str(b.hook).trim() || t(lang, `Aujourd’hui on parle d’un sujet que tout le monde évite.`, 'Today we’re talking about a topic everyone avoids.')
+    case 'podcast_hook': {
+      const h = clampHookLine(b.hook)
+      return h || t(lang, `Aujourd’hui on parle d’un sujet que tout le monde évite.`, 'Today we’re talking about a topic everyone avoids.')
+    }
     case 'podcast_problem':
       return str(b.problem).trim() || t(lang, 'Franchement, j’ai tout essayé pendant des années, sans résultat.', 'Honestly, I tried everything for years, with no results.')
     case 'podcast_question':
