@@ -31,7 +31,10 @@ import {
   totalPromptDuration,
   emptyStudio,
   normalizeStudio,
-  parseMarkdownPackage
+  parseMarkdownPackage,
+  loadCustomCharacters,
+  saveCustomCharacters,
+  CUSTOM_CHARACTERS_KEY
 } from '../lib/marketingStudioModel.js'
 
 const STEPS = [
@@ -462,39 +465,107 @@ function FormatStep({ studio, onUpdate, onBack, onNext }) {
 }
 
 // ---- Step 3: Character selector ----
-function CharacterPicker({ title, value, briefLanguage, onPick }) {
-  const isCustom = String(value || '').startsWith(CUSTOM_CHARACTER_PREFIX)
-  const customText = isCustom ? value.slice(CUSTOM_CHARACTER_PREFIX.length) : ''
+function CharacterPicker({ title, value, briefLanguage, onPick, selectedFormat }) {
+  const [customChars, setCustomChars] = useState(() => loadCustomCharacters())
+  const [addingCustom, setAddingCustom] = useState(false)
+  const [customDraft, setCustomDraft] = useState({ name: '', language: 'fr', personality: '', exampleLine: '' })
+  const isCustomId = String(value || '').startsWith(CUSTOM_CHARACTER_PREFIX)
+
+  function saveNewCustomChar() {
+    if (!customDraft.name.trim()) return
+    const id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+    const entry = { id, ...customDraft }
+    const next = [...customChars, entry]
+    setCustomChars(next)
+    saveCustomCharacters(next)
+    onPick(id)
+    setAddingCustom(false)
+    setCustomDraft({ name: '', language: 'fr', personality: '', exampleLine: '' })
+  }
+
+  function deleteCustomChar(id) {
+    const next = customChars.filter((c) => c.id !== id)
+    setCustomChars(next)
+    saveCustomCharacters(next)
+    if (value === id) onPick('')
+  }
+
+  const allChars = [...CHARACTERS, ...customChars.map((c) => ({
+    ...c,
+    description: c.personality || '',
+    gender: '',
+    style: c.personality || 'custom',
+    tags: ['custom'],
+    avatar: '🎭',
+    bestFormats: [],
+    exampleLine: c.exampleLine || ''
+  }))]
+
   return (
     <div className="ms-char-picker">
       <h4>{title}</h4>
       <div className="ms-char-grid">
-        {CHARACTERS.map((c) => {
+        {allChars.map((c) => {
           const sel = value === c.id
           const mismatch = c.language && briefLanguage && c.language !== briefLanguage
+          const isFormatMatch = selectedFormat && Array.isArray(c.bestFormats) && c.bestFormats.includes(selectedFormat)
+          const isCustomEntry = !CHARACTERS.find((x) => x.id === c.id)
           return (
-            <button key={c.id} className={sel ? 'ms-char-card selected' : 'ms-char-card'} onClick={() => onPick(c.id)}>
+            <button key={c.id}
+              className={`ms-char-card${sel ? ' selected' : ''}${isFormatMatch ? ' format-match' : ''}`}
+              style={mismatch ? { opacity: 0.65 } : {}}
+              onClick={() => onPick(c.id)}
+            >
+              {c.avatar ? <span className="ms-char-avatar">{c.avatar}</span> : null}
               <div className="ms-char-name">{c.name}</div>
               <div className="ms-badge-row">
-                <span className="ms-badge">{c.gender}</span>
-                <span className="ms-badge">{c.style}</span>
+                {c.gender ? <span className="ms-badge">{c.gender}</span> : null}
                 <span className={mismatch ? 'ms-badge ms-badge-warn' : 'ms-badge'} title={mismatch ? `Brief language is ${briefLanguage.toUpperCase()} but this character speaks ${c.language.toUpperCase()}` : ''}>
-                  {c.language.toUpperCase()}{mismatch ? ' ⚠' : ''}
+                  {c.language ? c.language.toUpperCase() : 'custom'}{mismatch ? ' ⚠' : ''}
                 </span>
               </div>
-              <div className="hint small">{c.description}</div>
+              {c.personality ? <div className="ms-char-personality">{c.personality}</div> : null}
+              {c.exampleLine ? <div className="ms-char-example">"{c.exampleLine}"</div> : null}
+              {Array.isArray(c.bestFormats) && c.bestFormats.length > 0 ? (
+                <div className="ms-char-best">
+                  {c.bestFormats.map((fid) => {
+                    const fmt = FORMATS.find((f) => f.id === fid)
+                    return fmt ? <span key={fid} className="ms-char-best-badge">{fmt.icon} {fmt.name.split(' ')[0]}</span> : null
+                  })}
+                </div>
+              ) : null}
+              {isFormatMatch ? <div className="ms-char-format-match">✓ Great for this format</div> : null}
+              {mismatch ? <div className="ms-char-lang-mismatch">⚠ Language mismatch</div> : null}
+              {isCustomEntry ? (
+                <button className="ghost small danger" style={{ marginTop: '4px', fontSize: '11px' }}
+                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete custom character "${c.name}"?`)) deleteCustomChar(c.id) }}>
+                  Delete
+                </button>
+              ) : null}
             </button>
           )
         })}
-        <div className={isCustom ? 'ms-char-card selected ms-char-custom' : 'ms-char-card ms-char-custom'}>
-          <div className="ms-char-name">Custom</div>
-          <textarea
-            className="ms-input"
-            rows={3}
-            value={customText}
-            placeholder="Describe your own character (used as the reference for your frame)…"
-            onChange={(e) => onPick(e.target.value.trim() ? CUSTOM_CHARACTER_PREFIX + e.target.value : '')}
-          />
+
+        <div className={`ms-char-card ms-char-custom${addingCustom ? ' selected' : ''}`}>
+          <div className="ms-char-avatar">🎭</div>
+          <div className="ms-char-name">Custom Character</div>
+          {!addingCustom ? (
+            <button className="ghost small" onClick={() => setAddingCustom(true)}>+ Add Custom</button>
+          ) : (
+            <div className="ms-char-custom-form">
+              <input className="ms-input" placeholder="Name *" value={customDraft.name} onChange={(e) => setCustomDraft((d) => ({ ...d, name: e.target.value }))} />
+              <div className="ms-toggle-row">
+                <button className={customDraft.language === 'fr' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setCustomDraft((d) => ({ ...d, language: 'fr' }))}>🇫🇷 FR</button>
+                <button className={customDraft.language === 'en' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setCustomDraft((d) => ({ ...d, language: 'en' }))}>🇬🇧 EN</button>
+              </div>
+              <input className="ms-input" placeholder="Personality (e.g. warm, relatable)" value={customDraft.personality} onChange={(e) => setCustomDraft((d) => ({ ...d, personality: e.target.value }))} />
+              <input className="ms-input" placeholder="Example line (optional)" value={customDraft.exampleLine} onChange={(e) => setCustomDraft((d) => ({ ...d, exampleLine: e.target.value }))} />
+              <div className="row" style={{ gap: '6px' }}>
+                <button className="primary small" disabled={!customDraft.name.trim()} onClick={saveNewCustomChar}>Save & Select</button>
+                <button className="ghost small" onClick={() => setAddingCustom(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -523,11 +594,11 @@ function CharactersStep({ studio, onUpdate, onBack, onNext }) {
 
       {two ? (
         <div className="ms-char-pair">
-          <CharacterPicker title="Host (speaks scenes 1, 3, 5…)" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} />
-          <CharacterPicker title="Guest (speaks scenes 2, 4, 6…)" value={studio.characters[1] || ''} briefLanguage={lang} onPick={(id) => setCharacter(1, id)} />
+          <CharacterPicker title="Host (speaks scenes 1, 3, 5…)" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} selectedFormat={studio.format} />
+          <CharacterPicker title="Guest (speaks scenes 2, 4, 6…)" value={studio.characters[1] || ''} briefLanguage={lang} onPick={(id) => setCharacter(1, id)} selectedFormat={studio.format} />
         </div>
       ) : (
-        <CharacterPicker title="Character" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} />
+        <CharacterPicker title="Character" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} selectedFormat={studio.format} />
       )}
 
       <div className="ms-nav-row">

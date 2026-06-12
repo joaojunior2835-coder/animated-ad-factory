@@ -170,7 +170,11 @@ export const CHARACTERS = [
     gender: 'female',
     style: 'direct/confident',
     language: 'fr',
-    tags: ['ugc', 'talking-head', 'direct-camera']
+    tags: ['ugc', 'talking-head', 'direct-camera'],
+    avatar: '👩‍💼',
+    personality: 'Direct, confident, results-focused',
+    exampleLine: 'Ce produit a littéralement changé ma peau en deux semaines.',
+    bestFormats: ['ugc_talking_head', 'ugc_testimonial', 'french_podcast']
   },
   {
     id: 'friendly_man_fr',
@@ -179,7 +183,11 @@ export const CHARACTERS = [
     gender: 'male',
     style: 'warm/friendly',
     language: 'fr',
-    tags: ['ugc', 'talking-head', 'warm']
+    tags: ['ugc', 'talking-head', 'warm'],
+    avatar: '👨‍🦱',
+    personality: 'Warm, relatable, conversational',
+    exampleLine: "Je suis quelqu'un de sceptique, mais là j'ai été bluffé.",
+    bestFormats: ['french_podcast', 'ugc_talking_head', 'product_review']
   },
   {
     id: 'expert_woman_en',
@@ -188,7 +196,11 @@ export const CHARACTERS = [
     gender: 'female',
     style: 'expert/authority',
     language: 'en',
-    tags: ['expert', 'authority', 'explainer']
+    tags: ['expert', 'authority', 'explainer'],
+    avatar: '👩‍🔬',
+    personality: 'Authoritative, clear, trustworthy',
+    exampleLine: 'The clinical evidence behind this ingredient is compelling.',
+    bestFormats: ['tutorial', 'cinematic_product', 'product_review']
   },
   {
     id: 'young_woman_ugc',
@@ -197,7 +209,11 @@ export const CHARACTERS = [
     gender: 'female',
     style: 'casual/gen-z',
     language: 'en',
-    tags: ['ugc', 'gen-z', 'casual']
+    tags: ['ugc', 'gen-z', 'casual'],
+    avatar: '🤳',
+    personality: 'Casual, energetic, Gen-Z authentic',
+    exampleLine: 'okay so I was NOT expecting this to actually work but...',
+    bestFormats: ['ugc_talking_head', 'unboxing', 'ugc_testimonial']
   },
   {
     id: 'podcast_host_fr',
@@ -206,7 +222,11 @@ export const CHARACTERS = [
     gender: 'male',
     style: 'professional/warm',
     language: 'fr',
-    tags: ['podcast', 'host', 'interviewer']
+    tags: ['podcast', 'host', 'interviewer'],
+    avatar: '🎙️',
+    personality: 'Professional, curious, warm host energy',
+    exampleLine: "Alors dis-moi, comment tu as découvert ce produit ?",
+    bestFormats: ['french_podcast', 'ugc_podcast']
   },
   {
     id: 'podcast_guest_fr',
@@ -215,7 +235,11 @@ export const CHARACTERS = [
     gender: 'female',
     style: 'curious/engaged',
     language: 'fr',
-    tags: ['podcast', 'guest', 'storyteller']
+    tags: ['podcast', 'guest', 'storyteller'],
+    avatar: '🗣️',
+    personality: 'Genuine, slightly nervous, real reactions',
+    exampleLine: "Franchement au début j'étais pas convaincu du tout...",
+    bestFormats: ['french_podcast', 'ugc_podcast']
   },
   {
     id: 'testimonial_woman',
@@ -224,7 +248,11 @@ export const CHARACTERS = [
     gender: 'female',
     style: 'relatable/honest',
     language: 'fr',
-    tags: ['testimonial', 'story', 'relatable']
+    tags: ['testimonial', 'story', 'relatable'],
+    avatar: '🙋‍♀️',
+    personality: 'Relatable, honest, problem-aware',
+    exampleLine: 'I tried everything and nothing worked until I found this.',
+    bestFormats: ['ugc_testimonial', 'product_review', 'ugc_talking_head']
   },
   {
     id: 'testimonial_man',
@@ -233,9 +261,35 @@ export const CHARACTERS = [
     gender: 'male',
     style: 'practical/positive',
     language: 'fr',
-    tags: ['testimonial', 'story', 'practical']
+    tags: ['testimonial', 'story', 'practical'],
+    avatar: '🙋‍♂️',
+    personality: 'Skeptic turned believer, down to earth',
+    exampleLine: 'My wife convinced me to try it. Best decision I made.',
+    bestFormats: ['ugc_testimonial', 'product_review', 'ugc_talking_head']
   }
 ]
+
+// localStorage key for custom characters (Tier 2)
+export const CUSTOM_CHARACTERS_KEY = 'aaf_custom_characters'
+
+export function loadCustomCharacters() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_CHARACTERS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export function saveCustomCharacters(chars) {
+  try {
+    localStorage.setItem(CUSTOM_CHARACTERS_KEY, JSON.stringify(Array.isArray(chars) ? chars : []))
+  } catch {
+    // Non-fatal.
+  }
+}
 
 // ---- Hook library (proven openers; pick one into brief.hook) ----
 // language: 'fr' | 'en' | 'any'. Text ends open ("...") on purpose — the user
