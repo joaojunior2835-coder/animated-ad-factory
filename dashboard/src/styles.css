@@ -1574,3 +1574,152 @@ button.caret {
 }
 .nc-toolbar-name:hover { border-color: var(--border); }
 .nc-toolbar-name-input { font: inherit; font-weight: 600; background: var(--bg); color: var(--text); border: 1px solid var(--accent-2); border-radius: 8px; padding: 4px 8px; width: 240px; }
+
+/* ============================================================
+   MARKETING STUDIO — one brief → complete ad package wizard
+   ============================================================ */
+
+.ms-panel { max-width: 1100px; }
+
+/* Step indicator: done = filled green, active = filled blue, upcoming = outlined gray */
+.ms-steps { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 10px 0 18px; }
+.ms-step {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: transparent; border: none; color: var(--muted);
+  padding: 4px 6px; border-radius: 8px; font-size: 13px; cursor: default;
+}
+.ms-step.clickable { cursor: pointer; }
+.ms-step.clickable:hover { background: var(--panel-2); }
+.ms-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border); color: var(--muted); background: transparent;
+}
+.ms-step.done .ms-step-num { background: #1f7a4d; border-color: #1f7a4d; color: #eafff3; }
+.ms-step.active .ms-step-num { background: #2b5fb8; border-color: #2b5fb8; color: #eaf2ff; }
+.ms-step.done .ms-step-label { color: var(--text); }
+.ms-step.active .ms-step-label { color: var(--text); font-weight: 600; }
+.ms-step-arrow { color: var(--border); margin-left: 6px; }
+.ms-step:disabled { opacity: 0.8; }
+
+.ms-stepbody { display: block; }
+.ms-stepbody h3 { margin: 4px 0 6px; }
+
+/* Inputs */
+.ms-input {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font: inherit; font-size: 13px;
+}
+.ms-input:focus { outline: none; border-color: var(--accent-2); }
+.ms-input.ms-autofilled { border-color: #2f9e63; box-shadow: 0 0 0 1px #2f9e6333; }
+.ms-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+@media (max-width: 900px) { .ms-grid2 { grid-template-columns: 1fr; } }
+
+.ms-toggle-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.ms-toggle {
+  background: var(--bg); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+}
+.ms-toggle:hover { color: var(--text); }
+.ms-toggle.active { background: var(--panel-2); color: var(--text); border-color: var(--accent-2); }
+
+.ms-paste-box {
+  margin-top: 14px; padding: 12px; border: 1px dashed var(--border);
+  border-radius: 10px; background: var(--panel-2);
+  display: grid; gap: 8px;
+}
+.ms-extract-note { color: #6fcf97; }
+.ms-linklike { background: none; border: none; color: var(--accent-2); cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
+
+.ms-nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 10px; }
+
+/* Format cards */
+.ms-format-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+@media (max-width: 900px) { .ms-format-grid { grid-template-columns: 1fr; } }
+.ms-format-card {
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+  background: var(--panel-2); display: flex; flex-direction: column; gap: 8px;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.ms-format-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px #0006; }
+.ms-format-card.selected { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2); }
+.ms-format-head { display: flex; align-items: center; gap: 10px; }
+.ms-format-head h4 { margin: 0; font-size: 14px; }
+.ms-format-icon { font-size: 20px; }
+.ms-format-note {
+  font-size: 12px; color: #f0a85a; border: 1px solid #f0a85a44;
+  background: #f0a85a14; border-radius: 8px; padding: 6px 8px;
+}
+.ms-badge-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.ms-badge {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+}
+.ms-badge-style { color: var(--accent-2); border-color: var(--accent-2); }
+.ms-badge-warn { color: #f0a85a; border-color: #f0a85a; }
+.ms-badge-omni { color: #6fcf97; border-color: #6fcf97; }
+.ms-badge-seedance { color: #6ea8fe; border-color: #6ea8fe; }
+
+/* Character picker */
+.ms-char-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 1000px) { .ms-char-pair { grid-template-columns: 1fr; } }
+.ms-char-picker h4 { margin: 10px 0 8px; }
+.ms-char-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  max-height: 420px; overflow-y: auto; padding-right: 4px;
+}
+.ms-char-pair .ms-char-grid { grid-template-columns: 1fr; }
+.ms-char-card {
+  text-align: left; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-2); color: var(--text); padding: 10px;
+  display: flex; flex-direction: column; gap: 6px; cursor: pointer; font: inherit;
+}
+.ms-char-card:hover { border-color: var(--muted); }
+.ms-char-card.selected { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2); }
+.ms-char-name { font-weight: 600; font-size: 13px; }
+.ms-char-custom { cursor: default; }
+
+/* Scene cards */
+.ms-scene-list { display: grid; gap: 10px; margin-top: 10px; }
+.ms-scene-card {
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  background: var(--panel-2); display: grid; gap: 6px;
+}
+.ms-scene-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ms-scene-num { font-weight: 700; font-size: 13px; }
+.ms-scene-spacer { flex: 1; }
+.ms-scene-meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.ms-clipdur { margin-top: 2px; }
+
+.ms-script-view { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
+.ms-script-view h4 { margin: 0; }
+.ms-script-pre {
+  margin: 8px 0 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+}
+
+/* Prompt cards: setup header in a dark box with colored left border */
+.ms-summary-bar {
+  display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2);
+  padding: 10px 12px; margin: 8px 0 12px; font-size: 13px;
+}
+.ms-export-row { gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.ms-prompt-list { display: grid; gap: 12px; }
+.ms-prompt-card {
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  background: var(--panel-2); display: grid; gap: 8px;
+}
+.ms-prompt-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ms-setup-header {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; color: var(--accent-2);
+  background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--accent-2);
+  border-radius: 8px; padding: 8px 10px;
+}
+.ms-prompt-text { font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+.ms-prompt-notes { border-top: 1px dashed var(--border); padding-top: 6px; }
+
+.ms-session-row { display: flex; gap: 8px; align-items: center; margin-top: 18px; }
+button.danger { color: var(--danger); border-color: var(--danger); }
