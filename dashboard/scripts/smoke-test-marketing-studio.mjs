@@ -200,6 +200,19 @@ check('normalizeStudio: bad language → fr', normalizeStudio({ brief: { languag
 check('characters: 8 starter characters', CHARACTERS.length === 8)
 check('formats: 5 formats', FORMATS.length === 5)
 
+// ---- Hook library (Tier 1) ----
+{
+  const { HOOK_LIBRARY, hooksForLanguage } = await import('../src/lib/marketingStudioModel.js')
+  check('hooks: at least 15 hooks', HOOK_LIBRARY.length >= 15, `got ${HOOK_LIBRARY.length}`)
+  check('hooks: shape complete', HOOK_LIBRARY.every((h) => h.id && h.name && h.text && h.category && ['fr', 'en', 'any'].includes(h.language)))
+  const fr = hooksForLanguage('fr')
+  const en = hooksForLanguage('en')
+  check('hooks: fr filter = fr + universal only', fr.every((h) => h.language === 'fr' || h.language === 'any') && fr.some((h) => h.language === 'any'))
+  check('hooks: en filter = en + universal only', en.every((h) => h.language === 'en' || h.language === 'any'))
+  check('hooks: fr list has 8 french hooks', fr.filter((h) => h.language === 'fr').length === 8)
+  check('hooks: unique ids', new Set(HOOK_LIBRARY.map((h) => h.id)).size === HOOK_LIBRARY.length)
+}
+
 console.log('')
 console.log(`${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)

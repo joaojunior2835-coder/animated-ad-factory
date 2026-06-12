@@ -154,6 +154,38 @@ export const CHARACTERS = [
   }
 ]
 
+// ---- Hook library (proven openers; pick one into brief.hook) ----
+// language: 'fr' | 'en' | 'any'. Text ends open ("...") on purpose — the user
+// finishes the line for their product.
+export const HOOK_LIBRARY = [
+  // French
+  { id: 'stop_scroll_fr', name: 'Stop Scroll', text: 'Ce produit a changé ma routine complètement...', category: 'story', language: 'fr' },
+  { id: 'problem_first_fr', name: 'Problème d’abord', text: 'J’avais ce problème depuis des années...', category: 'problem', language: 'fr' },
+  { id: 'reveal_fr', name: 'Révélation', text: 'Je vais vous montrer quelque chose d’incroyable...', category: 'reveal', language: 'fr' },
+  { id: 'question_fr', name: 'Question', text: 'Vous connaissez cette sensation quand...', category: 'question', language: 'fr' },
+  { id: 'testimonial_fr', name: 'Témoignage', text: 'Je ne pensais pas que ça marcherait mais...', category: 'testimonial', language: 'fr' },
+  { id: 'before_after_fr', name: 'Avant / Après', text: 'Avant j’avais honte, maintenant...', category: 'before_after', language: 'fr' },
+  { id: 'secret_fr', name: 'Le Secret', text: 'Ce que les grandes marques ne veulent pas que vous sachiez...', category: 'secret', language: 'fr' },
+  { id: 'urgency_fr', name: 'Urgence', text: 'J’aurais voulu découvrir ça bien plus tôt...', category: 'urgency', language: 'fr' },
+  // English
+  { id: 'stop_scroll_en', name: 'Stop Scroll', text: 'This product completely changed my routine...', category: 'story', language: 'en' },
+  { id: 'problem_first_en', name: 'Problem First', text: 'I had this problem for years...', category: 'problem', language: 'en' },
+  { id: 'reveal_en', name: 'Reveal', text: 'I’m about to show you something incredible...', category: 'reveal', language: 'en' },
+  { id: 'question_en', name: 'Question', text: 'You know that feeling when...', category: 'question', language: 'en' },
+  { id: 'testimonial_en', name: 'Testimonial', text: 'I didn’t think it would work but...', category: 'testimonial', language: 'en' },
+  { id: 'before_after_en', name: 'Before / After', text: 'Before I was embarrassed, now...', category: 'before_after', language: 'en' },
+  { id: 'urgency_en', name: 'Urgency', text: 'I wish I’d found this so much sooner...', category: 'urgency', language: 'en' },
+  // Universal
+  { id: 'stat_hook', name: 'Statistic', text: 'Studies show that [X]% of people struggle with...', category: 'stat', language: 'any' },
+  { id: 'comparison', name: 'Comparison', text: 'Every other product I tried failed until...', category: 'comparison', language: 'any' }
+]
+
+// Hooks usable for a brief language ('fr'/'en'): that language + universal ones.
+export function hooksForLanguage(lang) {
+  const l = lang === 'en' ? 'en' : 'fr'
+  return HOOK_LIBRARY.filter((h) => h.language === l || h.language === 'any')
+}
+
 export const CUSTOM_CHARACTER_PREFIX = 'custom:'
 
 // Resolve a character id (or a "custom:<description>" entry) to a character

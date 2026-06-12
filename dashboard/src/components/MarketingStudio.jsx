@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   FORMATS,
   CHARACTERS,
+  hooksForLanguage,
   CUSTOM_CHARACTER_PREFIX,
   STUDIO_DURATIONS,
   CLIP_DURATIONS,
@@ -114,6 +115,8 @@ function StepIndicator({ step, maxReached, onJump }) {
 function BriefStep({ studio, onUpdate, onNext }) {
   const [pasted, setPasted] = useState('')
   const [filledKeys, setFilledKeys] = useState([])
+  const [hookApplied, setHookApplied] = useState('')
+  const hookFieldRef = useRef(null)
   const p = studio.product
   const b = studio.brief
 
@@ -121,6 +124,23 @@ function BriefStep({ studio, onUpdate, onNext }) {
   const setBrief = (key, value) => onUpdate((s) => ({ ...s, brief: { ...s.brief, [key]: value } }))
 
   const filled = (key) => (filledKeys.includes(key) ? ' ms-autofilled' : '')
+
+  const hooks = hooksForLanguage(b.language)
+
+  function applyHook(hook) {
+    setBrief('hook', hook.text)
+    setHookApplied(hook.id)
+    if (hookFieldRef.current) {
+      hookFieldRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      hookFieldRef.current.focus()
+    }
+    setTimeout(() => setHookApplied(''), 2000)
+  }
+
+  function surpriseHook() {
+    if (!hooks.length) return
+    applyHook(hooks[Math.floor(Math.random() * hooks.length)])
+  }
 
   function extract() {
     const r = extractBriefFromText(pasted)
@@ -163,7 +183,7 @@ function BriefStep({ studio, onUpdate, onNext }) {
       <div className="ms-grid2">
         <label className="field">
           <span className="field-label">Key benefit / hook (what makes it special)</span>
-          <textarea className={`ms-input${filled('brief.hook')}${filled('product.benefits')}`} rows={2} value={b.hook} placeholder="The one line that stops the scroll." onChange={(e) => setBrief('hook', e.target.value)} />
+          <textarea ref={hookFieldRef} className={`ms-input${filled('brief.hook')}${filled('product.benefits')}${hookApplied ? ' ms-autofilled' : ''}`} rows={2} value={b.hook} placeholder="The one line that stops the scroll." onChange={(e) => setBrief('hook', e.target.value)} />
         </label>
         <label className="field">
           <span className="field-label">Target audience (who it's for)</span>
@@ -204,6 +224,26 @@ function BriefStep({ studio, onUpdate, onNext }) {
         <span className="field-label">Landing page URL (optional, for reference)</span>
         <input className={`ms-input${filled('product.landingPageUrl')}`} value={p.landingPageUrl} placeholder="https://…" onChange={(e) => setProduct('landingPageUrl', e.target.value)} />
       </label>
+
+      <div className="ms-hook-library">
+        <div className="row between">
+          <span className="field-label">Hook Inspiration ({b.language.toUpperCase()})</span>
+          <button className="ghost small" onClick={surpriseHook} title="Pick a random hook and apply it">🎲 Surprise me</button>
+        </div>
+        <div className="ms-hook-chips">
+          {hooks.map((h) => (
+            <button
+              key={h.id}
+              className={hookApplied === h.id ? 'ms-hook-chip applied' : 'ms-hook-chip'}
+              title={h.text}
+              onClick={() => applyHook(h)}
+            >
+              {hookApplied === h.id ? '✓ ' : ''}{h.name}
+            </button>
+          ))}
+        </div>
+        <p className="hint small">Hover a chip to read the opener; click to drop it into the hook field above (it overwrites the field — finish the line for your product).</p>
+      </div>
 
       <div className="ms-paste-box">
         <span className="field-label">Paste Competitor Analysis (optional — output from a /watch breakdown)</span>

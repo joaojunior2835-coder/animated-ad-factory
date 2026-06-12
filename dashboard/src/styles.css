@@ -1723,3 +1723,16 @@ button.caret {
 
 .ms-session-row { display: flex; gap: 8px; align-items: center; margin-top: 18px; }
 button.danger { color: var(--danger); border-color: var(--danger); }
+
+/* Hook library (Tier 1) */
+.ms-hook-library {
+  margin-top: 14px; padding: 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--panel-2); display: grid; gap: 8px;
+}
+.ms-hook-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.ms-hook-chip {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+}
+.ms-hook-chip:hover { border-color: var(--accent-2); color: var(--accent-2); }
+.ms-hook-chip.applied { border-color: #2f9e63; color: #6fcf97; }
