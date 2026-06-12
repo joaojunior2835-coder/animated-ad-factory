@@ -681,8 +681,8 @@ function CharactersStep({ studio, onUpdate, onBack, onNext }) {
 
       {two ? (
         <div className="ms-char-pair">
-          <CharacterPicker title="Host (speaks scenes 1, 3, 5…)" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} selectedFormat={studio.format} />
-          <CharacterPicker title="Guest (speaks scenes 2, 4, 6…)" value={studio.characters[1] || ''} briefLanguage={lang} onPick={(id) => setCharacter(1, id)} selectedFormat={studio.format} />
+          <CharacterPicker title="Host (intro, reactions, endorsement, CTA)" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} selectedFormat={studio.format} />
+          <CharacterPicker title="Guest (hook, story, results)" value={studio.characters[1] || ''} briefLanguage={lang} onPick={(id) => setCharacter(1, id)} selectedFormat={studio.format} />
         </div>
       ) : (
         <CharacterPicker title="Character" value={studio.characters[0] || ''} briefLanguage={lang} onPick={(id) => setCharacter(0, id)} selectedFormat={studio.format} />

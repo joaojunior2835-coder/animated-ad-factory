@@ -75,8 +75,13 @@ for (const f of FORMATS) {
   check(`${f.id}: clip durations in {4,6,8,10}`, scenes.every((sc) => CLIP_DURATIONS.includes(sc.clipDuration)))
 
   if (isTwoCharacterFormat(f.id)) {
-    const alternates = scenes.every((sc, i) => sc.character === (i % 2 === 0 ? 'podcast_host_fr' : 'podcast_guest_fr'))
-    check(`${f.id}: speakers alternate host/guest`, alternates)
+    // Reverse-chronology arc speaker map: guest opens with the result, host
+    // intros/reacts/asks, guest carries the story, host endorses and closes.
+    const ROLES = ['guest', 'host', 'guest', 'host', 'host', 'guest', 'guest', 'guest', 'host', 'host']
+    const speakersMatch = scenes.every((sc, i) => sc.character === (ROLES[i] === 'host' ? 'podcast_host_fr' : 'podcast_guest_fr'))
+    check(`${f.id}: speaker map matches the podcast arc`, speakersMatch, scenes.map((sc) => sc.character).join(','))
+    check(`${f.id}: scene 2 is the host intro`, scenes[1] && scenes[1].purpose === 'podcast_intro')
+    check(`${f.id}: both speakers appear`, scenes.some((sc) => sc.character === 'podcast_host_fr') && scenes.some((sc) => sc.character === 'podcast_guest_fr'))
   } else if (f.id !== 'cinematic_product') {
     check(`${f.id}: single speaker throughout`, scenes.every((sc) => sc.character === 'confident_woman_fr'))
   }
@@ -428,6 +433,27 @@ check('formats: french_podcast is French, cinematic is Cinematic', FORMATS.find(
     const lib = saveProductToLibrary([], { ...emptyStudio().product, name: 'Calme', description: desc })
     return lib[0].product.description === desc
   })())
+}
+
+// ---- Content quality (Higgsfield parity phase 4) ----
+{
+  const { GESTURE_MAP } = await import('../src/lib/marketingStudioModel.js')
+  check('phase4: GESTURE_MAP exported with beat coverage', !!GESTURE_MAP && Object.keys(GESTURE_MAP).length >= 10)
+
+  const studio = sampleStudio('french_podcast', ['podcast_host_fr', 'podcast_guest_fr'], 'fr')
+  const scenes = generateSceneOutline(studio)
+  check('phase4: podcast dialogue references the product by name', scenes.some((sc) => sc.dialogueLine.includes('NuitCalme')))
+  check('phase4: podcast visuals direct the cinematographer', scenes.every((sc) => /static camera/i.test(sc.visualDescription) && /(leans|listens)/i.test(sc.visualDescription)))
+  const prompts = generateOmniPrompts(studio, scenes)
+  check('phase4: gestures vary across the arc', new Set(prompts.map((p) => (p.promptText.match(/— (with|looking) [^.]+\./) || [''])[0])).size >= 5)
+
+  const th = generateSceneOutline(sampleStudio('ugc_talking_head', ['confident_woman_fr'], 'fr'))
+  check('phase4: talking head is a 6-scene arc', th.length === 6 && th[2].purpose === 'discovery' && th[3].purpose === 'mechanism')
+  check('phase4: mechanism line references the ingredient', th[3].dialogueLine.includes('safran'))
+
+  const tm = generateSceneOutline(sampleStudio('ugc_testimonial', ['testimonial_woman'], 'fr'))
+  check('phase4: testimonial arc is verdict-first with time-bound result', /hook/.test(tm[0].purpose) && tm[5].purpose === 'testimonial_result' && /Trente jours|Thirty days/.test(tm[5].dialogueLine))
+  check('phase4: testimonial CTA targets the audience', tm[6].purpose === 'testimonial_cta' && tm[6].dialogueLine.includes('femmes'))
 }
 
 console.log('')

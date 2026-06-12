@@ -23,7 +23,7 @@ export const FORMATS = [
     description: '1 person speaking to camera',
     icon: '🎤',
     category: 'UGC',
-    clipCount: 7,
+    clipCount: 6,
     clipRange: '6-8',
     aspectRatio: '9:16',
     style: 'authentic/raw',
@@ -631,6 +631,29 @@ function lineFor(purpose, studio, lang) {
       const h = clampHookLine(b.hook)
       return h || t(lang, `Aujourd’hui on parle d’un sujet que tout le monde évite.`, 'Today we’re talking about a topic everyone avoids.')
     }
+    // New podcast arc beats (reverse-chronology hook → endorsement)
+    case 'podcast_result_hook': {
+      const h = clampHookLine(b.hook)
+      return h || t(lang, `Trois semaines avec ${name}, et mes soirées ont complètement changé.`, `Three weeks with ${name}, and my evenings completely changed.`)
+    }
+    case 'podcast_intro':
+      return t(lang, `Bienvenue ! Aujourd’hui on parle de ${name}, avec quelqu’un qui l’utilise vraiment.`, `Welcome back! Today we’re talking about ${name}, with someone who actually uses it.`)
+    case 'podcast_empathy':
+      return t(lang, 'Attends — je ne savais pas que c’était à ce point. Vraiment tous les soirs ?', 'Wait — I had no idea it was that bad. Really, every single night?')
+    case 'podcast_discovery_q':
+      return t(lang, `Et comment tu as découvert ${name}, alors ?`, `So how did you even find ${name}?`)
+    case 'podcast_skeptic':
+      return t(lang, 'Honnêtement, j’étais sceptique. J’ai essayé un soir, sans y croire du tout.', 'Honestly, I was skeptical. I tried it one evening without believing in it at all.')
+    case 'podcast_turn':
+      return t(lang, 'Au bout d’une dizaine de jours, quelque chose avait changé dans mes soirées.', 'After about ten days, something had changed about my evenings.')
+    case 'podcast_result':
+      return benefit
+        ? t(lang, `Concrètement : ${benefit}. Et ça, ça change tout.`, `Concretely: ${benefit}. And that changes everything.`)
+        : ingredient
+          ? t(lang, `Le soir je décroche enfin — ${ingredient} m’aide vraiment à lâcher prise.`, `In the evening I finally switch off — ${ingredient} really helps me let go.`)
+          : t(lang, 'Le soir, je suis enfin tranquille. Plus cette bataille permanente.', 'In the evening, I’m finally at peace. No more constant battle.')
+    case 'podcast_host_endorse':
+      return t(lang, 'Du coup j’ai testé aussi — et franchement, je comprends pourquoi tu en parles.', 'So I tried it too — and honestly, now I get why you talk about it.')
     case 'podcast_problem':
       return str(b.problem).trim() || t(lang, 'Franchement, j’ai tout essayé pendant des années, sans résultat.', 'Honestly, I tried everything for years, with no results.')
     case 'podcast_question':
@@ -645,6 +668,19 @@ function lineFor(purpose, studio, lang) {
       return t(lang, 'OK mais concrètement, comment ça marche ?', 'OK but concretely, how does it work?')
     case 'podcast_reaction':
       return t(lang, 'C’est impressionnant. Et tu le recommanderais à qui ?', 'That’s impressive. And who would you recommend it to?')
+    // Testimonial arc beats
+    case 'testimonial_before':
+      return str(b.problem).trim() || t(lang, audience ? `Si vous êtes ${audience}, vous savez à quel point c’était dur.` : 'Avant, chaque soirée finissait pareil — et j’avais honte d’en parler.', audience ? `If you're ${audience}, you know how hard it was.` : 'Before, every evening ended the same way — and I was ashamed to talk about it.')
+    case 'testimonial_search':
+      return t(lang, 'J’ai tout essayé : les tisanes, les applis, la volonté. Rien ne tenait.', 'I tried everything: teas, apps, willpower. Nothing stuck.')
+    case 'testimonial_experience':
+      return ingredient
+        ? t(lang, `Le rituel est simple, et ${ingredient} fait la différence soir après soir.`, `The ritual is simple, and ${ingredient} makes the difference night after night.`)
+        : t(lang, 'Le rituel est devenu un moment que j’attends, pas une contrainte.', 'The ritual became a moment I look forward to, not a chore.')
+    case 'testimonial_result':
+      return t(lang, 'Trente jours plus tard : mes soirées sont à moi de nouveau.', 'Thirty days later: my evenings are mine again.')
+    case 'testimonial_cta':
+      return str(b.cta).trim() || t(lang, audience ? `Si vous êtes ${audience}, ${name} est fait pour vous. Lien en dessous.` : `${name} est fait pour vous si vos soirées vous échappent. Lien en dessous.`, audience ? `If you're ${audience}, ${name} is made for you. Link below.` : `${name} is for you if your evenings keep slipping away. Link below.`)
     default:
       return ''
   }
@@ -657,6 +693,19 @@ function voLineFor(purpose, studio, lang) {
 
 // Per-purpose emotional beat label.
 const EMOTIONAL_BEATS = {
+  podcast_result_hook: 'curiosity',
+  podcast_intro: 'anticipation',
+  podcast_empathy: 'hope',
+  podcast_discovery_q: 'curiosity',
+  podcast_skeptic: 'reassurance',
+  podcast_turn: 'hope',
+  podcast_result: 'satisfaction',
+  podcast_host_endorse: 'trust',
+  testimonial_before: 'frustration',
+  testimonial_search: 'tension',
+  testimonial_experience: 'relief',
+  testimonial_result: 'satisfaction',
+  testimonial_cta: 'action',
   unbox_open: 'anticipation',
   unbox_reaction: 'satisfaction',
   review_verdict: 'trust',
@@ -703,6 +752,19 @@ export function purposeLabel(purpose) {
     podcast_reveal: 'Product Reveal',
     podcast_mechanism_q: 'Mechanism Question',
     podcast_reaction: 'Reaction',
+    podcast_result_hook: 'Hook (Result First)',
+    podcast_intro: 'Host Intro',
+    podcast_empathy: 'Host Reaction',
+    podcast_discovery_q: 'Discovery Question',
+    podcast_skeptic: 'First Impression',
+    podcast_turn: 'The Turn',
+    podcast_result: 'Result',
+    podcast_host_endorse: 'Host Endorsement',
+    testimonial_before: 'The Before',
+    testimonial_search: 'The Search',
+    testimonial_experience: 'The Experience',
+    testimonial_result: 'The Result',
+    testimonial_cta: 'CTA (Who It’s For)',
     unbox_open: 'Open / Reveal',
     unbox_reaction: 'First Reaction',
     review_verdict: 'Verdict',
@@ -778,36 +840,53 @@ function buildSceneOutline(studio) {
   const c2 = chars[1] || c1
 
   if (format.id === 'ugc_talking_head') {
-    const setting = 'Casual indoor setting, natural daylight, phone-camera framing'
-    const arc = ['hook', 'problem', 'agitation', 'product_entry', 'mechanism', 'proof', 'cta']
-    return arc.slice(0, format.clipCount).map((purpose, i) => speakerScene(i + 1, purpose, c1, s, lang, setting))
+    // 6-scene arc: hook → problem → discovery → mechanism → proof → CTA.
+    const baseVisual = 'Mid-shot, speaker centered, phone-camera framing. Natural daylight from a window, lived-in room behind.'
+    const arc = ['hook', 'problem', 'discovery', 'mechanism', 'proof', 'cta']
+    return arc.slice(0, format.clipCount).map((purpose, i) => {
+      const sc = speakerScene(i + 1, purpose, c1, s, lang, baseVisual)
+      if (purpose === 'hook') {
+        sc.shotType = 'talking head — product held at chest height'
+        sc.visualDescription = 'Mid-shot, speaker centered, product held up at chest height. The speaker freezes a beat before the line lands. Natural daylight.'
+      } else {
+        sc.shotType = 'talking head — static camera, mid-shot'
+      }
+      return sc
+    })
   }
 
   if (format.id === 'ugc_testimonial') {
-    const setting = 'Lived-in home setting, soft window light, handheld UGC framing'
-    const arc = ['hook', 'problem', 'agitation', 'discovery', 'benefit', 'proof', 'cta']
-    return arc.slice(0, format.clipCount).map((purpose, i) => speakerScene(i + 1, purpose, c1, s, lang, setting))
+    // 7-scene arc: verdict first, then the story earns it.
+    const baseVisual = 'Mid-shot, lived-in room, soft window light. Handheld phone framing with slight natural movement.'
+    const arc = ['hook', 'testimonial_before', 'testimonial_search', 'discovery', 'testimonial_experience', 'testimonial_result', 'testimonial_cta']
+    return arc.slice(0, format.clipCount).map((purpose, i) => {
+      const sc = speakerScene(i + 1, purpose, c1, s, lang, baseVisual)
+      sc.shotType = 'testimonial — handheld mid-shot, eye level'
+      return sc
+    })
   }
 
   if (format.id === 'ugc_podcast' || format.id === 'french_podcast') {
-    const setting = 'Podcast studio, two speakers facing each other, warm lamp light, static camera'
-    // Strict alternation: odd scenes = character 1 (host), even = character 2 (guest).
-    const arc = [
-      'podcast_hook', // 1 host
-      'podcast_problem', // 2 guest
-      'podcast_question', // 3 host
-      'podcast_story', // 4 guest
-      'podcast_transition', // 5 host
-      'podcast_reveal', // 6 guest
-      'podcast_mechanism_q', // 7 host
-      'mechanism', // 8 guest
-      'podcast_reaction', // 9 host
-      'cta' // 10 guest
+    // Reverse-chronology podcast arc: the guest gives the RESULT first, then
+    // the conversation earns it. Explicit speaker map (host = c1, guest = c2).
+    const slots = [
+      ['podcast_result_hook', 'guest'], // 1 — result first
+      ['podcast_intro', 'host'], // 2 — welcome + topic
+      ['podcast_problem', 'guest'], // 3 — the problem
+      ['podcast_empathy', 'host'], // 4 — "I had no idea"
+      ['podcast_discovery_q', 'host'], // 5 — how did you find it?
+      ['podcast_skeptic', 'guest'], // 6 — skepticism, first try
+      ['podcast_turn', 'guest'], // 7 — something changed
+      ['podcast_result', 'guest'], // 8 — concrete result
+      ['podcast_host_endorse', 'host'], // 9 — host tried it too
+      ['cta', 'host'] // 10 — direct recommendation
     ]
-    return arc.slice(0, format.clipCount).map((purpose, i) => {
-      const speaker = i % 2 === 0 ? c1 : c2
-      const sc = speakerScene(i + 1, purpose, speaker, s, lang, setting)
-      sc.shotType = 'podcast two-shot — static camera, speaker framed at desk'
+    const guestVisual = 'Two-shot at the podcast desk, both speakers visible. The host leans slightly toward the guest as the guest speaks. Warm key light per speaker, soft background falloff. Static camera.'
+    const hostVisual = 'Two-shot at the podcast desk, both speakers visible. The guest listens and nods naturally as the host speaks. Warm podcast lighting, mics in frame. Static camera.'
+    return slots.slice(0, format.clipCount).map(([purpose, role], i) => {
+      const speaker = role === 'host' ? c1 : c2
+      const sc = speakerScene(i + 1, purpose, speaker, s, lang, role === 'host' ? hostVisual : guestVisual)
+      sc.shotType = `podcast two-shot — ${role} speaking, static camera`
       return sc
     })
   }
@@ -924,19 +1003,20 @@ function naturalPaceTail(gender) {
   return `${pr.subj} ${verb} the line once at a natural pace — do not slow it down to fill time; after the line ${pr.subjLow} ${stay} silent with a natural expression.`
 }
 
-// Delivery cue per emotional beat. Delivery/gesture only — never appearance.
-const DELIVERY_CUES = {
-  curiosity: 'with a slight lean-in and an intrigued tone',
-  frustration: 'with a tired, honest tone and a small head shake',
+// Scene-specific body language per emotional beat (gesture/delivery only —
+// never appearance; the attached frame carries identity).
+export const GESTURE_MAP = {
+  curiosity: 'with a slight lean-in and a raised eyebrow, building tension',
+  frustration: 'with a tired expression and a slow head shake',
   tension: 'with a serious tone, slowing slightly on the key words',
-  hope: 'with a softening tone, as if remembering the moment',
-  relief: 'with an easing tone and relaxed shoulders',
-  confidence: 'with a steady, assured tone and a small nod',
-  satisfaction: 'with a warm, content tone',
-  trust: 'with a calm, sincere tone, holding still after',
-  reassurance: 'with a knowing half-smile in the voice',
-  action: 'with a direct, energized tone',
-  anticipation: 'with a curious, inviting tone'
+  hope: 'with a genuine surprised expression, eyes widening as the memory lands',
+  relief: 'with an easing tone and shoulders visibly relaxing',
+  confidence: 'with a calm, confident nod on the key word',
+  satisfaction: 'with a bright expression and one small animated hand gesture',
+  trust: 'with a confident smile and steady, direct eye contact',
+  reassurance: 'with a knowing half-smile and an open-palm gesture',
+  action: 'looking straight ahead, warm and direct, no hesitation',
+  anticipation: 'with a thoughtful pause before speaking, then leaning in'
 }
 
 function shortModelName(model) {
@@ -989,7 +1069,7 @@ export function generateOmniPrompts(studio, scenes) {
       // Dialogue clip: Omni Flash. French dialogue is NEVER routed to Seedance.
       model = 'Gemini Omni Flash (Google Flow)'
       const verb = pr.subj === 'They' ? 'say' : 'says'
-      const cue = DELIVERY_CUES[str(scene.emotionalBeat)] || 'with a natural conversational tone'
+      const cue = GESTURE_MAP[str(scene.emotionalBeat)] || 'with a natural conversational tone'
       const gaze = isPodcast
         ? `${pr.subj} looks toward the other speaker, not at the camera.`
         : `${pr.subj} speaks directly to the camera.`
@@ -1018,14 +1098,14 @@ export function generateOmniPrompts(studio, scenes) {
 // Camera/product motion per cinematic purpose (atmosphere included, no people).
 function motionFor(purpose) {
   const map = {
-    hook: 'Slow push-in toward the product as the rim light brightens, fine dust particles drifting through the beam',
-    cta: 'The product settles into final position as the backdrop light evens out, gentle camera drift to stillness',
-    product_hero: 'Slow push-in toward the product as the rim light brightens, fine dust particles drifting through the beam',
-    lifestyle: 'Slow lateral dolly across the scene, shallow focus breathing between foreground and the environment',
-    product_reveal: 'The product rotates slowly into the light as the camera tilts up, shadows receding',
-    macro_detail: 'Macro slider move across the surface texture, light catching each detail in turn',
-    product_in_use: 'Locked-off top-down frame, hands enter to use the product naturally, steam or motion settling',
-    end_card: 'The product settles into final position as the backdrop light evens out, gentle camera drift to stillness'
+    hook: 'Camera slowly pushes in on the product as the rim light brightens. Fine dust particles drift through the beam; the liquid inside catches the light as it settles',
+    cta: 'The product settles into its final position as the backdrop light evens out. Gentle camera drift to stillness, condensation beading on the surface',
+    product_hero: 'Camera slowly pushes in on the product as the rim light brightens. Fine dust particles drift through the beam',
+    lifestyle: 'Slow lateral dolly across the scene, shallow focus breathing between foreground objects and the environment behind',
+    product_reveal: 'The product rotates slowly into a beam of light as the camera tilts up, shadows receding across the surface',
+    macro_detail: 'Macro slider move across the surface texture; light catches each detail in turn, micro-bubbles rising through the liquid',
+    product_in_use: 'Locked-off top-down frame. Hands enter to use the product naturally; steam curls and settles, ripples calm',
+    end_card: 'The product settles into its final position as the backdrop light evens out. Gentle camera drift to stillness'
   }
   return map[purpose] || 'Slow, deliberate camera move with soft atmospheric light shifts'
 }
