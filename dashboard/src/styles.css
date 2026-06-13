@@ -1694,6 +1694,21 @@ button.caret {
 
 .ms-script-view { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
 .ms-script-view h4 { margin: 0; }
+.ms-variant-section {
+  display: grid; gap: 14px; margin-top: 16px; padding: 16px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2);
+}
+.ms-variant-section h4, .ms-variant-section p { margin: 0; }
+.ms-variant-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.ms-variant-card {
+  display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 14px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--panel);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.ms-variant-card:hover { transform: translateY(-3px); border-color: var(--accent-2); box-shadow: 0 8px 20px #0005; }
+.ms-variant-hook-text { flex: 1; margin: 0; font-size: 16px; font-style: italic; line-height: 1.5; color: var(--text); }
+.ms-variant-use-btn { align-self: flex-start; }
+@media (max-width: 760px) { .ms-variant-grid { grid-template-columns: 1fr; } }
 .ms-script-pre {
   margin: 8px 0 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6;
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px;

@@ -24,6 +24,7 @@ import {
   generateSceneOutline,
   generateOmniPrompts,
   generateFramePrompts,
+  generateHookVariants,
   regenerateScene,
   extractBriefFromText,
   buildCopyAllText,
@@ -839,6 +840,7 @@ function SceneCard({ scene, onPatch, onRegenerate, onFocus, isFocused }) {
 
 function ScriptStep({ studio, onUpdate, onBack, onNext }) {
   const [bulkSetting, setBulkSetting] = useState('')
+  const [hookVariants, setHookVariants] = useState([])
   const [focusedSceneIndex, setFocusedSceneIndex] = useState(null)
   const [browseSettingsOpen, setBrowseSettingsOpen] = useState(false)
 
@@ -917,6 +919,17 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
     onNext()
   }
 
+  function useHookVariant(variant) {
+    if (!variant || !variant.scenes || !variant.scenes[0]) return
+    onUpdate((s) => ({
+      ...s,
+      brief: { ...s.brief, hook: variant.hookText },
+      scenes: s.scenes.map((scene, index) => (index === 0 ? { ...variant.scenes[0] } : scene)),
+      prompts: []
+    }))
+    setHookVariants([])
+  }
+
   return (
     <div className="ms-stepbody">
       <div className="row between">
@@ -974,6 +987,27 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
           <CopyButton text={fullScript} label="Copy Script" />
         </div>
         <pre className="ms-script-pre">{fullScript || '(no dialogue)'}</pre>
+      </div>
+
+      <div className="ms-variant-section">
+        <div className="row between">
+          <div>
+            <h4>🔀 Test Different Hooks</h4>
+            <p className="hint small">Generate 3 versions with different opening hooks to test performance.</p>
+          </div>
+          <button className="ghost" onClick={() => setHookVariants(generateHookVariants(studio, studio.scenes))}>Generate Hook Variants</button>
+        </div>
+        {hookVariants.length ? (
+          <div className="ms-variant-grid">
+            {hookVariants.map((variant) => (
+              <article key={variant.variantId} className="ms-variant-card">
+                <h4>{variant.variantLabel}</h4>
+                <blockquote className="ms-variant-hook-text">“{variant.hookText}”</blockquote>
+                <button className="primary small ms-variant-use-btn" onClick={() => useHookVariant(variant)}>Use This</button>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <button className="primary ms-generate-btn" disabled={!studio.scenes.length} onClick={generatePrompts}>
