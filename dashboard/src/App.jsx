@@ -406,13 +406,16 @@ export default function App() {
 
   // Send studio prompts to the Node Canvas as Prompt → Image Gen (mock) → Output
   // rows — same appended-row pattern as Import Scenes. Returns the row count.
-  function sendStudioToNodeCanvas(prompts) {
+  function sendStudioToNodeCanvas(prompts, studio, framePrompts) {
     const list = Array.isArray(prompts) ? prompts : []
+    const frames = Array.isArray(framePrompts) ? framePrompts : []
     if (!list.length) return 0
     const rows = list.map((p) => ({
       scene_number: p.sceneNumber,
       what_happens: `Marketing Studio clip ${p.sceneNumber} — ${p.setupHeader}`,
-      output_prompt: p.promptText
+      output_prompt: p.promptText,
+      frame_prompt: (frames.find((f) => Number(f.sceneNumber) === Number(p.sceneNumber)) || {}).framePrompt || '',
+      frame_attach: (frames.find((f) => Number(f.sceneNumber) === Number(p.sceneNumber)) || {}).setupHeader || ''
     }))
     updateNodeCanvas((c) => addSceneNodesToCanvas(normalizeNodeCanvas(c), rows))
     return rows.length

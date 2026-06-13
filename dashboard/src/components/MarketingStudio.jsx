@@ -1039,7 +1039,7 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
   }
 
   function sendToCanvas() {
-    const n = onSendToNodeCanvas(prompts, studio)
+    const n = onSendToNodeCanvas(prompts, studio, visibleFramePrompts)
     setSentNote(n > 0 ? `Sent ${n} scene rows to Node Canvas ✓` : 'Nothing to send.')
     setTimeout(() => setSentNote(''), 4000)
   }

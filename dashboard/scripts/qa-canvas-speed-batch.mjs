@@ -466,7 +466,7 @@ async function main() {
     // newNode for the two new types with correct sockets + default data.
     const pr = m.newNode('prompt', 0, 0)
     if (pr.type !== 'prompt' || typeof pr.data.text !== 'string') throw new Error('prompt node default data wrong')
-    if (m.NODE_DEFS.prompt.inputs.length !== 0 || m.socketType('prompt', 'output', 'prompt') !== 'text') throw new Error('prompt node sockets wrong')
+    if (m.socketType('prompt', 'input', 'reference') !== 'image' || m.socketType('prompt', 'output', 'prompt') !== 'text') throw new Error('prompt node sockets wrong')
     const img = m.newNode('image_generator', 300, 0)
     if (img.type !== 'image_generator' || img.data.model !== m.IMAGE_MODELS[0] || img.data.count !== 1) throw new Error('image node default data wrong')
     const imgInputs = m.NODE_DEFS.image_generator.inputs.map((s) => s.name)

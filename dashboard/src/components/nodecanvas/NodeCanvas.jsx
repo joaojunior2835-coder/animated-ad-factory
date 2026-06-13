@@ -765,6 +765,12 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
               ))}
             </select>
           </label>
+          {d.frame_prompt ? (
+            <label className="field">
+              <span className="field-label">Frame prompt</span>
+              <textarea rows={4} value={d.frame_prompt} onChange={(e) => setData(node.id, { frame_prompt: e.target.value })} aria-label="Frame prompt" />
+            </label>
+          ) : null}
           {uploadZone(node, thumb)}
           <label className="field">
             <span className="field-label">Or paste a URL</span>

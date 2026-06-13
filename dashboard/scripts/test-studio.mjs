@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { inferStudioFromQuickPrompt } from '../src/lib/marketingStudioModel.js'
+import { emptyStudio, generateFramePrompts, generateOmniPrompts, inferStudioFromQuickPrompt } from '../src/lib/marketingStudioModel.js'
 
 let passed = 0
 
@@ -46,6 +46,33 @@ test('Gibberish returns valid defaults', () => {
   const studio = inferStudioFromQuickPrompt('random gibberish text with no keywords', 'en')
   validStudio(studio)
   assert.equal(studio.format, 'ugc_talking_head')
+})
+
+const calmeStudio = inferStudioFromQuickPrompt('Podcast français 30s pour Calme, boisson anti-stress, cible femmes 25-45, ingrédient ashwagandha, ton authentique', 'fr')
+const calmePrompts = generateOmniPrompts(calmeStudio, calmeStudio.scenes)
+const calmeFrames = generateFramePrompts(calmeStudio, calmeStudio.scenes, calmePrompts)
+
+test('Frame prompts match scene count and shape', () => {
+  assert.equal(calmeStudio.scenes.length, 10)
+  assert.equal(calmeFrames.length, calmeStudio.scenes.length)
+  for (const frame of calmeFrames) {
+    assert.ok(frame.sceneNumber)
+    assert.ok(frame.purpose)
+    assert.ok(typeof frame.framePrompt === 'string' && frame.framePrompt.trim())
+    assert.ok(typeof frame.setupHeader === 'string' && frame.setupHeader.trim())
+  }
+})
+
+test('Frame prompts obey static-frame rules', () => {
+  for (const frame of calmeFrames) {
+    assert.doesNotMatch(frame.framePrompt, /\b(?:4|6|8|10)s\b/i)
+    assert.doesNotMatch(frame.framePrompt, /\b(?:says|speaks|tells)\b/i)
+    assert.match(frame.setupHeader, /Attach Frame/)
+  }
+})
+
+test('Frame prompt generation never throws on empty input', () => {
+  assert.deepEqual(generateFramePrompts(emptyStudio(), [], []), [])
 })
 
 console.log(`\n${passed} passed, 0 failed`)

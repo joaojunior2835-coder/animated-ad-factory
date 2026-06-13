@@ -1668,10 +1668,21 @@ export function buildStudioMarkdown(studio, scenes, prompts, framePrompts = []) 
   const frameList = Array.isArray(framePrompts) ? framePrompts : []
   if (frameList.length) {
     out.push('## Start Frame Prompts', '')
+    out.push('| Frame | Purpose | Character | Attach Instruction |')
+    out.push('| --- | --- | --- | --- |')
     for (const frame of frameList) {
+      const attach = frame.setupHeader.replace(/Attach Frame \[(\d+)\]/, 'Attach Frame $1')
+      const character = attach.split(/\s+[—-]\s+/).slice(1).join(' — ') || 'Product'
+      out.push(`| ${frame.sceneNumber} | ${purposeLabel(frame.purpose)} | ${character} | ${attach} |`)
+    }
+    out.push('')
+    for (const frame of frameList) {
+      const scene = sceneList.find((item) => Number(item.sceneNumber) === Number(frame.sceneNumber))
       out.push(`### Frame ${frame.sceneNumber} — ${purposeLabel(frame.purpose)}`, '')
       out.push(`**Attach:** ${frame.setupHeader.replace(/Attach Frame \[(\d+)\]/, 'Frame $1')}`)
+      out.push(`**Emotional beat:** ${str(scene && scene.emotionalBeat).trim() || 'authentic and composed'}`)
       out.push(frame.framePrompt, '')
+      out.push('---', '')
     }
   }
 

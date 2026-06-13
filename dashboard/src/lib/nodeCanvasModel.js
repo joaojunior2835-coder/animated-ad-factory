@@ -101,7 +101,7 @@ export function modelUsesCredits(modelId) {
 export const NODE_DEFS = {
   prompt: {
     title: 'Prompt',
-    inputs: [],
+    inputs: [{ name: 'reference', label: 'Reference', type: 'image' }],
     outputs: [{ name: 'prompt', label: 'Prompt', type: 'text' }],
     defaultData: () => ({ label: '', text: '', output_text: '' })
   },
@@ -200,6 +200,7 @@ export const NODE_DEFS = {
       height: 0,
       media_type: 'image',
       ref_type: 'product',
+      frame_prompt: '',
       storage: '',
       status_message: ''
     })
@@ -441,6 +442,15 @@ export function addSceneNodesToCanvas(nc, scenes) {
   list.forEach((s, i) => {
     const num = Number(s && s.scene_number) || i + 1
     const y = y0 + i * ROW_H
+    const framePrompt = String((s && s.frame_prompt) || '')
+    let r = null
+    if (framePrompt.trim()) {
+      r = newNode('reference', -320, y)
+      r.data.label = `Frame ${num}`
+      r.data.ref_type = 'startFrame'
+      r.data.frame_prompt = framePrompt
+      r.data.status_message = String((s && s.frame_attach) || `Attach Frame ${num}`)
+    }
     const p = newNode('prompt', 40, y)
     p.data.label = `Scene ${num} description`
     p.data.text = String((s && s.what_happens) || '')
@@ -451,7 +461,10 @@ export function addSceneNodesToCanvas(nc, scenes) {
     const o = newNode('output', 760, y)
     o.data.label = `Scene ${num} output`
     o.data.scene_number = num
-    nodes.push(p, g, o)
+    nodes.push(...(r ? [r] : []), p, g, o)
+    if (r) {
+      connections.push({ id: uid(), from_node: r.id, from_socket: 'image', to_node: p.id, to_socket: 'reference' })
+    }
     connections.push(
       { id: uid(), from_node: p.id, from_socket: 'prompt', to_node: g.id, to_socket: 'prompt' },
       { id: uid(), from_node: g.id, from_socket: 'image', to_node: o.id, to_socket: 'image' }
