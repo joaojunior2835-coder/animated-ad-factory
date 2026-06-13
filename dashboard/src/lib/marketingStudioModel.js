@@ -1581,16 +1581,22 @@ export function totalPromptDuration(prompts) {
   return (Array.isArray(prompts) ? prompts : []).reduce((acc, p) => acc + (Number(p.duration) || 0), 0)
 }
 
-// Paste-ready clipboard text: setup header + prompt per clip, ---- separated.
-export function buildCopyAllText(prompts) {
+// Paste-ready clipboard text: clip prompt plus its optional start frame.
+export function buildCopyAllText(prompts, framePrompts = []) {
+  const frames = Array.isArray(framePrompts) ? framePrompts : []
   return (Array.isArray(prompts) ? prompts : [])
-    .map((p) => `${p.setupHeader}\n${p.promptText}${p.notes ? `\n(Notes: ${p.notes})` : ''}`)
-    .join('\n----\n')
+    .map((p) => {
+      const frame = frames.find((f) => Number(f.sceneNumber) === Number(p.sceneNumber))
+      const clip = `---- CLIP ${p.sceneNumber} ----\n${p.setupHeader}\n${p.promptText}${p.notes ? `\n(Notes: ${p.notes})` : ''}`
+      if (!frame) return clip
+      return `${clip}\n\nSTART FRAME ${frame.sceneNumber}\n${frame.setupHeader.replace(/Attach Frame \[(\d+)\]/, 'Attach Frame $1')}\n${frame.framePrompt}`
+    })
+    .join('\n\n')
 }
 
 // Full production package markdown (omni-v51 style): brief summary, scene
 // outline table, then one block per prompt.
-export function buildStudioMarkdown(studio, scenes, prompts) {
+export function buildStudioMarkdown(studio, scenes, prompts, framePrompts = []) {
   const s = normalizeStudio(studio)
   const format = formatById(s.format)
   const lang = studioLanguage(s)
@@ -1657,6 +1663,16 @@ export function buildStudioMarkdown(studio, scenes, prompts) {
     }
   } else {
     out.push('_(no prompts generated)_', '')
+  }
+
+  const frameList = Array.isArray(framePrompts) ? framePrompts : []
+  if (frameList.length) {
+    out.push('## Start Frame Prompts', '')
+    for (const frame of frameList) {
+      out.push(`### Frame ${frame.sceneNumber} — ${purposeLabel(frame.purpose)}`, '')
+      out.push(`**Attach:** ${frame.setupHeader.replace(/Attach Frame \[(\d+)\]/, 'Frame $1')}`)
+      out.push(frame.framePrompt, '')
+    }
   }
 
   out.push('## Production Checklist', '')

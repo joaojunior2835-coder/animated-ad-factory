@@ -1990,6 +1990,9 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 
 /* Prompt cards: production slates */
 .ms-prompt-card { border-radius: 14px; padding: 14px 16px; }
+.ms-prompt-kind {
+  color: #f0a85a; font-size: 11px; font-weight: 800; letter-spacing: 0.12em;
+}
 .ms-setup-header {
   background: #0a0c10; border-left: 3px solid var(--accent);
   font-size: 13px; letter-spacing: 0.2px; padding: 10px 12px;
@@ -1999,6 +2002,23 @@ button.danger { color: var(--danger); border-color: var(--danger); }
   font-size: 13px; line-height: 1.7; background: var(--bg);
   border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
 }
+.ms-frame-toggle {
+  display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px;
+  color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.ms-frame-section {
+  display: grid; gap: 8px; margin: 14px -2px -2px; padding: 14px;
+  background: #0c1420; border-left: 3px solid #6ea8fe; border-radius: 10px;
+}
+.ms-frame-header {
+  color: #8ab4f8; font-size: 11px; font-weight: 800; letter-spacing: 0.14em;
+}
+.ms-frame-attach {
+  color: #a9c7f7; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.ms-frame-text { color: var(--text); font-size: 13.5px; line-height: 1.6; }
+.ms-copy-frame-btn { border-color: #6ea8fe66; color: #a9c7f7; }
 .ms-summary-bar { border-radius: 12px; padding: 12px 16px; }
 
 /* Session list rows */

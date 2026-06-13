@@ -23,6 +23,7 @@ import {
   purposeLabel,
   generateSceneOutline,
   generateOmniPrompts,
+  generateFramePrompts,
   regenerateScene,
   extractBriefFromText,
   buildCopyAllText,
@@ -86,13 +87,13 @@ function CopyButton({ text, label = 'Copy', className = 'ghost small' }) {
 }
 
 // Copy-all with a satisfying confirmation: scales on click, reports the count.
-function CopyAllButton({ prompts }) {
+function CopyAllButton({ prompts, framePrompts }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
       className={copied ? 'primary ms-copyall copied' : 'primary ms-copyall'}
       onClick={() => {
-        copyText(buildCopyAllText(prompts))
+        copyText(buildCopyAllText(prompts, framePrompts))
         setCopied(true)
         setTimeout(() => setCopied(false), 3000)
       }}
@@ -987,20 +988,31 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
 }
 
 // ---- Step 5: Prompts & export ----
-function PromptCard({ prompt }) {
+function PromptCard({ prompt, framePrompt, showFramePrompts }) {
   const isOmni = prompt.model.indexOf('Omni') !== -1
   return (
     <div className="ms-prompt-card">
       <div className="ms-prompt-meta">
+        <span className="ms-prompt-kind">CLIP PROMPT</span>
         <span className="ms-scene-num">Clip {prompt.sceneNumber}</span>
         <span className="ms-badge">{prompt.duration}s</span>
         <span className={isOmni ? 'ms-badge ms-badge-omni' : 'ms-badge ms-badge-seedance'}>{isOmni ? 'Omni Flash' : 'Seedance 2.0'}</span>
         <span className="ms-scene-spacer" />
-        <CopyButton text={`${prompt.setupHeader}\n${prompt.promptText}`} />
+        <CopyButton text={`${prompt.setupHeader}\n${prompt.promptText}`} label="Copy Clip" />
       </div>
       <div className="ms-setup-header">{prompt.setupHeader}</div>
       <div className="ms-prompt-text">{prompt.promptText}</div>
       {prompt.notes ? <div className="hint small ms-prompt-notes">{prompt.notes}</div> : null}
+      {showFramePrompts && framePrompt ? (
+        <div className="ms-frame-section">
+          <div className="row between">
+            <span className="ms-frame-header">START FRAME</span>
+            <CopyButton text={`${framePrompt.setupHeader}\n${framePrompt.framePrompt}`} label="Copy Frame" className="ghost small ms-copy-frame-btn" />
+          </div>
+          <div className="ms-frame-attach">{framePrompt.setupHeader}</div>
+          <div className="ms-frame-text">{framePrompt.framePrompt}</div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1008,12 +1020,19 @@ function PromptCard({ prompt }) {
 function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSession, onClearSession }) {
   const [sentNote, setSentNote] = useState('')
   const [savedNote, setSavedNote] = useState('')
+  const [showFramePrompts, setShowFramePrompts] = useState(true)
+  const [framePrompts, setFramePrompts] = useState([])
   const prompts = studio.prompts
   const lang = studioLanguage(studio)
   const models = modelsNeeded(prompts)
   const total = totalPromptDuration(prompts)
 
-  const markdown = useMemo(() => buildStudioMarkdown(studio, studio.scenes, prompts), [studio, prompts])
+  useEffect(() => {
+    setFramePrompts(generateFramePrompts(studio, studio.scenes, prompts))
+  }, [studio, prompts])
+
+  const visibleFramePrompts = showFramePrompts ? framePrompts : []
+  const markdown = useMemo(() => buildStudioMarkdown(studio, studio.scenes, prompts, visibleFramePrompts), [studio, prompts, visibleFramePrompts])
 
   function exportMarkdown() {
     downloadMarkdown(markdown, `${slugify(studio.product.name)}-marketing-studio.md`)
@@ -1035,6 +1054,11 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
     <div className="ms-stepbody">
       <h3>Step 5 — Prompts & Export</h3>
 
+      <label className="ms-frame-toggle">
+        <input type="checkbox" checked={showFramePrompts} onChange={(e) => setShowFramePrompts(e.target.checked)} />
+        <span>Show Frame Prompts</span>
+      </label>
+
       <div className="ms-summary-bar">
         <span><b>Total clips:</b> {prompts.length}</span>
         <span><b>Total estimated duration:</b> {total}s (target {studio.brief.duration}s)</span>
@@ -1052,7 +1076,7 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
       ) : null}
 
       <div className="row ms-export-row">
-        <CopyAllButton prompts={prompts} />
+        <CopyAllButton prompts={prompts} framePrompts={visibleFramePrompts} />
         <button className="ghost" onClick={exportMarkdown}>Export as Markdown</button>
         <button className="ghost" onClick={sendToCanvas} disabled={!prompts.length || !onSendToNodeCanvas}>Send to Node Canvas</button>
         {sentNote ? <span className="hint small ms-extract-note">{sentNote}</span> : null}
@@ -1061,7 +1085,7 @@ function ExportStep({ studio, onUpdate, onBack, onSendToNodeCanvas, onSaveSessio
       <div className="ms-prompt-list">
         {prompts.map((p, i) => (
           <div key={p.sceneNumber} className="ms-prompt-enter" style={{ animationDelay: `${i * 50}ms` }}>
-            <PromptCard prompt={p} />
+            <PromptCard prompt={p} framePrompt={framePrompts.find((f) => Number(f.sceneNumber) === Number(p.sceneNumber))} showFramePrompts={showFramePrompts} />
           </div>
         ))}
         {!prompts.length ? <p className="hint">No prompts yet — go back to Step 4 and click "Generate Prompts".</p> : null}
