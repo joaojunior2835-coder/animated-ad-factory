@@ -629,6 +629,68 @@ export function clampHookLine(line) {
   return words.slice(0, 15).join(' ').replace(/[,;:]?$/, '') + '…'
 }
 
+export function generateHookVariants(studio, scenes) {
+  try {
+    const s = normalizeStudio(studio)
+    const sourceScenes = Array.isArray(scenes) ? scenes : []
+    const language = studioLanguage(s)
+    const pool = hooksForLanguage(language)
+    const currentHook = clampHookLine(s.brief.hook)
+    const categoryGroups = [['problem'], ['stat', 'reveal'], ['testimonial', 'before_after']]
+    const priorities = ['problem', 'stat', 'reveal', 'testimonial', 'before_after', 'story', 'question', 'comparison', 'urgency', 'secret']
+    const selected = []
+
+    if (currentHook) selected.push({ text: currentHook, name: 'Original Hook', category: 'original' })
+
+    for (const group of categoryGroups) {
+      const hook = pool.find((item) =>
+        group.includes(item.category) &&
+        !selected.some((chosen) => searchNorm(chosen.text) === searchNorm(item.text))
+      )
+      if (hook) selected.push(hook)
+      if (selected.length === 3) break
+    }
+
+    for (const category of priorities) {
+      const hook = pool.find((item) => item.category === category && !selected.some((chosen) => searchNorm(chosen.text) === searchNorm(item.text)))
+      if (hook) selected.push(hook)
+      if (selected.length === 3) break
+    }
+
+    for (const hook of pool) {
+      if (!selected.some((chosen) => searchNorm(chosen.text) === searchNorm(hook.text))) selected.push(hook)
+      if (selected.length === 3) break
+    }
+
+    while (selected.length < 3) {
+      selected.push({
+        text: currentHook || (language === 'fr' ? 'Voici ce qui a tout changé pour moi.' : 'Here is what changed everything for me.'),
+        name: currentHook ? 'Original Hook' : 'Default Hook',
+        category: currentHook ? 'original' : 'default'
+      })
+    }
+
+    return selected.slice(0, 3).map((hook, index) => {
+      const hookText = clampHookLine(hook.text)
+      const clonedScenes = sourceScenes.map((scene) => JSON.parse(JSON.stringify(scene && typeof scene === 'object' ? scene : {})))
+      if (clonedScenes.length) clonedScenes[0] = { ...clonedScenes[0], dialogueLine: hookText }
+      return {
+        variantId: ['a', 'b', 'c'][index],
+        variantLabel: `Variant ${['A', 'B', 'C'][index]} — ${hook.category === 'original' ? 'Original Hook' : str(hook.name).trim() || 'Hook'}`,
+        hookText,
+        scenes: clonedScenes
+      }
+    })
+  } catch {
+    return ['a', 'b', 'c'].map((variantId, index) => ({
+      variantId,
+      variantLabel: `Variant ${['A', 'B', 'C'][index]} — Default Hook`,
+      hookText: '',
+      scenes: []
+    }))
+  }
+}
+
 // Deterministic dialogue line per purpose. User-provided brief fields win;
 // templates fill the gaps. All templates stay within the 25-word clip budget.
 function lineFor(purpose, studio, lang) {
