@@ -356,10 +356,11 @@ export default function App() {
       return updateSession(list, activeStudioSessionId, fn(normalizeStudio(cur.studio)))
     })
 
-  const createStudioSession = () => {
-    const session = createSession(emptyStudio())
+  const createStudioSession = (studioData) => {
+    const session = createSession(studioData || emptyStudio())
     persistStudioSessions((list) => [session, ...list])
     setActiveStudioSessionId(session.id)
+    return session.id
   }
 
   const importStudioSession = (studioData, name) => {

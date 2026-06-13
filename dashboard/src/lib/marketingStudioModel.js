@@ -291,6 +291,58 @@ export function getDefaultCharactersForFormat(formatId) {
   return map[formatId] || []
 }
 
+export function inferStudioFromQuickPrompt(text, language) {
+  try {
+    const raw = str(text).trim()
+    const lower = searchNorm(raw)
+    const inferredLanguage = /\b(francais|french|fr)\b/.test(lower) ? 'fr' : (language === 'fr' ? 'fr' : 'en')
+    const formatId =
+      lower.includes('podcast') ? (inferredLanguage === 'fr' ? 'french_podcast' : 'ugc_podcast') :
+      /\b(temoignage|testimonial)\b/.test(lower) ? 'ugc_testimonial' :
+      /\b(tutoriel|tutorial)\b/.test(lower) ? 'tutorial' :
+      lower.includes('unboxing') ? 'unboxing' :
+      /\b(cinematique|cinematic)\b/.test(lower) ? 'cinematic_product' :
+      'ugc_talking_head'
+    const segments = raw.split(',').map((part) => part.trim()).filter(Boolean)
+    const first = segments[0] || ''
+    const quoted = raw.match(/["'“”]([^"'“”]+)["'“”]/)
+    const afterFor = first.match(/\b(?:pour|for)\s+([A-ZÀ-ÖØ-Ý][\wÀ-ÿ-]*)/)
+    const proper = raw.match(/\b[A-ZÀ-ÖØ-Ý][\wÀ-ÿ-]{2,}\b/g)
+    const ignored = /^(Podcast|English|French|UGC|Témoignage|Temoignage|Tutoriel|Tutorial|Unboxing)$/i
+    const name = (quoted && quoted[1]) || (afterFor && afterFor[1]) || ((proper || []).find((word) => !ignored.test(word))) || 'Untitled Product'
+    const labeled = (labels) => {
+      const re = new RegExp(`^(?:${labels})\\s+(.+)$`, 'i')
+      const segment = segments.find((part) => re.test(searchNorm(part)))
+      return segment ? searchNorm(segment).match(re)[1].trim() : ''
+    }
+    const targetAudience = labeled('cible|target(?: audience)?')
+    const keyIngredient = labeled('ingredient|ingredient cle|key ingredient')
+    const tone = labeled('ton|tone') || 'authentic'
+    const durationMatch = lower.match(/\b(\d+)\s*(?:s|sec|seconds?|secondes?)\b/)
+    const durationRaw = durationMatch ? Number(durationMatch[1]) : 30
+    const duration = STUDIO_DURATIONS.includes(durationRaw) ? durationRaw : 30
+    const descriptionParts = segments.filter((part) =>
+      !new RegExp(`^(?:cible|target(?: audience)?|ingredient|ingrédient|ton|tone)\\b`, 'i').test(part)
+    )
+    const description = descriptionParts.join(', ').replace(name, '').replace(/\s{2,}/g, ' ').replace(/^[\s,;-]+|[\s,;-]+$/g, '') || `${name} product ad`
+    const studio = normalizeStudio({
+      product: { name, description, targetAudience, keyIngredient },
+      brief: { language: inferredLanguage, duration, tone },
+      format: formatId,
+      characters: getDefaultCharactersForFormat(formatId)
+    })
+    return { ...studio, scenes: generateSceneOutline(studio), status: 'brief_ready' }
+  } catch {
+    const studio = normalizeStudio({
+      product: { name: 'Untitled Product', description: 'Product advertisement' },
+      brief: { language: language === 'fr' ? 'fr' : 'en', duration: 30, tone: 'authentic' },
+      format: 'ugc_talking_head',
+      characters: getDefaultCharactersForFormat('ugc_talking_head')
+    })
+    return { ...studio, scenes: generateSceneOutline(studio), status: 'brief_ready' }
+  }
+}
+
 export const CUSTOM_CHARACTERS_KEY = 'aaf_custom_characters'
 
 export function loadCustomCharacters() {

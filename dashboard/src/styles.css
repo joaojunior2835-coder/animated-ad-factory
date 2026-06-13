@@ -2004,6 +2004,18 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 /* Session list rows */
 .ms-session-row-item { border-radius: 12px; padding: 12px 16px; }
 .ms-session-name { font-size: 15px; }
+.ms-quick-card {
+  display: grid; gap: 10px; margin: 18px 0; padding: 18px;
+  border: 1px solid var(--accent-2); border-radius: 14px; background: var(--panel-2);
+}
+.ms-quick-card h3 { margin: 0; }
+.ms-quick-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ms-quick-warning { margin: 0; color: #f0a85a; font-size: 12px; }
+.ms-quick-banner {
+  display: flex; justify-content: space-between; align-items: center;
+  margin: 12px 0; padding: 10px 14px; border: 1px solid var(--accent-2);
+  border-radius: 10px; background: var(--panel-2); font-weight: 700;
+}
 
 /* UX flow (Higgsfield parity phase 3) */
 .ms-step-pane { min-width: 0; }

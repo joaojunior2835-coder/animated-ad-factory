@@ -36,6 +36,7 @@ import {
   saveCustomCharacters,
   searchNorm,
   getDefaultCharactersForFormat,
+  inferStudioFromQuickPrompt,
   CUSTOM_CHARACTERS_KEY
 } from '../lib/marketingStudioModel.js'
 
@@ -1157,13 +1158,40 @@ function SessionName({ session, onRename }) {
 
 function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession, onRenameSession, onImportMarkdown }) {
   const [importOpen, setImportOpen] = useState(false)
+  const [quickText, setQuickText] = useState('')
+  const [quickLanguage, setQuickLanguage] = useState('fr')
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
+  const wordCount = quickText.trim().split(/\s+/).filter(Boolean).length
+  const examples = [
+    ['Podcast FR · Calme', 'fr', 'Podcast français 30s pour Calme, boisson anti-stress, cible femmes 25-45, ingrédient ashwagandha KSM-66, ton authentique'],
+    ['UGC EN · Skincare', 'en', 'English UGC 30s for GlowSerum, skincare serum, target women 20-35, ingredient hyaluronic acid, tone casual'],
+    ['Testimonial FR · Slim', 'fr', 'Témoignage français 45s pour SlimBoost, complément minceur, cible femmes 30-50, ingrédient CLA chrome, ton honnête']
+  ]
   return (
     <section className="panel ms-panel">
       <div className="ms-hero">
         <span className="ms-hero-eyebrow">Marketing Studio</span>
         <h2 className="ms-hero-title">Turn one brief<br />into a complete ad package</h2>
         <p className="ms-hero-sub">Scene-by-scene scripts and paste-ready prompts — UGC, podcast, or cinematic. 100% local, no credits.</p>
+      </div>
+
+      <div className="ms-quick-card">
+        <h3>⚡ Quick Mode</h3>
+        <textarea className="ms-input" rows={3} value={quickText} placeholder="Ex: Podcast français 30s pour Calme..." onChange={(e) => setQuickText(e.target.value)} />
+        <div className="ms-quick-chips">
+          {examples.map(([label, lang, value]) => (
+            <button key={label} className="ghost small" onClick={() => { setQuickText(value); setQuickLanguage(lang) }}>{label}</button>
+          ))}
+        </div>
+        {quickText.trim() && wordCount < 5 ? <p className="ms-quick-warning">Add more detail...</p> : null}
+        <div className="row between">
+          <div className="ms-toggle-row">
+            <span className="field-label">Language:</span>
+            <button className={quickLanguage === 'fr' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setQuickLanguage('fr')}>🇫🇷 FR</button>
+            <button className={quickLanguage === 'en' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setQuickLanguage('en')}>🇬🇧 EN</button>
+          </div>
+          <button className="primary" disabled={!quickText.trim()} onClick={() => onCreateSession(inferStudioFromQuickPrompt(quickText, quickLanguage), true)}>→ Generate</button>
+        </div>
       </div>
 
       <div className="row between ms-home-head">
@@ -1228,18 +1256,24 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
   const [step, setStep] = useState(0)
   const [wizardImportOpen, setWizardImportOpen] = useState(false)
   const [stepDirection, setStepDirection] = useState('forward')
+  const [quickSessionId, setQuickSessionId] = useState(null)
+
+  const createFromHome = (studioData, quick = false) => {
+    const id = onCreateSession(studioData)
+    if (quick) setQuickSessionId(id)
+  }
 
   // Reset the wizard to Brief whenever a different session opens.
   useEffect(() => {
-    setStep(0)
-  }, [activeSessionId])
+    setStep(activeSessionId && activeSessionId === quickSessionId ? 3 : 0)
+  }, [activeSessionId, quickSessionId])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null
   if (!activeSession) {
     return (
       <SessionHome
         sessions={sessions}
-        onCreateSession={onCreateSession}
+        onCreateSession={createFromHome}
         onOpenSession={onOpenSession}
         onDeleteSession={onDeleteSession}
         onRenameSession={onRenameSession}
@@ -1307,6 +1341,9 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
       )}
 
       <StepIndicator step={step} maxReached={maxReached} onJump={go} />
+      {activeSessionId === quickSessionId ? (
+        <div className="ms-quick-banner">⚡ Quick Mode <button className="ms-linklike" onClick={() => go(0)}>← Edit brief</button></div>
+      ) : null}
 
       <div key={step} className={stepDirection === 'forward' ? 'ms-step-pane ms-slide-forward' : 'ms-step-pane'}>
         {step === 0 ? <BriefStep studio={studio} onUpdate={onUpdate} onNext={() => go(1)} productLibrary={productLibrary} onSaveProductToLibrary={onSaveProductToLibrary} onDeleteProductFromLibrary={onDeleteProductFromLibrary} /> : null}
