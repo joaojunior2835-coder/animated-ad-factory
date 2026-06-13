@@ -1147,6 +1147,61 @@ export function generateOmniPrompts(studio, scenes) {
   })
 }
 
+// Build static start-frame image prompts to pair with motion/dialogue clip prompts.
+// Frames establish composition, identity, setting, and mood; clip prompts own action.
+export function generateFramePrompts(studio, scenes, prompts) {
+  const s = normalizeStudio(studio)
+  const sceneList = Array.isArray(scenes) ? scenes : []
+  const promptList = Array.isArray(prompts) ? prompts : []
+  const isPodcast = isTwoCharacterFormat(s.format)
+  const isCinematic = s.format === 'cinematic_product'
+  const lastSceneNumber = sceneList.reduce((max, scene) => Math.max(max, Number(scene && scene.sceneNumber) || 0), 0)
+  const quality = s.output.qualityHint
+
+  return sceneList.map((scene, index) => {
+    const num = Number(scene && scene.sceneNumber) || index + 1
+    const purpose = str(scene && scene.purpose).trim() || 'scene'
+    const beat = str(scene && scene.emotionalBeat).trim() || 'authentic and composed'
+    const shot = str(scene && scene.shotType).trim() || 'medium shot'
+    const setting = settingById(scene && scene.settingId) || settingById(defaultSettingForFormat(s.format))
+    const character = characterById(scene && scene.character) || characterById(s.characters[index % Math.max(s.characters.length, 1)])
+    const characterName = character ? character.name : 'Primary character'
+    const clipPrompt = promptList.find((p) => Number(p && p.sceneNumber) === num)
+    const isVisual = isCinematic || !str(scene && scene.dialogueLine).trim() || ['product_hero', 'product_reveal', 'macro_detail', 'product_in_use', 'end_card'].includes(purpose)
+    const isHook = num === 1 || purpose === 'hook'
+    const isCta = num === lastSceneNumber || purpose === 'cta' || purpose === 'end_card'
+    const settingText = setting ? `${setting.description}; ${setting.lightingNote}` : 'natural, believable setting with soft motivated light'
+    const detail = quality === 'Maximum'
+      ? 'Fine material texture, natural skin detail, and precise background separation.'
+      : quality === 'High'
+        ? 'Natural texture and clean background separation.'
+        : ''
+
+    let framePrompt
+    if (isVisual) {
+      const product = str(s.product.name).trim() || 'Product'
+      framePrompt = `${shot} of ${product} in frame, composed for ${beat}. ${settingText}.`
+    } else if (isCta && isPodcast) {
+      framePrompt = `Both speakers visible in a two-shot, direct and warm, looking at the viewer with ${beat}. ${settingText}.`
+    } else if (isCta) {
+      framePrompt = `${shot} of ${characterName}, direct and warm, looking at the viewer with ${beat}. ${settingText}.`
+    } else if (isHook) {
+      framePrompt = `${shot} of ${characterName}, eye contact with camera, direct engagement, expression conveying ${beat}. ${settingText}.`
+    } else if (isPodcast) {
+      framePrompt = `${shot} of ${characterName} angled toward the other speaker, attentive listening expression conveying ${beat}, not looking at camera. ${settingText}.`
+    } else {
+      framePrompt = `${shot} of ${characterName}, composed expression conveying ${beat}. ${settingText}.`
+    }
+
+    return {
+      sceneNumber: num,
+      purpose,
+      framePrompt: [framePrompt, detail].filter(Boolean).join(' '),
+      setupHeader: `Attach Frame [${num}] — ${isVisual ? str(s.product.name).trim() || 'Product' : characterName}${clipPrompt && clipPrompt.attachFrame ? ` · ${clipPrompt.attachFrame}` : ''}`
+    }
+  })
+}
+
 // Camera/product motion per cinematic purpose (atmosphere included, no people).
 function motionFor(purpose) {
   const map = {
