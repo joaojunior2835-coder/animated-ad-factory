@@ -31,7 +31,7 @@ import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
-import { emptyStudio, normalizeStudio, loadSessions, saveSession, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary } from './lib/marketingStudioModel.js'
+import { emptyStudio, normalizeStudio, loadSessions, saveSession, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary, inferStudioFromQuickPrompt, formatById } from './lib/marketingStudioModel.js'
 import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
@@ -74,6 +74,7 @@ export default function App() {
   const [studioSessions, setStudioSessions] = useState(() => loadSessions())
   const [productLibrary, setProductLibrary] = useState(() => loadProductLibrary())
   const [activeStudioSessionId, setActiveStudioSessionId] = useState(null)
+  const [studioWizardStep, setStudioWizardStep] = useState(0)
   const [active, setActive] = useState('brand')
   const [backupExists, setBackupExists] = useState(() => hasBackup())
   const [canvasPreviews, setCanvasPreviews] = useState({})
@@ -361,6 +362,23 @@ export default function App() {
     persistStudioSessions((list) => [session, ...list])
     setActiveStudioSessionId(session.id)
     return session.id
+  }
+
+  const onQuickGenerate = (text, language) => {
+    const inferred = inferStudioFromQuickPrompt(text, language)
+    const format = formatById(inferred.format)
+    const now = Date.now()
+    const newSession = {
+      id: `ms_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      name: `${inferred.product.name} · ${format ? format.name : 'Marketing Studio'}`,
+      name_custom: false,
+      createdAt: now,
+      updatedAt: now,
+      studio: inferred
+    }
+    persistStudioSessions((list) => [...list, newSession])
+    setStudioWizardStep(3)
+    setActiveStudioSessionId(newSession.id)
   }
 
   const importStudioSession = (studioData, name) => {
@@ -686,6 +704,9 @@ export default function App() {
           studio={activeStudio}
           onUpdate={updateStudio}
           onCreateSession={createStudioSession}
+          onQuickGenerate={onQuickGenerate}
+          wizardStep={studioWizardStep}
+          onWizardStepChange={setStudioWizardStep}
           onOpenSession={openStudioSession}
           onCloseSession={closeStudioSession}
           onDeleteSession={deleteStudioSession}

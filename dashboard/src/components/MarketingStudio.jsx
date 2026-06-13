@@ -36,7 +36,6 @@ import {
   saveCustomCharacters,
   searchNorm,
   getDefaultCharactersForFormat,
-  inferStudioFromQuickPrompt,
   CUSTOM_CHARACTERS_KEY
 } from '../lib/marketingStudioModel.js'
 
@@ -1156,7 +1155,7 @@ function SessionName({ session, onRename }) {
   )
 }
 
-function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession, onRenameSession, onImportMarkdown }) {
+function SessionHome({ sessions, onCreateSession, onQuickGenerate, onOpenSession, onDeleteSession, onRenameSession, onImportMarkdown }) {
   const [importOpen, setImportOpen] = useState(false)
   const [quickText, setQuickText] = useState('')
   const [quickLanguage, setQuickLanguage] = useState('fr')
@@ -1190,7 +1189,7 @@ function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession
             <button className={quickLanguage === 'fr' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setQuickLanguage('fr')}>🇫🇷 FR</button>
             <button className={quickLanguage === 'en' ? 'ms-toggle active' : 'ms-toggle'} onClick={() => setQuickLanguage('en')}>🇬🇧 EN</button>
           </div>
-          <button className="primary" disabled={!quickText.trim()} onClick={() => onCreateSession(inferStudioFromQuickPrompt(quickText, quickLanguage), true)}>→ Generate</button>
+          <button className="primary" disabled={!quickText.trim()} onClick={() => onQuickGenerate(quickText, quickLanguage)}>→ Generate</button>
         </div>
       </div>
 
@@ -1252,28 +1251,22 @@ function SessionHome({ sessions, onCreateSession, onOpenSession, onDeleteSession
 }
 
 // ---- Wizard shell ----
-export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary, onImportSession }) {
-  const [step, setStep] = useState(0)
+export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onQuickGenerate, wizardStep, onWizardStepChange, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary, onImportSession }) {
+  const step = wizardStep
   const [wizardImportOpen, setWizardImportOpen] = useState(false)
   const [stepDirection, setStepDirection] = useState('forward')
-  const [quickSessionId, setQuickSessionId] = useState(null)
-
-  const createFromHome = (studioData, quick = false) => {
-    const id = onCreateSession(studioData)
-    if (quick) setQuickSessionId(id)
-  }
-
   // Reset the wizard to Brief whenever a different session opens.
   useEffect(() => {
-    setStep(activeSessionId && activeSessionId === quickSessionId ? 3 : 0)
-  }, [activeSessionId, quickSessionId])
+    if (!activeSessionId) onWizardStepChange(0)
+  }, [activeSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null
   if (!activeSession) {
     return (
       <SessionHome
         sessions={sessions}
-        onCreateSession={createFromHome}
+        onCreateSession={onCreateSession}
+        onQuickGenerate={onQuickGenerate}
         onOpenSession={onOpenSession}
         onDeleteSession={onDeleteSession}
         onRenameSession={onRenameSession}
@@ -1292,13 +1285,13 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
   const go = (i) => {
     const next = Math.max(0, Math.min(STEPS.length - 1, i))
     setStepDirection(next > step ? 'forward' : 'back')
-    setStep(next)
+    onWizardStepChange(next)
   }
 
   function clearSession() {
     if (!window.confirm('Clear the Marketing Studio session? This resets the brief, format, characters, scenes, and prompts.')) return
     onClearSession()
-    setStep(0)
+    onWizardStepChange(0)
   }
 
   const productTitle = studio.product.name.trim()
@@ -1341,7 +1334,7 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
       )}
 
       <StepIndicator step={step} maxReached={maxReached} onJump={go} />
-      {activeSessionId === quickSessionId ? (
+      {step === 3 && studio.status === 'brief_ready' ? (
         <div className="ms-quick-banner">⚡ Quick Mode <button className="ms-linklike" onClick={() => go(0)}>← Edit brief</button></div>
       ) : null}
 
