@@ -36,6 +36,7 @@ export async function getApiHealth() {
       providers: data.providers_configured || {},
       openai_model: data.openai_model || '',
       openrouter_model: data.openrouter_model || '',
+      groq_model: data.groq_model || '',
       openai_image_model: data.openai_image_model || '',
       openai_image_configured: !!data.openai_image_configured,
       error: ''

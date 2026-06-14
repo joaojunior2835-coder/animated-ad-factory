@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { runOpenAi } from './providers/openaiProvider.mjs'
 import { runOpenRouter } from './providers/openrouterProvider.mjs'
+import { groqModel, runGroq } from './providers/groqProvider.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -44,7 +45,8 @@ const KEY_NAMES = {
   openai: 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   gemini: 'GEMINI_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY'
+  openrouter: 'OPENROUTER_API_KEY',
+  groq: 'GROQ_API_KEY'
 }
 
 // The configured OpenAI model name (not a secret). Safe to expose for display.
@@ -247,10 +249,11 @@ const server = http.createServer((req, res) => {
     return send(res, 200, {
       ok: true,
       status: 'API backend is running',
-      provider_connected: Boolean(cfg.openai || cfg.openrouter), // wired text/JSON providers
+      provider_connected: Boolean(cfg.openai || cfg.openrouter || cfg.groq), // wired text/JSON providers
       providers_configured: cfg,
       openai_model: openaiModel(), // model name only — never a key
       openrouter_model: openrouterModel(), // model id only — never a key
+      groq_model: groqModel(), // model id only — never a key
       openai_image_model: openaiImageModel(), // image model id only — never a key
       openai_image_configured: Boolean(cfg.openai && openaiImageModel()) // key + image model present
     })
@@ -337,7 +340,7 @@ const server = http.createServer((req, res) => {
         return send(res, 400, { success: false, error: 'Invalid JSON body.', request_id })
       }
 
-      const provider_id = String(payload.provider_id || '').toLowerCase()
+      const provider_id = String(payload.provider_id || payload.provider || '').toLowerCase()
       const action_type = payload.action_type || ''
       const input_prompt = payload.input_prompt || payload.prompt || ''
       const context = payload.context
@@ -345,15 +348,15 @@ const server = http.createServer((req, res) => {
       // against an allowlist; anything unexpected falls back to the env default.
       const size = typeof payload.size === 'string' ? payload.size.slice(0, 16) : ''
 
-      // Text/JSON providers: OpenAI and OpenRouter. Everything else stays disconnected.
-      const runner = provider_id === 'openai' ? runOpenAi : provider_id === 'openrouter' ? runOpenRouter : null
+      // Text/JSON providers: OpenAI, OpenRouter, and Groq. Everything else stays disconnected.
+      const runner = provider_id === 'openai' ? runOpenAi : provider_id === 'openrouter' ? runOpenRouter : provider_id === 'groq' ? runGroq : null
       if (!runner) {
         return send(res, 200, {
           success: false,
           request_id,
           error: provider_id
-            ? `Provider "${provider_id}" is not connected. Use "openai" or "openrouter".`
-            : 'No provider_id provided. Use "openai" or "openrouter".'
+            ? `Provider "${provider_id}" is not connected. Use "openai", "openrouter", or "groq".`
+            : 'No provider_id provided. Use "openai", "openrouter", or "groq".'
         })
       }
 
@@ -378,5 +381,6 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[api] providers configured: ${Object.entries(cfg).map(([k, v]) => `${k}=${v}`).join(', ')}`)
   console.log(`[api] OpenAI text/JSON ${cfg.openai ? 'ready' : 'not configured'} (model: ${openaiModel()}).`)
   console.log(`[api] OpenRouter text/JSON ${cfg.openrouter ? 'ready' : 'not configured'} (model: ${openrouterModel() || '(unset)'}).`)
+  console.log(`[api] Groq text/JSON ${cfg.groq ? 'ready' : 'not configured'} (model: ${groqModel()}).`)
   console.log(`[api] OpenAI image ${cfg.openai && openaiImageModel() ? 'ready' : 'not configured'} (model: ${openaiImageModel() || '(unset)'}). Video: not connected.`)
 })
