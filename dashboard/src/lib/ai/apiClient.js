@@ -39,6 +39,7 @@ export async function getApiHealth() {
       groq_model: data.groq_model || '',
       openai_image_model: data.openai_image_model || '',
       openai_image_configured: !!data.openai_image_configured,
+      pollinations_image_configured: !!data.pollinations_image_configured,
       error: ''
     }
   } catch (e) {
@@ -93,6 +94,7 @@ export async function callPlaceholderLlmAction(payload) {
   try {
     const res = await fetch(resolveBase() + '/api/llm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) })
     const data = await res.json().catch(() => ({}))
+    if (data && data.local_url && !/^https?:/i.test(data.local_url)) data.local_url = resolveBase() + data.local_url
     return { ok: res.ok, ...data }
   } catch (e) {
     return { ok: false, connected: false, message: 'Local API not reachable: ' + (e && e.message ? e.message : 'fetch failed') }
