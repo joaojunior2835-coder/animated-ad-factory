@@ -1077,9 +1077,13 @@ function VariantExportColumn({ studio, variant }) {
     downloadMarkdown(md, `${slugify(studio.product.name)}-variant-${variantLetter || 'x'}.md`)
   }
 
+  const clipCount = (variant.prompts || []).length
+  const totalDur = (variant.prompts || []).reduce((a, p) => a + (Number(p.duration) || 0), 0)
+
   return (
     <div className="ms-compare-column">
       <div className="ms-compare-label">{variant.variantLabel}</div>
+      <div className="ms-compare-meta">{clipCount} clips · {totalDur}s · {(variant.framePrompts || []).length} frames</div>
       <blockquote className="ms-variant-hook-text">“{variant.hookText}”</blockquote>
       <div className="ms-compare-preview-label">Scene 1 prompt</div>
       <div className="ms-compare-preview">{preview}</div>
