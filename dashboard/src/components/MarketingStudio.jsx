@@ -25,6 +25,7 @@ import {
   generateOmniPrompts,
   generateFramePrompts,
   generateHookVariants,
+  buildVariantExports,
   regenerateScene,
   extractBriefFromText,
   buildCopyAllText,
@@ -838,7 +839,7 @@ function SceneCard({ scene, onPatch, onRegenerate, onFocus, isFocused }) {
   )
 }
 
-function ScriptStep({ studio, onUpdate, onBack, onNext }) {
+function ScriptStep({ studio, onUpdate, onBack, onNext, onCompareExports }) {
   const [bulkSetting, setBulkSetting] = useState('')
   const [hookVariants, setHookVariants] = useState([])
   const [focusedSceneIndex, setFocusedSceneIndex] = useState(null)
@@ -930,6 +931,14 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
     setHookVariants([])
   }
 
+  function generateAllVariantPrompts() {
+    // Build the single-hook prompts too, so "Back to single export" has the
+    // original-hook package to return to.
+    onUpdate((s) => ({ ...s, prompts: generateOmniPrompts(s, s.scenes), status: 'complete' }))
+    const exports = buildVariantExports(studio, hookVariants)
+    onCompareExports(exports)
+  }
+
   return (
     <div className="ms-stepbody">
       <div className="row between">
@@ -998,15 +1007,21 @@ function ScriptStep({ studio, onUpdate, onBack, onNext }) {
           <button className="ghost" onClick={() => setHookVariants(generateHookVariants(studio, studio.scenes))}>Generate Hook Variants</button>
         </div>
         {hookVariants.length ? (
-          <div className="ms-variant-grid">
-            {hookVariants.map((variant) => (
-              <article key={variant.variantId} className="ms-variant-card">
-                <h4>{variant.variantLabel}</h4>
-                <blockquote className="ms-variant-hook-text">“{variant.hookText}”</blockquote>
-                <button className="primary small ms-variant-use-btn" onClick={() => useHookVariant(variant)}>Use This</button>
-              </article>
-            ))}
-          </div>
+          <>
+            <div className="ms-variant-grid">
+              {hookVariants.map((variant) => (
+                <article key={variant.variantId} className="ms-variant-card">
+                  <h4>{variant.variantLabel}</h4>
+                  <blockquote className="ms-variant-hook-text">“{variant.hookText}”</blockquote>
+                  <button className="primary small ms-variant-use-btn" onClick={() => useHookVariant(variant)}>Use This</button>
+                </article>
+              ))}
+            </div>
+            <div className="ms-variant-actions">
+              <button className="primary" onClick={generateAllVariantPrompts}>Generate Prompts for All 3 →</button>
+              <button className="ghost" onClick={() => setHookVariants([])}>← Back to single hook</button>
+            </div>
+          </>
         ) : null}
       </div>
 
@@ -1047,6 +1062,53 @@ function PromptCard({ prompt, framePrompt, showFramePrompts }) {
           <div className="ms-frame-text">{framePrompt.framePrompt}</div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+// One column of the 3-way Compare Exports view (Part B).
+function VariantExportColumn({ studio, variant }) {
+  const scene1 = (variant.prompts && variant.prompts[0]) || null
+  const preview = scene1 ? (scene1.promptText.length > 100 ? scene1.promptText.slice(0, 100).trimEnd() + '…' : scene1.promptText) : '(no prompt)'
+  const variantLetter = (variant.variantId || '').toLowerCase()
+
+  function exportVariantMarkdown() {
+    const md = buildStudioMarkdown(studio, variant.scenes, variant.prompts, variant.framePrompts)
+    downloadMarkdown(md, `${slugify(studio.product.name)}-variant-${variantLetter || 'x'}.md`)
+  }
+
+  return (
+    <div className="ms-compare-column">
+      <div className="ms-compare-label">{variant.variantLabel}</div>
+      <blockquote className="ms-variant-hook-text">“{variant.hookText}”</blockquote>
+      <div className="ms-compare-preview-label">Scene 1 prompt</div>
+      <div className="ms-compare-preview">{preview}</div>
+      <div className="ms-compare-actions">
+        <CopyButton text={buildCopyAllText(variant.prompts, variant.framePrompts)} label={`Copy All (${variant.prompts.length})`} className="primary small" />
+        <button className="ghost small" onClick={exportVariantMarkdown}>Export Markdown</button>
+      </div>
+    </div>
+  )
+}
+
+// Compare Exports view (Part B): 3 variant columns instead of the single export.
+function CompareExportsView({ studio, variantExports, onBack, onBackToSingleExport }) {
+  return (
+    <div className="ms-stepbody">
+      <div className="row ms-session-bar">
+        <button className="ms-linklike" onClick={onBackToSingleExport}>← Back to single export</button>
+      </div>
+      <h3>Compare Exports</h3>
+      <p className="hint small">Three full prompt packages, one per hook. Copy or export the variant you want to shoot — each carries its own clip + frame prompts.</p>
+      <div className="ms-compare-grid">
+        {variantExports.map((variant) => (
+          <VariantExportColumn key={variant.variantId} studio={studio} variant={variant} />
+        ))}
+      </div>
+      <div className="ms-nav-row">
+        <button className="ghost" onClick={onBack}>← Back to scenes</button>
+        <span />
+      </div>
     </div>
   )
 }
@@ -1313,8 +1375,12 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
   const step = wizardStep
   const [wizardImportOpen, setWizardImportOpen] = useState(false)
   const [stepDirection, setStepDirection] = useState('forward')
-  // Reset the wizard to Brief whenever a different session opens.
+  // Hook-variant export packages (Part B). When non-empty, Step 5 renders the
+  // Compare Exports view instead of the single-hook export.
+  const [variantExports, setVariantExports] = useState([])
+  // Reset the wizard (and any variant comparison) when a different session opens.
   useEffect(() => {
+    setVariantExports([])
     if (!activeSessionId) onWizardStepChange(0)
   }, [activeSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1400,8 +1466,24 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
         {step === 0 ? <BriefStep studio={studio} onUpdate={onUpdate} onNext={() => go(1)} productLibrary={productLibrary} onSaveProductToLibrary={onSaveProductToLibrary} onDeleteProductFromLibrary={onDeleteProductFromLibrary} /> : null}
         {step === 1 ? <FormatStep studio={studio} onUpdate={onUpdate} onBack={() => go(0)} onNext={() => go(2)} /> : null}
         {step === 2 ? <CharactersStep studio={studio} onUpdate={onUpdate} onBack={() => go(1)} onNext={() => go(3)} /> : null}
-        {step === 3 ? <ScriptStep studio={studio} onUpdate={onUpdate} onBack={() => go(2)} onNext={() => go(4)} /> : null}
-        {step === 4 ? (
+        {step === 3 ? (
+          <ScriptStep
+            studio={studio}
+            onUpdate={onUpdate}
+            onBack={() => go(2)}
+            onNext={() => go(4)}
+            onCompareExports={(exports) => { setVariantExports(exports); go(4) }}
+          />
+        ) : null}
+        {step === 4 && variantExports.length ? (
+          <CompareExportsView
+            studio={studio}
+            variantExports={variantExports}
+            onBack={() => go(3)}
+            onBackToSingleExport={() => setVariantExports([])}
+          />
+        ) : null}
+        {step === 4 && !variantExports.length ? (
           <ExportStep
             studio={studio}
             onUpdate={onUpdate}

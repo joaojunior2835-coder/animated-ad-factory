@@ -691,6 +691,35 @@ export function generateHookVariants(studio, scenes) {
   }
 }
 
+// Build full export packages for hook variants (Part B). Each entry carries the
+// variant's scenes plus its generated clip prompts and frame prompts, so the
+// Compare Exports view and per-variant Copy/Markdown can run with no recompute.
+// Pure — never throws; a bad variant degrades to empty prompt arrays.
+export function buildVariantExports(studio, variants) {
+  const s = normalizeStudio(studio)
+  const list = Array.isArray(variants) ? variants : []
+  return list.map((variant) => {
+    const scenes = Array.isArray(variant && variant.scenes) ? variant.scenes : []
+    let prompts = []
+    let framePrompts = []
+    try {
+      prompts = generateOmniPrompts(s, scenes)
+      framePrompts = generateFramePrompts(s, scenes, prompts)
+    } catch {
+      prompts = []
+      framePrompts = []
+    }
+    return {
+      variantId: str(variant && variant.variantId) || '',
+      variantLabel: str(variant && variant.variantLabel) || '',
+      hookText: str(variant && variant.hookText) || '',
+      scenes,
+      prompts,
+      framePrompts
+    }
+  })
+}
+
 // Deterministic dialogue line per purpose. User-provided brief fields win;
 // templates fill the gaps. All templates stay within the 25-word clip budget.
 function lineFor(purpose, studio, lang) {

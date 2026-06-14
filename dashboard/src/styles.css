@@ -1708,7 +1708,32 @@ button.caret {
 .ms-variant-card:hover { transform: translateY(-3px); border-color: var(--accent-2); box-shadow: 0 8px 20px #0005; }
 .ms-variant-hook-text { flex: 1; margin: 0; font-size: 16px; font-style: italic; line-height: 1.5; color: var(--text); }
 .ms-variant-use-btn { align-self: flex-start; }
+.ms-variant-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 760px) { .ms-variant-grid { grid-template-columns: 1fr; } }
+
+/* Compare Exports (Part B) — production-slate columns */
+.ms-compare-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 860px) { .ms-compare-grid { grid-template-columns: 1fr; } }
+.ms-compare-column {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2);
+}
+.ms-compare-label {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--accent-2);
+}
+.ms-compare-column .ms-variant-hook-text { flex: none; font-size: 15px; }
+.ms-compare-preview-label {
+  font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--muted);
+  margin-top: 2px;
+}
+.ms-compare-preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.6; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 10px; padding: 10px 12px; min-height: 64px;
+}
+.ms-compare-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: auto; }
 .ms-script-pre {
   margin: 8px 0 0; white-space: pre-wrap; font-size: 13px; line-height: 1.6;
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px;

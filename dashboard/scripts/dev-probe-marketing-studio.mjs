@@ -122,7 +122,32 @@ try {
   const restored = await page.locator('.ms-scene-card').nth(1).locator('textarea').first().inputValue()
   check('Regenerate Scene restores the derived line', restored !== edited && restored.length > 0, restored)
 
-  await page.locator('button', { hasText: 'Generate Prompts' }).click()
+  // ---- Hook Variants Part A + B ----
+  await page.locator('button', { hasText: 'Generate Hook Variants' }).click()
+  await page.locator('.ms-variant-card').first().waitFor()
+  check('hook variants render 3 cards', (await page.locator('.ms-variant-card').count()) === 3)
+  check('variant cards show A/B/C labels', (await page.locator('.ms-variant-card', { hasText: 'Variant A' }).count()) === 1 && (await page.locator('.ms-variant-card', { hasText: 'Variant C' }).count()) === 1)
+  check('Part B buttons present', (await page.locator('button', { hasText: 'Generate Prompts for All 3' }).count()) === 1 && (await page.locator('button', { hasText: 'Back to single hook' }).count()) === 1)
+  // Back to single hook closes the grid
+  await page.locator('button', { hasText: 'Back to single hook' }).click()
+  check('Back to single hook closes the variant grid', (await page.locator('.ms-variant-card').count()) === 0)
+  // Re-open and go to Compare Exports
+  await page.locator('button', { hasText: 'Generate Hook Variants' }).click()
+  await page.locator('.ms-variant-card').first().waitFor()
+  await page.locator('button', { hasText: 'Generate Prompts for All 3' }).click()
+  await page.locator('.ms-compare-grid').waitFor()
+  check('Compare Exports shows 3 columns', (await page.locator('.ms-compare-column').count()) === 3)
+  check('each compare column has Copy All + Export Markdown', (await page.locator('.ms-compare-column button', { hasText: 'Copy All' }).count()) === 3 && (await page.locator('.ms-compare-column button', { hasText: 'Export Markdown' }).count()) === 3)
+  check('compare columns show a scene-1 prompt preview', (await page.locator('.ms-compare-preview').count()) === 3)
+  // Per-variant markdown download
+  const vDlPromise = page.waitForEvent('download')
+  await page.locator('.ms-compare-column').first().locator('button', { hasText: 'Export Markdown' }).click()
+  const vDl = await vDlPromise
+  check('variant markdown filename is product-variant-a.md', /-variant-[abc]\.md$/.test(vDl.suggestedFilename()), vDl.suggestedFilename())
+  // Back to single export
+  await page.locator('button', { hasText: 'Back to single export' }).click()
+  await page.locator('.ms-prompt-card').first().waitFor()
+  check('Back to single export restores the single-hook prompt list', (await page.locator('.ms-prompt-card').count()) === 10)
 
   // ---- Step 5: prompts & export ----
   await page.locator('.ms-prompt-card').first().waitFor()
@@ -136,8 +161,8 @@ try {
   check('podcast gaze rule in rendered prompts', promptTexts.every((t) => t.includes('looks toward the other speaker, not at the camera')))
   check('natural-pace tail in rendered prompts', promptTexts.every((t) => /natural pace — do not slow it down to fill time/.test(t)))
 
-  // Copy button flips to Copied ✓
-  await page.locator('.ms-prompt-card').first().locator('button', { hasText: 'Copy' }).click()
+  // Copy button flips to Copied ✓ (the clip copy button specifically)
+  await page.locator('.ms-prompt-card').first().locator('button', { hasText: 'Copy Clip' }).click()
   check('copy button shows Copied ✓', (await page.locator('.ms-prompt-card').first().locator('button', { hasText: 'Copied' }).count()) === 1)
 
   // Export markdown triggers a download

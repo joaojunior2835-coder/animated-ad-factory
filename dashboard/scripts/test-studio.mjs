@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { emptyStudio, generateFramePrompts, generateOmniPrompts, inferStudioFromQuickPrompt } from '../src/lib/marketingStudioModel.js'
+import { emptyStudio, generateFramePrompts, generateOmniPrompts, inferStudioFromQuickPrompt, generateHookVariants, buildVariantExports } from '../src/lib/marketingStudioModel.js'
 
 let passed = 0
 
@@ -73,6 +73,44 @@ test('Frame prompts obey static-frame rules', () => {
 
 test('Frame prompt generation never throws on empty input', () => {
   assert.deepEqual(generateFramePrompts(emptyStudio(), [], []), [])
+})
+
+// ---- Hook variants Part B: buildVariantExports ----
+const calmeVariants = generateHookVariants(calmeStudio, calmeStudio.scenes)
+const calmeExports = buildVariantExports(calmeStudio, calmeVariants)
+
+test('Hook variants produce exactly 3 variants A/B/C', () => {
+  assert.equal(calmeVariants.length, 3)
+  assert.deepEqual(calmeVariants.map((v) => v.variantId), ['a', 'b', 'c'])
+})
+
+test('buildVariantExports adds prompts + framePrompts per variant', () => {
+  assert.equal(calmeExports.length, 3)
+  for (const ex of calmeExports) {
+    assert.ok(ex.variantId && ex.variantLabel)
+    assert.ok(typeof ex.hookText === 'string' && ex.hookText.trim())
+    assert.equal(ex.prompts.length, calmeStudio.scenes.length)
+    assert.equal(ex.framePrompts.length, calmeStudio.scenes.length)
+  }
+})
+
+test('Each variant scene 1 carries its own hook; frames stay static', () => {
+  for (const ex of calmeExports) {
+    assert.ok(ex.prompts[0].promptText.includes(ex.hookText.replace(/[…]+$/, '').slice(0, 20)))
+    assert.doesNotMatch(ex.framePrompts[0].framePrompt, /\b(?:says|speaks|tells)\b/i)
+  }
+})
+
+test('Variants differ from each other (distinct hooks)', () => {
+  const hooks = new Set(calmeExports.map((ex) => ex.hookText))
+  assert.ok(hooks.size >= 2)
+})
+
+test('buildVariantExports never throws on garbage input', () => {
+  assert.deepEqual(buildVariantExports(emptyStudio(), null), [])
+  const bad = buildVariantExports(emptyStudio(), [{ variantId: 'a', scenes: null }])
+  assert.equal(bad.length, 1)
+  assert.deepEqual(bad[0].prompts, [])
 })
 
 console.log(`\n${passed} passed, 0 failed`)

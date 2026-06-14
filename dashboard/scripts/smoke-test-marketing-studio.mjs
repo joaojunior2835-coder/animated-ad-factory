@@ -194,7 +194,7 @@ check('normalizeStudio: bad language → fr', normalizeStudio({ brief: { languag
   const prompts = generateOmniPrompts(studio, scenes)
   const copyAll = buildCopyAllText(prompts)
   check('copy-all: contains every setup header', prompts.every((p) => copyAll.includes(p.setupHeader)))
-  check('copy-all: ---- separated', copyAll.split('\n----\n').length === prompts.length)
+  check('copy-all: one CLIP block per prompt', (copyAll.match(/---- CLIP \d+ ----/g) || []).length === prompts.length)
   const md = buildStudioMarkdown(studio, scenes, prompts)
   check('markdown: has brief summary + outline + prompts', md.includes('## Product Brief Summary') && md.includes('## Scene Outline') && md.includes('## Prompts'))
   check('markdown: includes french-never-seedance checklist line', md.includes('never Seedance'))

@@ -52,7 +52,19 @@ await page.locator('button', { hasText: 'Next: Review Script' }).click()
 await page.locator('.ms-scene-card').first().waitFor()
 if (what === 'script') { await shot('script'); await browser.close(); process.exit(0) }
 
-await page.locator('button', { hasText: 'Generate Prompts' }).click()
+if (what === 'compare') {
+  await page.locator('button', { hasText: 'Generate Hook Variants' }).click()
+  await page.locator('.ms-variant-card').first().waitFor()
+  if (process.argv[3] === 'variants') { await shot('variants'); await browser.close(); process.exit(0) }
+  await page.locator('button', { hasText: 'Generate Prompts for All 3' }).click()
+  await page.locator('.ms-compare-grid').waitFor()
+  await page.waitForTimeout(400)
+  await shot('compare')
+  await browser.close()
+  process.exit(0)
+}
+
+await page.locator('button', { hasText: 'Generate Prompts' }).first().click()
 await page.locator('.ms-prompt-card').first().waitFor()
 await page.waitForTimeout(800)
 await shot('export')
