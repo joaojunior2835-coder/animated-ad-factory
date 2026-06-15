@@ -454,16 +454,22 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   async function saveResultToLibrary(node) {
     const d = node.data || {}
     const dataUrl = previews['result:' + node.id]
-    if (!dataUrl && !d.result_external_url) {
+    if (!dataUrl && !d.result_external_url && !d.result_local_url) {
       setData(node.id, { status_message: 'No result to save yet.' })
       return
     }
-    if (!dataUrl) {
+    if (!dataUrl && !d.result_local_url) {
       setData(node.id, { status_message: 'Result is an external URL — already addressable; nothing to save.' })
       return
     }
     setUploadBusy(node.id)
-    const res = await saveMediaToLocal({ file_name: d.result_file_name || `${node.type}-result.png`, mime_type: d.result_mime_type || 'image/png', data_url: dataUrl, category: 'variation', scene_id: '' })
+    const res = await saveMediaToLocal({
+      file_name: d.result_file_name || `${node.type}-result.${node.type === 'video_generator' ? 'mp4' : 'png'}`,
+      mime_type: d.result_mime_type || (node.type === 'video_generator' ? 'video/mp4' : 'image/png'),
+      ...(dataUrl ? { data_url: dataUrl } : { local_url: d.result_local_url }),
+      category: 'variation',
+      scene_id: ''
+    })
     setUploadBusy('')
     if (!res || !res.success) {
       setData(node.id, { status_message: (res && res.error) || 'Save failed (is the local backend running?).' })
@@ -510,7 +516,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
     if (!url) return null
     const kind = classifyMedia(url)
     if (kind === 'mock') return <div className="media-mock">Mock result: {url}</div>
-    if (kind === 'video') return <a className="media-link" href={url} target="_blank" rel="noreferrer">▶ {url.split('/').pop()}</a>
+    if (kind === 'video') return <video src={url} controls muted playsInline aria-label={alt || 'video preview'} style={{ width: '100%', maxHeight: 180, borderRadius: 6 }} />
     return <img src={url} alt={alt || 'preview'} style={{ maxWidth: '100%', maxHeight: 120, borderRadius: 6 }} />
   }
 
@@ -522,7 +528,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
       <div className="gnode-result">
         {renderThumb(url, 'result')}
         <div className="row" style={{ marginTop: 6 }}>
-          {previews['result:' + node.id] && !d.result_saved ? (
+          {(previews['result:' + node.id] || d.result_local_url) && !d.result_saved ? (
             <button className="ghost small" onClick={() => saveResultToLibrary(node)} disabled={uploadBusy === node.id} aria-label="Save result to Media Library">
               {uploadBusy === node.id ? 'Saving…' : 'Save to Media Library'}
             </button>
@@ -1359,14 +1365,19 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
           <div className="modal-overlay" onClick={() => setResultModalNodeId('')}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h3>Image Generator Result</h3>
+                <h3>{resultNode.type === 'video_generator' ? 'Video Generator Result' : 'Image Generator Result'}</h3>
                 <button className="ghost small" onClick={() => setResultModalNodeId('')}>Close</button>
               </div>
               <div className="modal-body">
-                {renderThumb(url, 'generated image')}
-                <div className="media-health">{d.result_local_url ? 'Local file saved' : 'Result ready'}</div>
+                {renderThumb(url, resultNode.type === 'video_generator' ? 'generated video' : 'generated image')}
+                <div className="media-health">{d.result_saved ? 'Local file saved' : 'Result ready'}</div>
                 <div className="row">
-                  {d.result_local_url ? <button className="ghost" disabled>Saved to Local Media Library</button> : null}
+                  {d.result_local_url && !d.result_saved ? (
+                    <button className="ghost" onClick={() => saveResultToLibrary(resultNode)} disabled={uploadBusy === resultNode.id}>
+                      {uploadBusy === resultNode.id ? 'Saving…' : 'Save to Local Media Library'}
+                    </button>
+                  ) : null}
+                  {d.result_saved ? <button className="ghost" disabled>Saved to Local Media Library</button> : null}
                   {onAttachResultToScene && sceneOptions.length ? (
                     <button className="primary" onClick={() => { setAttachPicker(resultNode.id); setResultModalNodeId('') }}>Attach as Variation</button>
                   ) : null}

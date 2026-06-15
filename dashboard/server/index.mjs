@@ -158,6 +158,37 @@ function saveDataUrl({ data_url, file_name, mime_type, category, project_id }) {
   return { success: true, local_url: relUrl, file_name: unique, mime_type: mime, file_size: buffer.length, storage: 'local_disk' }
 }
 
+// Copy the checked-in mock video into the Local Media Library only after the
+// user explicitly asks to save it. No remote URLs or arbitrary local paths.
+function saveMockVideo({ local_url, file_name, category, project_id }) {
+  let pathname = ''
+  try {
+    pathname = new URL(String(local_url || ''), `http://127.0.0.1:${PORT}`).pathname
+  } catch {
+    return { error: 'Invalid local media URL.' }
+  }
+  if (pathname !== '/mock-video-output.mp4') return { error: 'Only the local mock video can be copied by URL.' }
+
+  const buffer = fs.readFileSync(MOCK_VIDEO_PATH)
+  const folder = category === 'asset' ? 'assets' : 'variations'
+  const projectId = sanitizeId(project_id)
+  const base = sanitizeFileName(file_name || 'mock-video-output.mp4')
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${base.endsWith('.mp4') ? base : base + '.mp4'}`
+  const dest = resolveWithinMedia(path.join('projects', projectId, folder, unique))
+  if (!dest) return { error: 'Refused to write outside the media library.' }
+
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  fs.writeFileSync(dest, buffer)
+  return {
+    success: true,
+    local_url: '/media/' + path.relative(MEDIA_ROOT, dest).split(path.sep).join('/'),
+    file_name: unique,
+    mime_type: 'video/mp4',
+    file_size: buffer.length,
+    storage: 'local_disk'
+  }
+}
+
 // The variations directory for a project (where saved variation media lives).
 function variationsDir(projectId) {
   return path.resolve(MEDIA_ROOT, 'projects', sanitizeId(projectId), 'variations')
@@ -329,7 +360,7 @@ const server = http.createServer((req, res) => {
         return send(res, 400, { success: false, error: 'Invalid JSON body.' })
       }
       try {
-        const result = saveDataUrl(payload)
+        const result = payload.local_url ? saveMockVideo(payload) : saveDataUrl(payload)
         if (result.error) return send(res, 400, { success: false, error: result.error })
         return send(res, 200, result)
       } catch (e) {

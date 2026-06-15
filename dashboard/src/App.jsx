@@ -32,11 +32,11 @@ import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
 import { emptyStudio, normalizeStudio, loadSessions, saveSession, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary, inferStudioFromQuickPrompt, formatById } from './lib/marketingStudioModel.js'
-import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
+import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, effectiveStartFrameUrl, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
 import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
-import { IMAGE_API_PROVIDERS, TEXT_API_PROVIDERS, selectedImageProvider, selectedTextProvider } from './lib/ai/providerActions.js'
+import { IMAGE_API_PROVIDERS, TEXT_API_PROVIDERS, VIDEO_API_PROVIDERS, runVideoGeneration, selectedImageProvider, selectedTextProvider, selectedVideoProvider } from './lib/ai/providerActions.js'
 
 const SPECIAL_NAV = [
   { key: 'methods', label: 'Ad Methods' },
@@ -171,7 +171,7 @@ export default function App() {
   }
 
   async function generateForNode(nodeId, action, opts = {}) {
-    const ncv = normalizeNodeCanvas(projectRef.current.node_canvas)
+    const ncv = normalizeNodeCanvas(projectRef.current.node_canvas, { preserveRuntimeStatus: true })
     const node = (ncv.nodes || []).find((n) => n.id === nodeId)
     if (!node) return undefined
     const d = node.data || {}
@@ -184,6 +184,7 @@ export default function App() {
     const prompt = effectivePromptText(ncv, nodeId).trim()
     const isVideo = action === 'generate_video'
     const actionType = isVideo ? 'generate_video' : 'generate_image'
+    const mode = (projectRef.current.canvas && projectRef.current.canvas.provider_mode) || 'manual'
 
     // Manual model: no generation — the canvas opens its URL-paste entry instead.
     if (!modelId) return fail('Select a model first.')
@@ -193,7 +194,38 @@ export default function App() {
     const propagate = (urls) =>
       updateNodeCanvas((c) => propagateResultToOutputs(c, nodeId, { url: urls.url || '', local_url: urls.local_url || '', media_type: isVideo ? 'video' : 'image' }))
 
-    // Mock models: existing mock provider path, no network, no credits.
+    // API-mode Mock Video exercises the real asynchronous request/poll/result
+    // pipeline without spending credits. Mock mode keeps its immediate fixture.
+    if (modelId === 'mock-video' && mode === 'api') {
+      const videoProviderId = selectedVideoProvider(projectRef.current.canvas || {})
+      const startFrameUrl = effectiveStartFrameUrl(ncv, nodeId)
+      setNode({ status: 'generating', status_message: 'Generating video...', last_start_frame_url: startFrameUrl })
+      const res = await runVideoGeneration({
+        prompt,
+        startFrameUrl,
+        aspectRatio: d.aspect_ratio,
+        duration: d.duration_seconds,
+        provider: videoProviderId
+      })
+      if (!res || res.success === false || res.status === 'error') {
+        setNode({ status: 'idle', status_message: (res && res.error) || 'Mock video generation failed.' })
+        return undefined
+      }
+      const result = normalizeMediaResult({ ...res, provider_id: videoProviderId, mode: 'api', action_type: 'generate_video', media_type: 'video', prompt })
+      setNode({
+        status: 'done',
+        status_message: startFrameUrl ? 'Generated from wired start frame.' : '',
+        result_external_url: result.external_url,
+        result_local_url: result.local_url,
+        result_file_name: result.file_name || 'mock-video-output.mp4',
+        result_mime_type: result.mime_type || 'video/mp4',
+        result_saved: false
+      })
+      if (result.local_url || result.external_url) propagate({ local_url: result.local_url, url: result.external_url })
+      return result
+    }
+
+    // Mock models: existing immediate provider path, no network, no credits.
     if (modelId === 'mock-image' || modelId === 'mock-video') {
       setNode({ status: 'generating', status_message: '' })
       const r = runMock({ action_type: actionType, provider_id: 'mock', mode: 'mock', prompt_used: prompt, scene: { scene_number: Number(d.scene_number) || 1 } })
@@ -208,7 +240,6 @@ export default function App() {
 
     // Real API models are gated on API provider mode + an explicit confirmation,
     // so neither QA nor a stray click can spend credits.
-    const mode = (projectRef.current.canvas && projectRef.current.canvas.provider_mode) || 'manual'
     if (modelUsesCredits(modelId) && mode !== 'api') {
       return fail('Real API models need Provider Mode = API (set it in Canvas → Production Board).')
     }
@@ -696,7 +727,7 @@ export default function App() {
       ;(project.node_canvas && project.node_canvas.nodes ? project.node_canvas.nodes : []).forEach((n) => { if (n.data && n.data.local_url) pushMedia(n.data.local_url, n.data.file_name) })
       return (
         <NodeCanvas
-          nodeCanvas={normalizeNodeCanvas(project.node_canvas)}
+          nodeCanvas={normalizeNodeCanvas(project.node_canvas, { preserveRuntimeStatus: true })}
           onChange={updateNodeCanvas}
           savedMedia={savedMedia}
           onGenerateNode={generateForNode}
@@ -722,7 +753,14 @@ export default function App() {
                     <option value="pollinations">Pollinations</option>
                   </select>
                 </label>
-                <span className="hint small">Image Generator nodes use the selected image provider. Pollinations results are saved to local disk by the backend.</span>
+                <label className="field inline">
+                  <span className="field-label">Video Provider</span>
+                  <select value={selectedVideoProvider(project.canvas || {})} onChange={(e) => updateCanvas((c) => ({ ...c, api_video_provider_id: VIDEO_API_PROVIDERS.includes(e.target.value) ? e.target.value : 'mock' }))}>
+                    <option value="mock">Mock</option>
+                    <option value="replicate" disabled>Replicate — coming soon, uses paid credit</option>
+                  </select>
+                </label>
+                <span className="hint small">Video Generator nodes use the async Mock provider. Replicate is not connected.</span>
               </div>
             </div>
           ) : null}

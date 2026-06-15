@@ -352,7 +352,7 @@ export function removeConnection(nc, id) {
 // that reference missing nodes; clamps zoom to a sane range. UNKNOWN node types
 // are preserved as-is (id/position/data kept) so a newer snapshot loaded into an
 // older build never silently loses nodes — they render as inert generic nodes.
-export function normalizeNodeCanvas(nc) {
+export function normalizeNodeCanvas(nc, options = {}) {
   const c = nc || {}
   const nodes = Array.isArray(c.nodes)
     ? c.nodes.map((n) => {
@@ -367,7 +367,7 @@ export function normalizeNodeCanvas(nc) {
         if (known && 'status' in (def.defaultData ? def.defaultData() : {}) && GEN_STATUSES.includes((def.defaultData ? def.defaultData() : {}).status)) {
           if (!GEN_STATUSES.includes(data.status)) data.status = 'idle'
           // A reload can never resume an in-flight generation.
-          if (data.status === 'queued' || data.status === 'generating') data.status = 'idle'
+          if (!options.preserveRuntimeStatus && (data.status === 'queued' || data.status === 'generating')) data.status = 'idle'
         }
         return {
           id: (n && n.id) || uid(),
@@ -517,4 +517,22 @@ export function effectivePromptText(nc, nodeId) {
     if (t.trim()) return t
   }
   return String((node.data && node.data.user_prompt) || '')
+}
+
+// Resolve the first backend-addressable image wired into a video generator.
+// Dedicated start-frame/reference inputs win; session-only previews are ignored.
+export function effectiveStartFrameUrl(nc, nodeId) {
+  const base = nc || emptyNodeCanvas()
+  const imageInputs = ['start_frame', 'reference_image', 'end_frame', 'character_ref', 'style_ref']
+  const wires = (base.connections || [])
+    .filter((c) => c.to_node === nodeId && imageInputs.includes(c.to_socket))
+    .sort((a, b) => imageInputs.indexOf(a.to_socket) - imageInputs.indexOf(b.to_socket))
+
+  for (const wire of wires) {
+    const src = (base.nodes || []).find((n) => n.id === wire.from_node)
+    const d = (src && src.data) || {}
+    const url = d.result_local_url || d.local_url || d.result_external_url || d.file_url || d.output_image_url || d.ref_image_url || ''
+    if (String(url).trim()) return String(url).trim()
+  }
+  return ''
 }

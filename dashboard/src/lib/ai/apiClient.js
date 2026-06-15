@@ -88,6 +88,42 @@ export async function cleanupMedia(payload) {
   }
 }
 
+// Start an asynchronous video job on the local backend. No provider key is sent.
+export async function generateVideo(prompt, startFrameUrl, aspectRatio, duration, provider = 'mock') {
+  try {
+    const res = await fetch(resolveBase() + '/api/video/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider,
+        prompt: String(prompt || ''),
+        start_frame: String(startFrameUrl || ''),
+        aspect_ratio: String(aspectRatio || ''),
+        duration: Number(duration) || 5
+      })
+    })
+    const data = await res.json().catch(() => ({}))
+    return { ok: res.ok, ...data }
+  } catch (e) {
+    return { ok: false, status: 'error', error: 'Local video backend not reachable: ' + (e && e.message ? e.message : 'fetch failed') }
+  }
+}
+
+// Poll one asynchronous video job. Local result paths become absolute so video
+// previews work even when the frontend and backend use different local ports.
+export async function pollVideoStatus(jobId) {
+  try {
+    const res = await fetch(resolveBase() + '/api/video/status/' + encodeURIComponent(String(jobId || '')), { method: 'GET' })
+    const data = await res.json().catch(() => ({}))
+    if (data && data.result && data.result.local_url && !/^https?:/i.test(data.result.local_url)) {
+      data.result.local_url = resolveBase() + data.result.local_url
+    }
+    return { ok: res.ok, ...data }
+  } catch (e) {
+    return { ok: false, status: 'error', error: 'Local video backend not reachable: ' + (e && e.message ? e.message : 'fetch failed') }
+  }
+}
+
 // Calls the placeholder LLM endpoint. Returns the backend message; no provider
 // call happens yet (Part 2). Never sends or receives API keys.
 export async function callPlaceholderLlmAction(payload) {

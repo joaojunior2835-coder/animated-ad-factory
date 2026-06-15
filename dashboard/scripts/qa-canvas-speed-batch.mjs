@@ -453,6 +453,16 @@ async function main() {
     if (round.pan_x !== 120 || round.pan_y !== -40 || round.zoom !== 1.5) throw new Error('round-trip lost pan/zoom')
     const ra = round.nodes.find((n) => n.id === a.id)
     if (!ra || ra.x !== 10 || ra.data.user_prompt !== 'hello') throw new Error('round-trip lost position/data')
+    // A wired Reference/Image node supplies the backend-addressable start frame.
+    const ref = m.newNode('reference', -300, 20)
+    ref.data.local_url = 'http://127.0.0.1:8788/media/start-frame.png'
+    let withFrame = m.addNode(nc, ref)
+    withFrame = m.addConnection(withFrame, { from_node: ref.id, from_socket: 'image', to_node: b.id, to_socket: 'start_frame' })
+    if (m.effectiveStartFrameUrl(withFrame, b.id) !== ref.data.local_url) throw new Error('wired image local URL did not resolve as start frame')
+    if (m.effectiveStartFrameUrl(nc, b.id) !== '') throw new Error('unwired video node should have no start frame')
+    const generating = m.updateNodeData(nc, a.id, { status: 'generating' })
+    if (m.normalizeNodeCanvas(generating, { preserveRuntimeStatus: true }).nodes.find((n) => n.id === a.id).data.status !== 'generating') throw new Error('live normalization should preserve generating status')
+    if (m.normalizeNodeCanvas(generating).nodes.find((n) => n.id === a.id).data.status !== 'idle') throw new Error('persisted normalization should reset generating status')
     // migration: no node_canvas → empty canvas, no error.
     const empty = m.normalizeNodeCanvas(undefined)
     if (empty.nodes.length !== 0 || empty.connections.length !== 0 || empty.zoom !== 1) throw new Error('migration of absent node_canvas failed')

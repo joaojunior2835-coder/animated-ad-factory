@@ -3,7 +3,7 @@
 
 import { uid } from './brandDocs.js'
 import { providerName } from '../data/providers.js'
-import { selectedImageProvider, selectedTextProvider } from './ai/providerActions.js'
+import { selectedImageProvider, selectedTextProvider, selectedVideoProvider } from './ai/providerActions.js'
 
 export const COMPETITOR_METHOD_IDS = ['competitor_recreation', 'competitor_video_recreation']
 
@@ -453,7 +453,7 @@ export function emptyCanvas() {
   DEFAULT_KEYS.forEach((k) => {
     model_defaults[k] = ''
   })
-  return { competitor_reference, model_defaults, scenes: [], canvas_board: emptyBoard(), assets: [], ad_brief: emptyAdBrief(), provider_mode: 'manual', api_text_provider_id: 'groq', api_image_provider_id: 'pollinations' }
+  return { competitor_reference, model_defaults, scenes: [], canvas_board: emptyBoard(), assets: [], ad_brief: emptyAdBrief(), provider_mode: 'manual', api_text_provider_id: 'groq', api_image_provider_id: 'pollinations', api_video_provider_id: 'mock' }
 }
 
 export function normalizeCanvas(canvas) {
@@ -468,7 +468,8 @@ export function normalizeCanvas(canvas) {
     ad_brief: normalizeAdBrief(c.ad_brief),
     provider_mode: ['manual', 'mock', 'api'].includes(c.provider_mode) ? c.provider_mode : 'manual',
     api_text_provider_id: selectedTextProvider(c),
-    api_image_provider_id: selectedImageProvider(c)
+    api_image_provider_id: selectedImageProvider(c),
+    api_video_provider_id: selectedVideoProvider(c)
   }
 }
 
