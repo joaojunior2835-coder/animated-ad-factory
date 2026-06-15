@@ -15,9 +15,12 @@ import { runOpenAi } from './providers/openaiProvider.mjs'
 import { runOpenRouter } from './providers/openrouterProvider.mjs'
 import { groqModel, runGroq } from './providers/groqProvider.mjs'
 import { runPollinations } from './providers/pollinationsProvider.mjs'
+import { createMockVideoJob, getMockVideoJob } from './providers/mockVideoProvider.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
+const PUBLIC_ROOT = path.resolve(__dirname, '..', 'public')
+const MOCK_VIDEO_PATH = path.resolve(PUBLIC_ROOT, 'mock-video-output.mp4')
 // Local media library root (gitignored). Files live ONLY on this machine.
 const MEDIA_ROOT = path.resolve(__dirname, '..', 'local-media')
 const PORT = Number(process.env.PORT) || 8787
@@ -258,8 +261,18 @@ const server = http.createServer((req, res) => {
       groq_model: groqModel(), // model id only — never a key
       openai_image_model: openaiImageModel(), // image model id only — never a key
       openai_image_configured: Boolean(cfg.openai && openaiImageModel()), // key + image model present
-      pollinations_image_configured: Boolean(cfg.pollinations)
+      pollinations_image_configured: Boolean(cfg.pollinations),
+      mock_video: true
     })
+  }
+
+  // Serve the shared local mock output. It never contains provider output or user data.
+  if (req.method === 'GET' && url.pathname === '/mock-video-output.mp4') {
+    fs.readFile(MOCK_VIDEO_PATH, (err, data) => {
+      if (err) return send(res, 404, { ok: false, error: 'Mock video placeholder not found.' })
+      sendBinary(res, 200, data, 'video/mp4')
+    })
+    return
   }
 
   // Serve a saved media file (local disk only, traversal-guarded).
@@ -326,6 +339,66 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/video/generate') {
+    let body = ''
+    req.on('data', (c) => {
+      body += c
+      if (body.length > 1e6) req.destroy()
+    })
+    req.on('end', () => {
+      let payload = {}
+      try {
+        payload = body ? JSON.parse(body) : {}
+      } catch {
+        return send(res, 400, { status: 'error', error: 'Invalid JSON body.' })
+      }
+
+      const provider = String(payload.provider || payload.provider_id || 'mock').toLowerCase()
+      if (provider === 'replicate') {
+        return send(res, 200, { status: 'error', error: 'Replicate video generation is not connected yet.' })
+      }
+      if (provider !== 'mock') {
+        return send(res, 400, { status: 'error', error: `Unsupported video provider "${provider}". Use "mock".` })
+      }
+
+      let stat
+      try {
+        stat = fs.statSync(MOCK_VIDEO_PATH)
+      } catch {
+        return send(res, 200, {
+          status: 'error',
+          error: 'Mock video placeholder is missing at public/mock-video-output.mp4.'
+        })
+      }
+
+      try {
+        const job = createMockVideoJob({
+          prompt: payload.prompt || payload.input_prompt,
+          start_frame: payload.start_frame || payload.startFrame || payload.start_frame_image,
+          aspect_ratio: payload.aspect_ratio || payload.aspectRatio,
+          duration: payload.duration,
+          file_size: stat.size
+        })
+        return send(res, 202, job)
+      } catch (e) {
+        return send(res, 200, { status: 'error', error: `Mock video generation failed: ${e && e.message ? e.message : 'unknown error'}` })
+      }
+    })
+    return
+  }
+
+  const videoStatusMatch = req.method === 'GET' && /^\/api\/video\/status\/([^/]+)$/.exec(url.pathname)
+  if (videoStatusMatch) {
+    let jobId
+    try {
+      jobId = decodeURIComponent(videoStatusMatch[1])
+    } catch {
+      return send(res, 400, { status: 'error', error: 'Invalid mock video job id.' })
+    }
+    const status = getMockVideoJob(jobId)
+    return send(res, status.status === 'error' ? 404 : 200, status)
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/llm') {
     let body = ''
     req.on('data', (c) => {
@@ -389,5 +462,6 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[api] OpenRouter text/JSON ${cfg.openrouter ? 'ready' : 'not configured'} (model: ${openrouterModel() || '(unset)'}).`)
   console.log(`[api] Groq text/JSON ${cfg.groq ? 'ready' : 'not configured'} (model: ${groqModel()}).`)
   console.log(`[api] Pollinations image ${cfg.pollinations ? 'ready' : 'not configured'} (model: flux).`)
-  console.log(`[api] OpenAI image ${cfg.openai && openaiImageModel() ? 'ready' : 'not configured'} (model: ${openaiImageModel() || '(unset)'}). Video: not connected.`)
+  console.log(`[api] OpenAI image ${cfg.openai && openaiImageModel() ? 'ready' : 'not configured'} (model: ${openaiImageModel() || '(unset)'}).`)
+  console.log('[api] Mock video ready (local-only async provider). Replicate video: not connected.')
 })
