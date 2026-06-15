@@ -16,6 +16,7 @@ import { runOpenRouter } from './providers/openrouterProvider.mjs'
 import { groqModel, runGroq } from './providers/groqProvider.mjs'
 import { runPollinations } from './providers/pollinationsProvider.mjs'
 import { createMockVideoJob, getMockVideoJob } from './providers/mockVideoProvider.mjs'
+import { createReplicateVideoJob, estimateVideoCost, getReplicateVideoJob } from './providers/replicateVideoProvider.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -51,7 +52,8 @@ const KEY_NAMES = {
   gemini: 'GEMINI_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
   groq: 'GROQ_API_KEY',
-  pollinations: 'POLLINATIONS_API_KEY'
+  pollinations: 'POLLINATIONS_API_KEY',
+  replicate: 'REPLICATE_API_TOKEN'
 }
 
 // The configured OpenAI model name (not a secret). Safe to expose for display.
@@ -275,7 +277,7 @@ function cleanupMediaFiles(projectId, fileNames, referenced) {
   return { deleted, skipped, errors }
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, {})
 
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
@@ -293,7 +295,8 @@ const server = http.createServer((req, res) => {
       openai_image_model: openaiImageModel(), // image model id only — never a key
       openai_image_configured: Boolean(cfg.openai && openaiImageModel()), // key + image model present
       pollinations_image_configured: Boolean(cfg.pollinations),
-      mock_video: true
+      mock_video: true,
+      replicate: Boolean(cfg.replicate)
     })
   }
 
@@ -376,7 +379,7 @@ const server = http.createServer((req, res) => {
       body += c
       if (body.length > 1e6) req.destroy()
     })
-    req.on('end', () => {
+    req.on('end', async () => {
       let payload = {}
       try {
         payload = body ? JSON.parse(body) : {}
@@ -386,10 +389,31 @@ const server = http.createServer((req, res) => {
 
       const provider = String(payload.provider || payload.provider_id || 'mock').toLowerCase()
       if (provider === 'replicate') {
-        return send(res, 200, { status: 'error', error: 'Replicate video generation is not connected yet.' })
+        const estimate = estimateVideoCost(payload.duration)
+        if (payload.confirmed !== true) {
+          return send(res, 200, {
+            status: 'error',
+            error: 'confirmation_required',
+            ...estimate,
+            message: `Replicate video generation is estimated to cost $${estimate.estimatedCost.toFixed(2)} for ${estimate.seconds} seconds. Send confirmed: true to create a paid prediction.`
+          })
+        }
+        try {
+          const job = await createReplicateVideoJob({
+            prompt: payload.prompt || payload.input_prompt,
+            start_frame: payload.start_frame || payload.startFrame || payload.start_frame_image,
+            aspect_ratio: payload.aspect_ratio || payload.aspectRatio,
+            duration: payload.duration,
+            media_root: MEDIA_ROOT,
+            confirmed: payload.confirmed
+          })
+          return send(res, 202, job)
+        } catch (e) {
+          return send(res, 200, { status: 'error', error: `Replicate video generation failed: ${e && e.message ? e.message : 'unknown error'}` })
+        }
       }
       if (provider !== 'mock') {
-        return send(res, 400, { status: 'error', error: `Unsupported video provider "${provider}". Use "mock".` })
+        return send(res, 400, { status: 'error', error: `Unsupported video provider "${provider}". Use "mock" or "replicate".` })
       }
 
       let stat
@@ -424,9 +448,9 @@ const server = http.createServer((req, res) => {
     try {
       jobId = decodeURIComponent(videoStatusMatch[1])
     } catch {
-      return send(res, 400, { status: 'error', error: 'Invalid mock video job id.' })
+      return send(res, 400, { status: 'error', error: 'Invalid video job id.' })
     }
-    const status = getMockVideoJob(jobId)
+    const status = jobId.startsWith('replicate-video-') ? await getReplicateVideoJob(jobId) : getMockVideoJob(jobId)
     return send(res, status.status === 'error' ? 404 : 200, status)
   }
 
@@ -494,5 +518,5 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[api] Groq text/JSON ${cfg.groq ? 'ready' : 'not configured'} (model: ${groqModel()}).`)
   console.log(`[api] Pollinations image ${cfg.pollinations ? 'ready' : 'not configured'} (model: flux).`)
   console.log(`[api] OpenAI image ${cfg.openai && openaiImageModel() ? 'ready' : 'not configured'} (model: ${openaiImageModel() || '(unset)'}).`)
-  console.log('[api] Mock video ready (local-only async provider). Replicate video: not connected.')
+  console.log(`[api] Mock video ready (local-only async provider). Replicate video ${cfg.replicate ? 'ready' : 'not configured'} (paid, confirmation required).`)
 })

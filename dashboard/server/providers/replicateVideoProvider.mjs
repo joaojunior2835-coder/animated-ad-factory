@@ -1,0 +1,158 @@
+// Cost-gated Replicate image-to-video provider. Predictions are created only
+// after the route has verified confirmed === true. Completed videos are copied
+// to local-media/temp so expiring Replicate output URLs never reach the browser.
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import Replicate from 'replicate'
+
+export const REPLICATE_VIDEO_MODEL = 'wavespeedai/wan-2.1-i2v-720p:1f0a7fa066689a087b597a314f60ef74d1a720fa1fb9a7083487c4b01db3395f'
+const REPLICATE_VIDEO_VERSION = REPLICATE_VIDEO_MODEL.split(':')[1]
+const COST_PER_SECOND = 0.09
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024
+const VALID_ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1', '4:3'])
+const jobs = new Map()
+
+export function estimateVideoCost(durationSeconds) {
+  const seconds = Number.isFinite(Number(durationSeconds)) && Number(durationSeconds) > 0 ? Number(durationSeconds) : 5
+  return { seconds, estimatedCost: Number((seconds * COST_PER_SECOND).toFixed(2)) }
+}
+
+function client() {
+  const token = String(process.env.REPLICATE_API_TOKEN || '').trim()
+  if (!token) throw new Error('Replicate API token is not configured.')
+  return new Replicate({ auth: token })
+}
+
+function resolveLocalStartFrame(startFrameUrl, mediaRoot) {
+  const value = String(startFrameUrl || '').trim()
+  if (!value) throw new Error('Replicate image-to-video requires a start frame image.')
+  if (value.startsWith('data:image/')) return value
+
+  let parsed
+  try {
+    parsed = new URL(value, 'http://127.0.0.1')
+  } catch {
+    throw new Error('Start frame URL is invalid.')
+  }
+  if (!parsed.pathname.startsWith('/media/')) return value
+  if (!mediaRoot) throw new Error('Local media directory is not configured.')
+
+  const relative = decodeURIComponent(parsed.pathname.slice('/media/'.length))
+  const root = path.resolve(mediaRoot)
+  const filePath = path.resolve(root, relative)
+  const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep
+  if (!filePath.startsWith(rootPrefix)) throw new Error('Refused to read a start frame outside local-media.')
+
+  const buffer = fs.readFileSync(filePath)
+  if (!buffer.length) throw new Error('Start frame image is empty.')
+  if (buffer.length > 20 * 1024 * 1024) throw new Error('Start frame image exceeds the 20MB limit.')
+  const ext = path.extname(filePath).toLowerCase()
+  const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png'
+  return `data:${mime};base64,${buffer.toString('base64')}`
+}
+
+function outputUrl(output) {
+  const value = Array.isArray(output) ? output[0] : output
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (typeof value.url === 'function') return String(value.url())
+  if (typeof value.url === 'string') return value.url
+  return String(value)
+}
+
+async function downloadResult(url, mediaRoot) {
+  const parsed = new URL(url)
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Replicate returned an unsupported video URL.')
+  const response = await fetch(parsed, { redirect: 'follow' })
+  if (!response.ok) throw new Error(`Replicate video download failed (${response.status}).`)
+
+  const declaredLength = Number(response.headers.get('content-length') || 0)
+  if (declaredLength > MAX_VIDEO_BYTES) throw new Error('Replicate video exceeded the local download size limit.')
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (!buffer.length) throw new Error('Replicate returned an empty video.')
+  if (buffer.length > MAX_VIDEO_BYTES) throw new Error('Replicate video exceeded the local download size limit.')
+
+  const tempDir = path.resolve(mediaRoot, 'temp')
+  const fileName = `replicate-wan-i2v-${Date.now()}-${randomUUID()}.mp4`
+  const destination = path.resolve(tempDir, fileName)
+  const tempPrefix = tempDir.endsWith(path.sep) ? tempDir : tempDir + path.sep
+  if (!destination.startsWith(tempPrefix)) throw new Error('Refused to write outside local-media/temp.')
+  fs.mkdirSync(tempDir, { recursive: true })
+  fs.writeFileSync(destination, buffer)
+  return { local_url: `/media/temp/${fileName}`, file_name: fileName, mime_type: 'video/mp4', file_size: buffer.length }
+}
+
+export async function createReplicateVideoJob({ prompt, start_frame, aspect_ratio, duration, media_root, confirmed } = {}) {
+  if (confirmed !== true) {
+    const estimate = estimateVideoCost(duration)
+    return {
+      status: 'error',
+      error: 'confirmation_required',
+      ...estimate,
+      message: `Replicate video generation is estimated to cost $${estimate.estimatedCost.toFixed(2)} for ${estimate.seconds} seconds. Send confirmed: true to create a paid prediction.`
+    }
+  }
+  const input = {
+    prompt: String(prompt || '').trim(),
+    image: resolveLocalStartFrame(start_frame, media_root),
+    aspect_ratio: VALID_ASPECT_RATIOS.has(aspect_ratio) ? aspect_ratio : '16:9'
+  }
+  const prediction = await client().predictions.create({ version: REPLICATE_VIDEO_VERSION, input })
+  const jobId = `replicate-video-${prediction.id}`
+  jobs.set(jobId, {
+    jobId,
+    predictionId: prediction.id,
+    prompt: input.prompt,
+    duration: estimateVideoCost(duration).seconds,
+    status: 'generating',
+    createdAt: Date.now(),
+    mediaRoot: media_root
+  })
+  return { jobId, status: 'generating' }
+}
+
+export async function getReplicateVideoJob(jobId) {
+  const job = jobs.get(String(jobId || ''))
+  if (!job) return { status: 'error', error: 'Replicate video job not found.' }
+  if (job.status === 'done') return { status: 'done', result: job.result }
+  if (job.status === 'error') return { status: 'error', error: job.error }
+  if (job.status === 'saving') return { status: 'generating' }
+
+  try {
+    const prediction = await client().predictions.get(job.predictionId)
+    if (prediction.status === 'failed' || prediction.status === 'canceled') {
+      job.status = 'error'
+      job.error = prediction.error || `Replicate prediction ${prediction.status}.`
+      return { status: 'error', error: job.error }
+    }
+    if (prediction.status !== 'succeeded') return { status: 'generating' }
+
+    job.status = 'saving'
+    const saved = await downloadResult(outputUrl(prediction.output), job.mediaRoot)
+    job.status = 'done'
+    job.result = {
+      success: true,
+      connected: true,
+      mode: 'api',
+      provider: 'replicate',
+      provider_id: 'replicate',
+      provider_name: 'Replicate',
+      action_type: 'generate_video',
+      media_type: 'video',
+      source_type: 'api',
+      status: 'success',
+      prompt: job.prompt,
+      model: REPLICATE_VIDEO_MODEL,
+      storage: 'local_disk',
+      created_at: new Date(job.createdAt).toISOString(),
+      ...saved
+    }
+    return { status: 'done', result: job.result }
+  } catch (error) {
+    job.status = 'error'
+    job.error = error && error.message ? error.message : 'Replicate video status check failed.'
+    return { status: 'error', error: job.error }
+  }
+}
