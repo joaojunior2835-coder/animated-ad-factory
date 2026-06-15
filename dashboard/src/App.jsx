@@ -36,6 +36,7 @@ import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptTe
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
 import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
+import { IMAGE_API_PROVIDERS, TEXT_API_PROVIDERS, selectedImageProvider, selectedTextProvider } from './lib/ai/providerActions.js'
 
 const SPECIAL_NAV = [
   { key: 'methods', label: 'Ad Methods' },
@@ -82,7 +83,7 @@ export default function App() {
   const [exportedThisSession, setExportedThisSession] = useState(false)
   const [lastSyncSig, setLastSyncSig] = useState(null)
   const [syncedNote, setSyncedNote] = useState(false)
-  const [apiBadge, setApiBadge] = useState({ loading: true, connected: false, openai: false, openrouter: false, url: '' })
+  const [apiBadge, setApiBadge] = useState({ loading: true, connected: false, openai: false, openrouter: false, groq: false, pollinations: false, url: '' })
   const firstRenderRef = useRef(true)
 
   useEffect(() => {
@@ -115,6 +116,8 @@ export default function App() {
       connected: !!r.connected,
       openai: !!(r.providers && r.providers.openai),
       openrouter: !!(r.providers && r.providers.openrouter),
+      groq: !!(r.providers && r.providers.groq),
+      pollinations: !!(r.providers && r.providers.pollinations),
       url: apiBase()
     })
   }
@@ -209,29 +212,34 @@ export default function App() {
     if (modelUsesCredits(modelId) && mode !== 'api') {
       return fail('Real API models need Provider Mode = API (set it in Canvas → Production Board).')
     }
-    if (modelId !== 'openai-image') {
+    if (!['openai-image', 'pollinations-image'].includes(modelId)) {
       return fail(`Model "${model.name}" has no connected backend yet. Use a mock model, or Manual / Paste URL.`)
     }
-    if (isVideo) return fail('OpenAI video generation is not connected yet.')
+    const imageProviderId = selectedImageProvider(projectRef.current.canvas || {})
+    if (isVideo) return fail('API video generation is not connected yet.')
     if (!prompt) return fail('Prompt is empty — type one or wire a Prompt node in.')
-    if (!opts.skipConfirm && !window.confirm('This will use OpenAI image API credits. Continue?')) {
+    if (!opts.skipConfirm && !window.confirm(`This will use ${imageProviderId === 'pollinations' ? 'Pollinations' : 'OpenAI'} image API credits. Continue?`)) {
       setNode({ status: 'idle' })
       return undefined
     }
 
     setNode({ status: 'generating', status_message: '' })
-    const res = await callPlaceholderLlmAction({ provider_id: 'openai', action_type: 'generate_image', input_prompt: prompt, size: sizeForAspect(d.aspect_ratio) })
+    const res = await callPlaceholderLlmAction({ provider_id: imageProviderId, action_type: 'generate_image', input_prompt: prompt, aspect_ratio: d.aspect_ratio, size: sizeForAspect(d.aspect_ratio) })
     if (!res || !res.success) {
       return fail((res && (res.error || res.message)) || 'Local API not reachable — run npm run dev:server.')
     }
     const result = normalizeMediaResult({
-      provider_id: 'openai',
+      provider_id: imageProviderId,
       mode: 'api',
       action_type: 'generate_image',
       media_type: 'image',
       prompt,
       data_url: res.data_url || '',
       external_url: res.external_url || '',
+      local_url: res.local_url || '',
+      storage: res.storage || '',
+      file_name: res.file_name || '',
+      file_size: res.file_size || 0,
       mime_type: res.mime_type || 'image/png',
       model: res.model || '',
       request_id: res.request_id || '',
@@ -240,13 +248,13 @@ export default function App() {
     setNode({
       status: 'done',
       status_message: '',
-      result_external_url: result.external_url, // empty when the result is a session data_url
-      result_local_url: '',
-      result_file_name: `openai-image-${String(nodeId).slice(0, 8)}.png`,
+      result_external_url: result.external_url,
+      result_local_url: result.local_url,
+      result_file_name: result.file_name || `${imageProviderId}-image-${String(nodeId).slice(0, 8)}.png`,
       result_mime_type: result.mime_type || 'image/png',
-      result_saved: false
+      result_saved: !!result.local_url
     })
-    if (result.external_url) propagate({ url: result.external_url })
+    if (result.local_url || result.external_url) propagate({ local_url: result.local_url, url: result.external_url })
     return result
   }
 
@@ -280,7 +288,7 @@ export default function App() {
         storage: d.result_local_url ? 'local_disk' : classifyMedia(d.result_external_url) === 'mock' ? 'mock' : 'external_url',
         file_name: d.result_file_name || '',
         mime_type: d.result_mime_type || '',
-        source_type: modelId === 'openai-image' ? 'api' : modelId.startsWith('mock') ? 'mock' : 'manual',
+        source_type: ['openai-image', 'pollinations-image'].includes(modelId) ? 'api' : modelId.startsWith('mock') ? 'mock' : 'manual',
         action_type: isVideo ? 'generate_video' : 'generate_image',
         model: modelId,
         notes: 'From Node Canvas',
@@ -696,6 +704,28 @@ export default function App() {
           scenes={(project.canvas && project.canvas.scenes) || []}
           onAttachResultToScene={attachNodeResultToScene}
           onExportNodeToTimeline={exportNodeToTimeline}
+          toolbarExtras={(project.canvas && project.canvas.provider_mode) === 'api' ? (
+            <div className="subpanel">
+              <div className="row">
+                <label className="field inline">
+                  <span className="field-label">Text Provider</span>
+                  <select value={selectedTextProvider(project.canvas || {})} onChange={(e) => updateCanvas((c) => ({ ...c, api_text_provider_id: TEXT_API_PROVIDERS.includes(e.target.value) ? e.target.value : 'groq' }))}>
+                    <option value="openai">OpenAI</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="groq">Groq</option>
+                  </select>
+                </label>
+                <label className="field inline">
+                  <span className="field-label">Image Provider</span>
+                  <select value={selectedImageProvider(project.canvas || {})} onChange={(e) => updateCanvas((c) => ({ ...c, api_image_provider_id: IMAGE_API_PROVIDERS.includes(e.target.value) ? e.target.value : 'pollinations' }))}>
+                    <option value="openai">OpenAI</option>
+                    <option value="pollinations">Pollinations</option>
+                  </select>
+                </label>
+                <span className="hint small">Image Generator nodes use the selected image provider. Pollinations results are saved to local disk by the backend.</span>
+              </div>
+            </div>
+          ) : null}
         />
       )
     }
@@ -929,8 +959,8 @@ export default function App() {
             ? 'Local API: checking…'
             : !b.connected
               ? 'Local backend offline — run npm run dev:server or npm run dev:all from dashboard/.'
-              : `Backend online · OpenAI ${yn(b.openai)} · OpenRouter ${yn(b.openrouter)}`
-          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : b.openai || b.openrouter ? 'api-badge ok' : 'api-badge warn'
+              : `Backend online · Groq ${yn(b.groq)} · Pollinations ${yn(b.pollinations)}`
+          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : b.groq || b.pollinations ? 'api-badge ok' : 'api-badge warn'
           return (
             <span className="api-badge-wrap" data-testid="runtime-status">
               <span className={cls} title={b.url ? `Backend: ${b.url} (status from /health; no keys exposed)` : 'Local backend status from /health (no keys exposed)'}>

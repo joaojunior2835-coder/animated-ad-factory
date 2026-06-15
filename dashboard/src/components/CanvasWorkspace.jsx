@@ -11,7 +11,7 @@ import MediaCleanup from './MediaCleanup.jsx'
 import AddResultModal from './AddResultModal.jsx'
 import MediaPreview from './MediaPreview.jsx'
 import { runAction } from '../lib/ai/orchestrator.js'
-import { variationTypeForAction } from '../lib/ai/providerActions.js'
+import { IMAGE_API_PROVIDERS, TEXT_API_PROVIDERS, selectedImageProvider, selectedTextProvider, variationTypeForAction } from '../lib/ai/providerActions.js'
 import { getApiHealth, callPlaceholderLlmAction, apiBase, saveMediaToLocal } from '../lib/ai/apiClient.js'
 import { normalizeMediaResult, mediaResultToVariation, getMediaResultHealth, isMediaResultSaveable, isMediaResultAttachable } from '../lib/ai/mediaResultContract.js'
 
@@ -65,7 +65,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
   const [view, setView] = useState('list')
   const [genResult, setGenResult] = useState(null)
   const [addResultScene, setAddResultScene] = useState(null)
-  const [apiHealth, setApiHealth] = useState({ connected: false, providers: {}, openaiModel: '', openrouterModel: '', openaiImageModel: '', openaiImageConfigured: false, checkedAt: '', error: '', loading: false })
+  const [apiHealth, setApiHealth] = useState({ connected: false, providers: {}, openaiModel: '', openrouterModel: '', groqModel: '', openaiImageModel: '', openaiImageConfigured: false, pollinationsImageConfigured: false, checkedAt: '', error: '', loading: false })
   const [apiTest, setApiTest] = useState({ loading: false, text: '', error: '' })
   const [actionLog, setActionLog] = useState([]) // session-only, newest first
   const [logOpen, setLogOpen] = useState(false)
@@ -77,6 +77,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
   const [adBriefOverwrite, setAdBriefOverwrite] = useState(false)
   const [adBriefBusy, setAdBriefBusy] = useState(false)
   const [adBriefMsg, setAdBriefMsg] = useState('')
+  const dragSceneRef = useRef(null)
 
   const method = getMethod(project.selected_method)
   const canvas = project.canvas || { competitor_reference: {}, model_defaults: {}, scenes: [] }
@@ -87,6 +88,12 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
   const assets = canvas.assets || []
   const adBrief = canvas.ad_brief || {}
   const finalTimeline = scenes.map((s) => ({ s, v: selectedVariation(s) })).filter((x) => x.v)
+
+  // Auto-check backend health when API mode is selected.
+  useEffect(() => {
+    if (canvas.provider_mode === 'api') refreshHealth()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvas.provider_mode])
 
   if (!isCompetitorMethod(project.selected_method)) {
     return (
@@ -275,7 +282,6 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
   // Drag-to-reorder scenes in the Final Timeline. Array order is the timeline order;
   // scene_number stays STABLE and no variation/selection is touched.
   const reorderScene = (fromId, toId) => onCanvas((c) => ({ ...c, scenes: reorderScenes(c.scenes, fromId, toId) }))
-  const dragSceneRef = useRef(null)
   const handleSceneDragStart = (sceneId) => {
     dragSceneRef.current = sceneId
   }
@@ -287,17 +293,18 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
 
   const setProviderMode = (mode) => onCanvas((c) => ({ ...c, provider_mode: ['manual', 'mock', 'api'].includes(mode) ? mode : 'manual' }))
 
-  // Selected API provider (separate from provider_mode). Defaults to OpenAI.
-  const apiProviderId = ['openai', 'openrouter'].includes(canvas.api_provider_id) ? canvas.api_provider_id : 'openai'
-  const setApiProvider = (id) => onCanvas((c) => ({ ...c, api_provider_id: ['openai', 'openrouter'].includes(id) ? id : 'openai' }))
-  const providerLabel = (id) => (id === 'openrouter' ? 'OpenRouter' : 'OpenAI')
-  const selectedModel = apiProviderId === 'openrouter' ? apiHealth.openrouterModel : apiHealth.openaiModel
-  const selectedConfigured = !!(apiHealth.providers && apiHealth.providers[apiProviderId])
+  const textProviderId = selectedTextProvider(canvas)
+  const imageProviderId = selectedImageProvider(canvas)
+  const setTextProvider = (id) => onCanvas((c) => ({ ...c, api_text_provider_id: TEXT_API_PROVIDERS.includes(id) ? id : 'groq' }))
+  const setImageProvider = (id) => onCanvas((c) => ({ ...c, api_image_provider_id: IMAGE_API_PROVIDERS.includes(id) ? id : 'pollinations' }))
+  const providerLabel = (id) => providerName(id)
+  const selectedModel = textProviderId === 'groq' ? apiHealth.groqModel : textProviderId === 'openrouter' ? apiHealth.openrouterModel : apiHealth.openaiModel
+  const selectedConfigured = !!(apiHealth.providers && apiHealth.providers[textProviderId])
 
   async function refreshHealth() {
     setApiHealth((h) => ({ ...h, loading: true }))
     const r = await getApiHealth()
-    setApiHealth({ connected: r.connected, providers: r.providers || {}, openaiModel: r.openai_model || '', openrouterModel: r.openrouter_model || '', openaiImageModel: r.openai_image_model || '', openaiImageConfigured: !!r.openai_image_configured, checkedAt: new Date().toLocaleTimeString(), error: r.error || '', loading: false })
+    setApiHealth({ connected: r.connected, providers: r.providers || {}, openaiModel: r.openai_model || '', openrouterModel: r.openrouter_model || '', groqModel: r.groq_model || '', openaiImageModel: r.openai_image_model || '', openaiImageConfigured: !!r.openai_image_configured, pollinationsImageConfigured: !!r.pollinations_image_configured, checkedAt: new Date().toLocaleTimeString(), error: r.error || '', loading: false })
   }
 
   // --- API Action Log (session-only) + paid-call confirmation ---
@@ -324,20 +331,14 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
     setActionLog((log) => [item, ...log].slice(0, 50))
   }
 
-  // Gate every paid OpenAI call behind a confirmation modal. Manual/Mock never reach here.
+  // Gate every paid API call behind a confirmation modal. Manual/Mock never reach here.
   function requestApiConfirm(run, message) {
     setApiConfirm({ run, message: message || '' })
   }
 
-  // Auto-check backend health when API mode is selected.
-  useEffect(() => {
-    if (canvas.provider_mode === 'api') refreshHealth()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvas.provider_mode])
-
   // One-shot connectivity probe for the SELECTED API provider. Writes nothing.
   function runApiTest() {
-    const providerId = apiProviderId
+    const providerId = textProviderId
     requestApiConfirm(async () => {
       const prompt = 'Reply with exactly: Local backend connected.'
       setApiTest({ loading: true, text: '', error: '' })
@@ -487,23 +488,23 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
 
     // API mode: never auto-writes state — results land in the modal for review.
     if (mode === 'api') {
-      // Real text-to-image: OpenAI only, exactly one image, behind a credits confirm.
-      if (actionType === 'generate_image' && apiProviderId === 'openai') {
+      // Real text-to-image through the selected image provider, behind a credits confirm.
+      if (actionType === 'generate_image') {
         requestApiConfirm(async () => {
-          setGenResult({ ...base, provider_id: 'openai', mode: 'api', loading: true, result: normalizeMediaResult({ provider_id: 'openai', action_type: 'generate_image', mode: 'api', media_type: 'image', status: 'pending', prompt: promptText, scene_id: scene.id }) })
-          const res = await callPlaceholderLlmAction({ provider_id: 'openai', action_type: 'generate_image', input_prompt: promptText })
-          const data_url = res.data_url || (res.b64_json ? `data:${res.mime_type || 'image/png'};base64,${res.b64_json}` : '')
+          setGenResult({ ...base, provider_id: imageProviderId, mode: 'api', loading: true, result: normalizeMediaResult({ provider_id: imageProviderId, action_type: 'generate_image', mode: 'api', media_type: 'image', status: 'pending', prompt: promptText, scene_id: scene.id }) })
+          const res = await callPlaceholderLlmAction({ provider_id: imageProviderId, action_type: 'generate_image', input_prompt: promptText })
+          const data_url = imageProviderId === 'openai' ? (res.data_url || '') : ''
           const result = normalizeMediaResult({
-            provider_id: 'openai', action_type: 'generate_image', mode: 'api', media_type: 'image', prompt: promptText,
-            data_url, external_url: res.external_url || '', mime_type: res.mime_type || 'image/png', model: res.model, request_id: res.request_id,
+            provider_id: imageProviderId, action_type: 'generate_image', mode: 'api', media_type: 'image', prompt: promptText,
+            data_url, external_url: res.external_url || '', local_url: res.local_url || '', storage: res.storage || '', file_name: res.file_name || '', file_size: res.file_size || 0, mime_type: res.mime_type || 'image/png', model: res.model, request_id: res.request_id,
             success: res.success, status: res.success ? 'success' : 'error', message: res.success ? '' : res.error || res.message || 'Local API not reachable.', scene_id: scene.id
           })
-          setGenResult({ ...base, provider_id: 'openai', mode: 'api', loading: false, output_text: res.output_text || '', message: res.success ? '' : res.error || res.message || 'Local API not reachable.', result })
+          setGenResult({ ...base, provider_id: imageProviderId, mode: 'api', loading: false, output_text: res.output_text || '', message: res.success ? '' : res.error || res.message || 'Local API not reachable.', result })
           // Record in the API Action Log — never the key or the base64 image blob.
           addLog({
             action_type: 'generate_image',
-            provider_id: 'openai',
-            model: res.model || apiHealth.openaiImageModel,
+            provider_id: imageProviderId,
+            model: res.model || (imageProviderId === 'openai' ? apiHealth.openaiImageModel : 'flux'),
             scene_id: scene.id,
             scene_number: scene.scene_number,
             status: res.success ? 'success' : 'error',
@@ -512,19 +513,17 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
             output_preview: res.success ? `[image ${result.mime_type || 'image/png'}]` : '',
             error: res.success ? '' : res.error || res.message || 'Local API not reachable.'
           })
-        }, 'This will use OpenAI image API credits. Continue?')
+        }, `This will use ${providerLabel(imageProviderId)} image API credits. Continue?`)
         return
       }
       if (IMAGE_VIDEO_ACTIONS.includes(actionType)) {
-        // Unsupported here: video (always), and image for non-OpenAI providers.
+        // Video generation remains unsupported.
         const isVideo = actionType === 'generate_video' || actionType === 'generate_video_prompt'
         const error = isVideo
-          ? 'OpenAI video generation is not connected yet.'
-          : apiProviderId === 'openrouter'
-            ? 'OpenRouter image/video generation is not connected yet.'
-            : 'Image/video generation is not connected yet.'
+          ? 'API video generation is not connected yet.'
+          : 'Image/video generation is not connected yet.'
         const result = normalizeMediaResult({
-          provider_id: apiProviderId,
+          provider_id: imageProviderId,
           action_type: actionType,
           mode: 'api',
           media_type: isVideo ? 'video' : 'image',
@@ -533,13 +532,13 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
           prompt: promptText,
           error
         })
-        setGenResult({ ...base, provider_id: apiProviderId, unsupported: true, message: result.error, result })
+        setGenResult({ ...base, provider_id: imageProviderId, unsupported: true, message: result.error, result })
         return
       }
       // Text/JSON actions call the real local backend (/api/llm).
-      const res = await callPlaceholderLlmAction({ provider_id, action_type: actionType, input_prompt: promptText })
+      const res = await callPlaceholderLlmAction({ provider_id: textProviderId, action_type: actionType, input_prompt: promptText })
       const result = normalizeMediaResult({
-        provider_id, action_type: actionType, mode: 'api', prompt: promptText,
+        provider_id: textProviderId, action_type: actionType, mode: 'api', prompt: promptText,
         output_text: res.output_text || '', raw_output: res.raw_text || '', model: res.model, request_id: res.request_id,
         success: res.success, message: res.error || res.message || 'Local API not reachable.', scene_id: scene.id
       })
@@ -619,12 +618,12 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
     setPaste('')
   }
 
-  // --- API "Canvas Brain" actions (OpenAI text/JSON via the local backend) ---
+  // --- API "Canvas Brain" actions (selected text/JSON provider via the local backend) ---
   // Results open the unified API Result Preview modal. Nothing is auto-applied.
   const isApiMode = canvas.provider_mode === 'api'
 
   async function runBrainAction({ kind, action_type, prompt, scene }) {
-    const providerId = apiProviderId
+    const providerId = textProviderId
     setGenResult({
       open: true,
       kind,
@@ -695,8 +694,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
   }
 
   // One-click: generate output_prompt for every (empty, or all if overwrite) scene via
-  // the EXISTING OpenAI text/JSON provider, then write back on a clean JSON parse only.
-  // Forces provider_id 'openai' for this action; does not change the user's Provider Mode.
+  // the selected text/JSON provider, then write back on a clean JSON parse only.
   function generateAllScenePrompts() {
     const overwrite = genAllOverwrite
     if (!scenes.length) {
@@ -710,14 +708,14 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
     }
     requestApiConfirm(async () => {
       setGenAllBusy(true)
-      setPromptGenMsg(`Generating ${targets.length} scene prompt(s) via OpenAI…`)
+      setPromptGenMsg(`Generating ${targets.length} scene prompt(s) via ${providerLabel(textProviderId)}…`)
       const promptText = buildEmptyPromptsImprovePrompt(project, targets)
-      const res = await callPlaceholderLlmAction({ provider_id: 'openai', action_type: 'generate_json', input_prompt: promptText })
+      const res = await callPlaceholderLlmAction({ provider_id: textProviderId, action_type: 'generate_json', input_prompt: promptText })
       const ok = !!(res && res.success)
       addLog({
         action_type: 'generate_json',
-        provider_id: 'openai',
-        model: (res && res.model) || apiHealth.openaiModel,
+        provider_id: textProviderId,
+        model: (res && res.model) || selectedModel,
         status: ok ? 'success' : 'error',
         request_id: res && res.request_id,
         prompt_preview: promptText,
@@ -740,10 +738,10 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
       onCanvas((c) => ({ ...c, scenes: applyGeneratedScenePrompts(c.scenes, res.parsed_json, overwrite).scenes }))
       setGenAllBusy(false)
       setPromptGenMsg(`Filled ${applied.filled} scene prompt(s)${overwrite ? ' (overwrite)' : ' (empty only)'}${rid}.`)
-    }, 'This will use OpenAI API credits to generate scene prompts. Continue?')
+    }, `This will use ${providerLabel(textProviderId)} API credits to generate scene prompts. Continue?`)
   }
 
-  // Ad Brief: paste a /watch competitor breakdown → OpenAI generate_json (text/JSON
+  // Ad Brief: paste a /watch competitor breakdown → selected provider generate_json
   // only) → decoded structure + adapted script + REAL shot prompts written into the
   // EXISTING scenes by scene_number. Forces provider_id 'openai'; does NOT change the
   // user's Provider Mode. Applies state ONLY after a clean parse — never partial.
@@ -755,14 +753,14 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
     }
     requestApiConfirm(async () => {
       setAdBriefBusy(true)
-      setAdBriefMsg('Generating ad brief via OpenAI…')
+      setAdBriefMsg(`Generating ad brief via ${providerLabel(textProviderId)}…`)
       const promptText = buildAdBriefPrompt(project, adBriefInput)
-      const res = await callPlaceholderLlmAction({ provider_id: 'openai', action_type: 'generate_json', input_prompt: promptText })
+      const res = await callPlaceholderLlmAction({ provider_id: textProviderId, action_type: 'generate_json', input_prompt: promptText })
       const ok = !!(res && res.success)
       addLog({
         action_type: 'generate_json',
-        provider_id: 'openai',
-        model: (res && res.model) || apiHealth.openaiModel,
+        provider_id: textProviderId,
+        model: (res && res.model) || selectedModel,
         status: ok ? 'success' : 'error',
         request_id: res && res.request_id,
         prompt_preview: promptText,
@@ -782,11 +780,11 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
         setAdBriefMsg(`Model returned an unparseable/invalid brief${res.parse_error ? ` (${res.parse_error})` : ''}${rid}. No scenes or brief changed.`)
         return
       }
-      const brief = normalizeAdBrief({ ...res.parsed_json, generated_at: new Date().toISOString(), request_id: res.request_id, model: res.model || apiHealth.openaiModel })
+      const brief = normalizeAdBrief({ ...res.parsed_json, generated_at: new Date().toISOString(), request_id: res.request_id, model: res.model || selectedModel })
       onCanvas((c) => ({ ...c, scenes: applyAdBriefScenes(c.scenes, res.parsed_json, overwrite).scenes, ad_brief: brief }))
       setAdBriefBusy(false)
       setAdBriefMsg(`Ad brief applied: filled ${applied.filled} scene(s)${applied.created ? `, created ${applied.created}` : ''}${overwrite ? ' (overwrite)' : ' (empty only)'}${rid}.`)
-    }, 'This will use OpenAI API credits to generate an ad brief. Continue?')
+    }, `This will use ${providerLabel(textProviderId)} API credits to generate an ad brief. Continue?`)
   }
 
   // Shared control block — rendered in both List and Board View.
@@ -799,7 +797,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
         <input type="checkbox" checked={genAllOverwrite} onChange={(e) => setGenAllOverwrite(e.target.checked)} />
         <span className="hint small">overwrite existing</span>
       </label>
-      <span className="hint small">Uses the OpenAI text provider via the local backend; fills empty prompts by default. No provider switch needed.</span>
+      <span className="hint small">Uses the selected text provider via the local backend; fills empty prompts by default.</span>
       {promptGenMsg ? <div className="note">{promptGenMsg}</div> : null}
     </div>
   )
@@ -889,10 +887,20 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
                 </label>
                 {canvas.provider_mode === 'api' ? (
                   <label className="field inline">
-                    <span className="field-label">API Provider</span>
-                    <select value={apiProviderId} onChange={(e) => setApiProvider(e.target.value)}>
+                    <span className="field-label">Text Provider</span>
+                    <select value={textProviderId} onChange={(e) => setTextProvider(e.target.value)}>
                       <option value="openai">OpenAI</option>
                       <option value="openrouter">OpenRouter</option>
+                      <option value="groq">Groq</option>
+                    </select>
+                  </label>
+                ) : null}
+                {canvas.provider_mode === 'api' ? (
+                  <label className="field inline">
+                    <span className="field-label">Image Provider</span>
+                    <select value={imageProviderId} onChange={(e) => setImageProvider(e.target.value)}>
+                      <option value="openai">OpenAI</option>
+                      <option value="pollinations">Pollinations</option>
                     </select>
                   </label>
                 ) : null}
@@ -922,7 +930,8 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
                 <div className="bn-meta">
                   <span>{apiHealth.connected ? 'connected' : 'not connected'}</span>
                   <span>{apiBase()}</span>
-                  <span>selected: {providerLabel(apiProviderId)}</span>
+                  <span>text: {providerLabel(textProviderId)}</span>
+                  <span>image: {providerLabel(imageProviderId)}</span>
                   {apiHealth.checkedAt ? <span>last checked {apiHealth.checkedAt}</span> : null}
                 </div>
                 {apiHealth.connected ? (
@@ -930,18 +939,20 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
                     <span>OpenAI: {apiHealth.providers && apiHealth.providers.openai ? 'configured' : 'not configured'}{apiHealth.openaiModel ? ` (${apiHealth.openaiModel})` : ''}</span>
                     <span>OpenAI image: {apiHealth.openaiImageConfigured ? 'configured' : 'not configured'}{apiHealth.openaiImageModel ? ` (${apiHealth.openaiImageModel})` : ''}</span>
                     <span>OpenRouter: {apiHealth.providers && apiHealth.providers.openrouter ? 'configured' : 'not configured'}{apiHealth.openrouterModel ? ` (${apiHealth.openrouterModel})` : ''}</span>
+                    <span>Groq: {apiHealth.providers && apiHealth.providers.groq ? 'configured' : 'not configured'}{apiHealth.groqModel ? ` (${apiHealth.groqModel})` : ''}</span>
+                    <span>Pollinations image: {apiHealth.pollinationsImageConfigured ? 'configured' : 'not configured'} (flux)</span>
                   </div>
                 ) : null}
                 {!apiHealth.connected ? (
                   <div className="note bad">API mode is selected, but the local backend is not connected. Run npm run dev:server or npm run dev:all.</div>
                 ) : null}
                 {apiHealth.connected && !selectedConfigured ? (
-                  <div className="note bad">{providerLabel(apiProviderId)} is selected but not configured. Add {apiProviderId === 'openrouter' ? 'OPENROUTER_API_KEY (and OPENROUTER_MODEL)' : 'OPENAI_API_KEY'} to .env.local and restart the backend, or switch the API Provider.</div>
+                  <div className="note bad">{providerLabel(textProviderId)} is selected but not configured. Add its API key to .env.local and restart the backend, or switch the Text Provider.</div>
                 ) : null}
                 <p className="hint small">Image generation is intentionally manual: bring images in via Import from Flow below — this is not an error or a pending API.</p>
                 {apiHealth.error ? <p className="hint small">Last error: {apiHealth.error}</p> : null}
-                {apiTest.text ? <div className="note ok">Test ({providerLabel(apiProviderId)}): {apiTest.text}</div> : null}
-                {apiTest.error ? <div className="note bad">Test ({providerLabel(apiProviderId)}): {apiTest.error}</div> : null}
+                {apiTest.text ? <div className="note ok">Test ({providerLabel(textProviderId)}): {apiTest.text}</div> : null}
+                {apiTest.error ? <div className="note bad">Test ({providerLabel(textProviderId)}): {apiTest.error}</div> : null}
               </div>
             ) : null}
             {toolMsg ? <div className="note ok">{toolMsg}</div> : null}
@@ -1292,7 +1303,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
                     <button className="ghost small" onClick={() => improveScenePrompt(s)} disabled={!isApiMode}>
                       Improve Output Prompt with API
                     </button>
-                    <span className="hint small">Uses OpenAI API credits.{!isApiMode ? ' Set Provider Mode to API (Board View).' : ''}</span>
+                    <span className="hint small">Uses the selected text provider.{!isApiMode ? ' Set Provider Mode to API (Board View).' : ''}</span>
                   </div>
                 </>
               ) : null}
@@ -1331,7 +1342,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
             Improve Empty Prompts with API
           </button>
         </div>
-        <p className="hint small">Improve Empty Prompts with API writes production prompts for empty scenes (preview + approve). Uses OpenAI API credits.{!isApiMode ? ' Set Provider Mode to API (Board View) to enable.' : ''}</p>
+        <p className="hint small">Improve Empty Prompts with API writes production prompts for empty scenes (preview + approve). Uses the selected text provider.{!isApiMode ? ' Set Provider Mode to API (Board View) to enable.' : ''}</p>
         <p className="hint small">Or one-click fill every scene’s prompt directly:</p>
         {renderGenAllPrompts()}
         {toolMsg ? <div className="note ok">{toolMsg}</div> : null}
@@ -1340,10 +1351,10 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
       <div className="subpanel">
         <h3>Ad Brief — Decode a Competitor /watch Breakdown</h3>
         <p className="hint small">
-          Paste the <code>/watch</code> frame-by-frame breakdown + transcript of a competitor video. OpenAI decodes its structure
+          Paste the <code>/watch</code> frame-by-frame breakdown + transcript of a competitor video. The selected text provider decodes its structure
           and writes an adapted script + REAL shot-by-shot prompts into the scenes below — using your existing Brand Library and
           Product / Offer Brief (no need to re-enter them). Prompts default to short-form vertical (9:16) UGC. Tip: run
-          <code>/watch</code> with <code>--scene-threshold ~0.2</code> for soft-cut UGC sources. Uses OpenAI API credits (text/JSON only).
+          <code>/watch</code> with <code>--scene-threshold ~0.2</code> for soft-cut UGC sources. Uses text/JSON API credits.
         </p>
         <textarea
           className="stage-text"
@@ -1420,7 +1431,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
             Generate Adapted Canvas JSON with API
           </button>
         </div>
-        <p className="hint small">Generate Adapted Canvas JSON with API sends the same prompt to OpenAI and returns JSON you can preview and import. Uses OpenAI API credits.{!isApiMode ? ' Set Provider Mode to API (Board View) to enable.' : ''}</p>
+        <p className="hint small">Generate Adapted Canvas JSON with API sends the same prompt to the selected text provider and returns JSON you can preview and import.{!isApiMode ? ' Set Provider Mode to API (Board View) to enable.' : ''}</p>
       </div>
 
       <div className="subpanel">
@@ -1450,7 +1461,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
             </button>
           ) : null}
         </div>
-        {importErrors.length > 0 && isApiMode ? <p className="hint small">Repair JSON with API sends the invalid JSON + errors to OpenAI and returns repaired JSON to preview/import. Uses OpenAI API credits.</p> : null}
+        {importErrors.length > 0 && isApiMode ? <p className="hint small">Repair JSON with API sends the invalid JSON + errors to the selected text provider and returns repaired JSON to preview/import.</p> : null}
       </div>
         </>
       )}
@@ -1489,7 +1500,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
                   <div className="media-health">{getMediaResultHealth(genResult.result)}</div>
                 </>
               ) : null}
-              {genResult.loading ? <div className="note">Calling OpenAI… this uses API credits.</div> : null}
+              {genResult.loading ? <div className="note">Calling {providerLabel(genResult.provider_id)}… this uses API credits.</div> : null}
               <p className="hint small">Prompt sent</p>
               <pre className="prompt-preview">{genResult.prompt_used || '(empty)'}</pre>
               {genResult.output_text ? (
@@ -1585,13 +1596,13 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
         <div className="modal-overlay" onClick={() => setApiConfirm(null)}>
           <div className="modal small" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h3>Use OpenAI API credits?</h3>
+              <h3>Use API credits?</h3>
               <button className="ghost small" onClick={() => setApiConfirm(null)}>
                 Close
               </button>
             </div>
             <div className="modal-body">
-              <p>{apiConfirm.message || 'This will use OpenAI API credits. Continue?'}</p>
+              <p>{apiConfirm.message || `This will use ${providerLabel(textProviderId)} API credits. Continue?`}</p>
               <div className="row">
                 <button
                   className="primary"

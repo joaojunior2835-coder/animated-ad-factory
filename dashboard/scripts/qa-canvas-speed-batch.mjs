@@ -78,7 +78,7 @@ async function startQaBackend() {
     throw new Error(`Port ${QA_PORT} is already in use. qa:canvas needs an exclusive keyless backend on ${QA_PORT}. Stop whatever is using it and retry.`)
   }
   const proc = spawn(process.execPath, [SERVER_ENTRY], {
-    env: { ...process.env, PORT: String(QA_PORT), OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
+    env: { ...process.env, PORT: String(QA_PORT), OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
     stdio: 'ignore'
   })
   let health = null
@@ -97,7 +97,7 @@ async function startQaBackend() {
   }
   // Guard: this backend MUST be keyless so qa never triggers paid provider calls.
   const cfg = health.providers_configured || {}
-  if (cfg.openai || cfg.openrouter || cfg.anthropic || cfg.gemini) {
+  if (cfg.openai || cfg.openrouter || cfg.groq || cfg.pollinations || cfg.anthropic || cfg.gemini) {
     try {
       proc.kill()
     } catch {
@@ -738,14 +738,18 @@ async function main() {
     await Promise.race([guidance.first().waitFor(), providersLine.first().waitFor()])
   })
 
-  await step('A1a. API Provider selector exists, defaults to OpenAI, and OpenRouter can be selected', async () => {
+  await step('A1a. Text/Image provider selectors have connected options and safe defaults', async () => {
     const board = page.locator('.subpanel', { hasText: 'Production Board' })
-    const sel = board.locator('label.field', { hasText: 'API Provider' }).locator('select')
-    await sel.waitFor()
-    const val = await sel.inputValue()
-    if (val !== 'openai') throw new Error(`API Provider default should be openai, got ${val}`)
-    const opts = await sel.locator('option').evaluateAll((o) => o.map((x) => x.value))
-    if (!opts.includes('openrouter')) throw new Error('API Provider missing openrouter option')
+    const textSel = board.locator('label.field', { hasText: 'Text Provider' }).locator('select')
+    const imageSel = board.locator('label.field', { hasText: 'Image Provider' }).locator('select')
+    await textSel.waitFor()
+    await imageSel.waitFor()
+    if ((await textSel.inputValue()) !== 'groq') throw new Error('Text Provider default should be groq')
+    if ((await imageSel.inputValue()) !== 'pollinations') throw new Error('Image Provider default should be pollinations')
+    const textOpts = await textSel.locator('option').evaluateAll((o) => o.map((x) => x.value))
+    const imageOpts = await imageSel.locator('option').evaluateAll((o) => o.map((x) => x.value))
+    if (!['openai', 'openrouter', 'groq'].every((x) => textOpts.includes(x))) throw new Error('Text Provider options incomplete')
+    if (!['openai', 'pollinations'].every((x) => imageOpts.includes(x))) throw new Error('Image Provider options incomplete')
   })
 
   await step('A1b. Test Selected API Provider asks for confirmation, then shows a friendly result/error (no key needed)', async () => {
@@ -754,7 +758,7 @@ async function main() {
     await btn.waitFor()
     await btn.click()
     // Paid-call confirmation must appear first.
-    const confirm = page.locator('.modal', { hasText: 'This will use OpenAI API credits' })
+    const confirm = page.locator('.modal', { hasText: 'This will use Groq API credits' })
     await confirm.waitFor()
     await confirm.getByRole('button', { name: 'Continue' }).click()
     // Without a backend/key in QA we expect a friendly error; with a key, the
@@ -776,12 +780,12 @@ async function main() {
 
   await step('A1d. Selecting OpenRouter routes the test to OpenRouter with a friendly result/error (no key needed)', async () => {
     const board = page.locator('.subpanel', { hasText: 'Production Board' })
-    const sel = board.locator('label.field', { hasText: 'API Provider' }).locator('select')
+    const sel = board.locator('label.field', { hasText: 'Text Provider' }).locator('select')
     await sel.selectOption('openrouter')
     const panel = page.locator('.api-health')
-    await panel.getByText('selected: OpenRouter', { exact: false }).first().waitFor()
+    await panel.getByText('text: OpenRouter', { exact: false }).first().waitFor()
     await panel.getByRole('button', { name: 'Test Selected API Provider' }).click()
-    const confirm = page.locator('.modal', { hasText: 'This will use OpenAI API credits' })
+    const confirm = page.locator('.modal', { hasText: 'This will use OpenRouter API credits' })
     await confirm.waitFor()
     await confirm.getByRole('button', { name: 'Continue' }).click()
     // Backend off in QA → friendly "not reachable"; if up without key → "not
@@ -791,8 +795,8 @@ async function main() {
       panel.getByText('not configured', { exact: false }).first().waitFor(),
       panel.getByText('Local backend connected', { exact: false }).first().waitFor()
     ])
-    // Reset to OpenAI so later steps exercise the default path.
-    await sel.selectOption('openai')
+    // Reset to Groq so later text actions exercise the default path.
+    await sel.selectOption('groq')
   })
 
   await step('A2. API video is normalized as unsupported (no crash, no API call)', async () => {
@@ -800,16 +804,16 @@ async function main() {
     const modal = page.locator('.modal', { hasText: 'Generation Result' })
     await modal.waitFor()
     await modal.getByText('Status: unsupported', { exact: false }).waitFor()
-    await modal.getByText('OpenAI video generation is not connected yet', { exact: false }).waitFor()
+    await modal.getByText('API video generation is not connected yet', { exact: false }).waitFor()
     // Must NOT offer to attach an unsupported result.
     if (await modal.getByRole('button', { name: 'Add As Scene Variation' }).count()) throw new Error('unsupported result should not be attachable')
     await modal.getByRole('button', { name: /Cancel|Close/ }).first().click()
   })
 
-  await step('A2b. API OpenAI generate_image asks for image-credit confirmation, then returns a friendly keyless error', async () => {
+  await step('A2b. API Pollinations generate_image asks for confirmation, then returns a friendly keyless error', async () => {
     await page.getByRole('button', { name: 'Regenerate Image' }).first().click()
     // Image-specific credit confirmation must appear first.
-    const confirm = page.locator('.modal', { hasText: 'OpenAI image API credits' })
+    const confirm = page.locator('.modal', { hasText: 'Pollinations image API credits' })
     await confirm.waitFor()
     await confirm.getByRole('button', { name: 'Continue' }).click()
     const modal = page.locator('.modal', { hasText: 'Generation Result' })
@@ -874,7 +878,7 @@ async function main() {
 
   // Every paid call shows a confirmation modal first. Click Continue to proceed.
   const confirmApiCall = async () => {
-    const confirm = page.locator('.modal', { hasText: 'This will use OpenAI API credits' })
+    const confirm = page.locator('.modal', { hasText: 'Use API credits?' })
     await confirm.waitFor()
     await confirm.getByRole('button', { name: 'Continue' }).click()
   }
@@ -890,7 +894,7 @@ async function main() {
 
   await step('C2. API call shows the credits confirmation modal; Cancel aborts it', async () => {
     await page.getByRole('button', { name: 'Generate Adapted Canvas JSON with API' }).click()
-    const confirm = page.locator('.modal', { hasText: 'This will use OpenAI API credits' })
+    const confirm = page.locator('.modal', { hasText: 'Use API credits?' })
     await confirm.waitFor()
     await confirm.getByRole('button', { name: 'Cancel' }).click()
     await confirm.waitFor({ state: 'detached' })

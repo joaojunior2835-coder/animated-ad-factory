@@ -28,6 +28,7 @@ export const MODEL_REGISTRY = [
   { id: 'mock-image', name: 'Mock Image', type: 'image', category: 'Test', previewUrl: null, description: 'Returns a placeholder immediately. Free.' },
   { id: 'mock-video', name: 'Mock Video', type: 'video', category: 'Test', previewUrl: null, description: 'Returns a placeholder immediately. Free.' },
   { id: 'openai-image', name: 'OpenAI Image (gpt-image-1)', type: 'image', category: 'Premium', previewUrl: null, description: 'Real OpenAI image generation. Uses API credits.' },
+  { id: 'pollinations-image', name: 'Pollinations Image (Flux)', type: 'image', category: 'Premium', previewUrl: null, description: 'Real Pollinations image generation. Saves directly to local disk.' },
   { id: 'manual', name: 'Manual / Paste URL', type: 'any', category: 'Manual', previewUrl: null, description: 'No generation. Paste a URL or upload a file.' }
 ]
 
@@ -85,7 +86,7 @@ export function creditEstimateForModel(modelId) {
   if (!m) return 'Unknown model'
   if (m.category === 'Test') return 'Free (mock)'
   if (m.id === 'manual' || m.category === 'Manual') return 'Free (manual)'
-  if (m.id === 'openai-image') return 'Uses API credits'
+  if (m.id === 'openai-image' || m.id === 'pollinations-image') return 'Uses API credits'
   return m.category === 'Premium' ? 'Uses API credits' : 'Unknown cost'
 }
 

@@ -115,6 +115,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [customModels, setCustomModels] = useState(() => loadCustomModels())
   const [runningAll, setRunningAll] = useState(false)
+  const [resultModalNodeId, setResultModalNodeId] = useState('')
   const spaceDown = useRef(false)
   const commitTimer = useRef(null)
   const viewRef = useRef(view)
@@ -482,6 +483,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
     if (result && result.data_url) {
       setPreviews((p) => ({ ...p, ['result:' + node.id]: result.data_url }))
     }
+    if (result && result.status === 'success') setResultModalNodeId(node.id)
     return result
   }
 
@@ -526,6 +528,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
             </button>
           ) : null}
           {d.result_saved ? <span className="media-health health-ok">Saved ✓</span> : null}
+          {d.result_local_url && d.result_saved ? <button className="ghost small" disabled>Saved to Local Media Library</button> : null}
           {onAttachResultToScene && sceneOptions.length ? (
             <button className="ghost small" onClick={() => setAttachPicker(node.id)} aria-label="Attach result to a scene">
               Attach to Scene
@@ -1347,6 +1350,33 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
           {(nc.nodes || []).length === 0 ? <div className="node-canvas-hint">Right-click anywhere (or use the palette) to add a node: Prompt, Image/Video Generator, Reference, Character, Style, Output, Upscale, Upload, Asset.</div> : null}
         </div>
       </div>
+      {resultModalNodeId ? (() => {
+        const resultNode = (nc.nodes || []).find((n) => n.id === resultModalNodeId)
+        if (!resultNode) return null
+        const d = resultNode.data || {}
+        const url = d.result_local_url || d.result_external_url || previews['result:' + resultNode.id] || ''
+        return (
+          <div className="modal-overlay" onClick={() => setResultModalNodeId('')}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Image Generator Result</h3>
+                <button className="ghost small" onClick={() => setResultModalNodeId('')}>Close</button>
+              </div>
+              <div className="modal-body">
+                {renderThumb(url, 'generated image')}
+                <div className="media-health">{d.result_local_url ? 'Local file saved' : 'Result ready'}</div>
+                <div className="row">
+                  {d.result_local_url ? <button className="ghost" disabled>Saved to Local Media Library</button> : null}
+                  {onAttachResultToScene && sceneOptions.length ? (
+                    <button className="primary" onClick={() => { setAttachPicker(resultNode.id); setResultModalNodeId('') }}>Attach as Variation</button>
+                  ) : null}
+                  <button className="ghost" onClick={() => setResultModalNodeId('')}>Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })() : null}
     </section>
   )
 }
