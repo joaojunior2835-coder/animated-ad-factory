@@ -38,6 +38,8 @@ import { runMock } from './lib/ai/mockProvider.js'
 import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
 import { IMAGE_API_PROVIDERS, TEXT_API_PROVIDERS, VIDEO_API_PROVIDERS, runVideoGeneration, selectedImageProvider, selectedTextProvider, selectedVideoProvider } from './lib/ai/providerActions.js'
 
+const REPLICATE_VIDEO_MODEL_LABEL = 'wan-2.1-i2v-720p'
+
 const SPECIAL_NAV = [
   { key: 'methods', label: 'Ad Methods' },
   { key: 'brand', label: 'Brand Library' },
@@ -84,6 +86,7 @@ export default function App() {
   const [lastSyncSig, setLastSyncSig] = useState(null)
   const [syncedNote, setSyncedNote] = useState(false)
   const [apiBadge, setApiBadge] = useState({ loading: true, connected: false, openai: false, openrouter: false, groq: false, pollinations: false, url: '' })
+  const [replicateConfirm, setReplicateConfirm] = useState(null)
   const firstRenderRef = useRef(true)
 
   useEffect(() => {
@@ -170,6 +173,24 @@ export default function App() {
     return '1024x1024'
   }
 
+  function requestReplicateConfirmation(details) {
+    return new Promise((resolve) => {
+      setReplicateConfirm({
+        seconds: Number(details && details.seconds) || 0,
+        estimatedCost: Number(details && details.estimatedCost) || 0,
+        message: (details && details.message) || '',
+        resolve
+      })
+    })
+  }
+
+  function closeReplicateConfirmation(approved) {
+    setReplicateConfirm((current) => {
+      if (current && typeof current.resolve === 'function') current.resolve(approved === true)
+      return null
+    })
+  }
+
   async function generateForNode(nodeId, action, opts = {}) {
     const ncv = normalizeNodeCanvas(projectRef.current.node_canvas, { preserveRuntimeStatus: true })
     const node = (ncv.nodes || []).find((n) => n.id === nodeId)
@@ -199,14 +220,22 @@ export default function App() {
     if (modelId === 'mock-video' && mode === 'api') {
       const videoProviderId = selectedVideoProvider(projectRef.current.canvas || {})
       const startFrameUrl = effectiveStartFrameUrl(ncv, nodeId)
-      setNode({ status: 'generating', status_message: 'Generating video...', last_start_frame_url: startFrameUrl })
+      if (videoProviderId !== 'replicate') {
+        setNode({ status: 'generating', status_message: 'Generating video...', last_start_frame_url: startFrameUrl })
+      }
       const res = await runVideoGeneration({
         prompt,
         startFrameUrl,
         aspectRatio: d.aspect_ratio,
         duration: d.duration_seconds,
-        provider: videoProviderId
+        provider: videoProviderId,
+        confirmCost: videoProviderId === 'replicate' ? requestReplicateConfirmation : undefined,
+        onConfirmed: () => setNode({ status: 'generating', status_message: 'Generating video...', last_start_frame_url: startFrameUrl })
       })
+      if (res && res.cancelled) {
+        setNode({ status: 'idle', status_message: '' })
+        return undefined
+      }
       if (!res || res.success === false || res.status === 'error') {
         setNode({ status: 'idle', status_message: (res && res.error) || 'Mock video generation failed.' })
         return undefined
@@ -757,10 +786,12 @@ export default function App() {
                   <span className="field-label">Video Provider</span>
                   <select value={selectedVideoProvider(project.canvas || {})} onChange={(e) => updateCanvas((c) => ({ ...c, api_video_provider_id: VIDEO_API_PROVIDERS.includes(e.target.value) ? e.target.value : 'mock' }))}>
                     <option value="mock">Mock</option>
-                    <option value="replicate" disabled>Replicate — coming soon, uses paid credit</option>
+                    <option value="replicate">Replicate</option>
                   </select>
                 </label>
-                <span className="hint small">Video Generator nodes use the async Mock provider. Replicate is not connected.</span>
+                <span className={`hint small${selectedVideoProvider(project.canvas || {}) === 'replicate' ? ' warn' : ''}`}>
+                  {selectedVideoProvider(project.canvas || {}) === 'replicate' ? 'Replicate uses paid credit. Mock is free.' : 'Video Generator nodes use the async Mock provider by default.'}
+                </span>
               </div>
             </div>
           ) : null}
@@ -1064,6 +1095,26 @@ export default function App() {
             onReset={handleReset}
           />
         )}
+        {replicateConfirm ? (
+          <div className="modal-overlay" onClick={() => closeReplicateConfirmation(false)}>
+            <div className="modal small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>⚠️ This uses real Replicate credit</h3>
+                <button className="ghost small" onClick={() => closeReplicateConfirmation(false)}>Close</button>
+              </div>
+              <div className="modal-body">
+                <p><b>Duration:</b> {replicateConfirm.seconds} seconds</p>
+                <p><b>Estimated cost:</b> ${replicateConfirm.estimatedCost.toFixed(2)}</p>
+                <p><b>Model:</b> {REPLICATE_VIDEO_MODEL_LABEL}</p>
+                <p>This will charge your Replicate trial. Mock mode is free if you're still testing.</p>
+                <div className="row">
+                  <button className="ghost" onClick={() => closeReplicateConfirmation(false)}>Cancel</button>
+                  <button className="primary" onClick={() => closeReplicateConfirmation(true)}>Generate — ${replicateConfirm.estimatedCost.toFixed(2)}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )

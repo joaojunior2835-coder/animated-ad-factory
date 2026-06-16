@@ -748,7 +748,19 @@ async function main() {
     await Promise.race([guidance.first().waitFor(), providersLine.first().waitFor()])
   })
 
-  await step('A1a. Text/Image provider selectors have connected options and safe defaults', async () => {
+  await step('A1a. Video provider selector has connected options and safe default', async () => {
+    const readProviderControls = async () => page.evaluate(() => {
+      return Array.from(document.querySelectorAll('label.field')).map((label) => {
+        const select = label.querySelector('select')
+        const name = label.querySelector('.field-label')?.textContent?.trim() || ''
+        return {
+          name,
+          value: select ? select.value : '',
+          options: select ? Array.from(select.querySelectorAll('option')).map((o) => ({ value: o.value, disabled: o.disabled })) : []
+        }
+      }).filter((x) => x.name)
+    })
+
     const board = page.locator('.subpanel', { hasText: 'Production Board' })
     const textSel = board.locator('label.field', { hasText: 'Text Provider' }).locator('select')
     const imageSel = board.locator('label.field', { hasText: 'Image Provider' }).locator('select')
@@ -760,6 +772,27 @@ async function main() {
     const imageOpts = await imageSel.locator('option').evaluateAll((o) => o.map((x) => x.value))
     if (!['openai', 'openrouter', 'groq'].every((x) => textOpts.includes(x))) throw new Error('Text Provider options incomplete')
     if (!['openai', 'pollinations'].every((x) => imageOpts.includes(x))) throw new Error('Image Provider options incomplete')
+
+    await page.locator('.sidebar-left button.nav', { hasText: 'Node Canvas' }).click()
+    await page.locator('.node-canvas-panel').waitFor()
+    const nodeControls = await readProviderControls()
+    const videoCtrl = nodeControls.find((x) => x.name === 'Video Provider')
+    if (!videoCtrl) throw new Error('Video Provider selector missing')
+    if (videoCtrl.value !== 'mock') throw new Error('Video Provider default should be mock')
+    const videoOpts = videoCtrl.options
+    const replicateOpt = videoOpts.find((x) => x.value === 'replicate')
+    if (!videoOpts.some((x) => x.value === 'mock') || !replicateOpt) throw new Error('Video Provider options incomplete')
+    if (replicateOpt.disabled) throw new Error('Replicate video provider should be enabled behind the confirmation gate')
+
+    await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('.sidebar-left button.nav')).find((el) => el.querySelector('.nav-text')?.textContent?.trim() === 'Canvas')
+      if (!btn) throw new Error('Canvas nav button missing')
+      btn.click()
+    })
+    await page.getByRole('button', { name: 'Board View' }).click()
+    const modeSel = page.locator('.subpanel', { hasText: 'Production Board' }).locator('label.field', { hasText: 'Provider Mode' }).locator('select')
+    await modeSel.selectOption('api')
+    await page.locator('.api-health').waitFor()
   })
 
   await step('A1b. Test Selected API Provider asks for confirmation, then shows a friendly result/error (no key needed)', async () => {

@@ -28,8 +28,14 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // Run the local async video pipeline. The backend owns provider interaction; the
 // browser only starts a job and polls its status.
-export async function runVideoGeneration({ prompt, startFrameUrl = '', aspectRatio = '9:16', duration = 5, provider = DEFAULT_VIDEO_API_PROVIDER, pollIntervalMs = 10_000, maxWaitMs = 5 * 60_000 } = {}) {
-  const started = await generateVideo(prompt, startFrameUrl, aspectRatio, duration, provider)
+export async function runVideoGeneration({ prompt, startFrameUrl = '', aspectRatio = '9:16', duration = 5, provider = DEFAULT_VIDEO_API_PROVIDER, pollIntervalMs = 10_000, maxWaitMs = 5 * 60_000, confirmCost, onConfirmed } = {}) {
+  let started = await generateVideo(prompt, startFrameUrl, aspectRatio, duration, provider, false)
+  if (provider === 'replicate' && started && started.error === 'confirmation_required') {
+    const approved = typeof confirmCost === 'function' ? await confirmCost(started) : false
+    if (!approved) return { success: false, status: 'cancelled', cancelled: true, error: 'Replicate generation cancelled.' }
+    if (typeof onConfirmed === 'function') onConfirmed()
+    started = await generateVideo(prompt, startFrameUrl, aspectRatio, duration, provider, true)
+  }
   if (!started || started.status === 'error' || !started.jobId) {
     return { success: false, status: 'error', error: (started && started.error) || 'Video generation did not return a job id.' }
   }

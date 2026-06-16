@@ -89,7 +89,7 @@ export async function cleanupMedia(payload) {
 }
 
 // Start an asynchronous video job on the local backend. No provider key is sent.
-export async function generateVideo(prompt, startFrameUrl, aspectRatio, duration, provider = 'mock') {
+export async function generateVideo(prompt, startFrameUrl, aspectRatio, duration, provider = 'mock', confirmed = false) {
   try {
     const res = await fetch(resolveBase() + '/api/video/generate', {
       method: 'POST',
@@ -99,7 +99,8 @@ export async function generateVideo(prompt, startFrameUrl, aspectRatio, duration
         prompt: String(prompt || ''),
         start_frame: String(startFrameUrl || ''),
         aspect_ratio: String(aspectRatio || ''),
-        duration: Number(duration) || 5
+        duration: Number(duration) || 5,
+        confirmed: confirmed === true
       })
     })
     const data = await res.json().catch(() => ({}))
