@@ -93,8 +93,12 @@ function nodeHasResult(node) {
 }
 
 const STATUS_LABELS = { idle: 'idle', queued: 'queued', generating: 'generating…', done: 'done', error: 'error' }
+const REPLICATE_VIDEO_MODEL_OPTIONS = [
+  { id: 'ltx', label: 'Cheap test — LTX ($0.03/s)' },
+  { id: 'wan-720p', label: 'Quality — WAN 720p ($0.09/s)' }
+]
 
-export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, scenes = [], providerMode = 'manual', toolbarExtras = null, registerApi }) {
+export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGenerateNode, onAttachResultToScene, onExportNodeToTimeline, scenes = [], providerMode = 'manual', videoProviderId = 'mock', toolbarExtras = null, registerApi }) {
   const nc = nodeCanvas || { nodes: [], connections: [], pan_x: 0, pan_y: 0, zoom: 1 }
   // Session-only previews keyed by node id (data_url). NEVER persisted — node.data
   // keeps only local_url + metadata, so localStorage isn't bloated with base64.
@@ -963,6 +967,18 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
             <textarea rows={2} value={d.user_prompt || ''} onChange={(e) => setData(node.id, { user_prompt: e.target.value })} aria-label="Video prompt" />
           </label>
           {modelSelect(node, 'video')}
+          {providerMode === 'api' && videoProviderId === 'replicate' ? (
+            <label className="field">
+              <span className="field-label">Replicate model</span>
+              <select value={d.replicate_model || 'ltx'} onChange={(e) => setData(node.id, { replicate_model: e.target.value })} aria-label="Replicate video model">
+                {REPLICATE_VIDEO_MODEL_OPTIONS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="two">
             <label className="field">
               <span className="field-label">Duration</span>

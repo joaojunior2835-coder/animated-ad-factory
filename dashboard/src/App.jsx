@@ -38,7 +38,7 @@ import { runMock } from './lib/ai/mockProvider.js'
 import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
 import { IMAGE_API_PROVIDERS, TEXT_API_PROVIDERS, VIDEO_API_PROVIDERS, runVideoGeneration, selectedImageProvider, selectedTextProvider, selectedVideoProvider } from './lib/ai/providerActions.js'
 
-const REPLICATE_VIDEO_MODEL_LABEL = 'wan-2.1-i2v-720p'
+const REPLICATE_VIDEO_MODEL_LABEL = 'LTX-Video'
 
 const SPECIAL_NAV = [
   { key: 'methods', label: 'Ad Methods' },
@@ -178,6 +178,7 @@ export default function App() {
       setReplicateConfirm({
         seconds: Number(details && details.seconds) || 0,
         estimatedCost: Number(details && details.estimatedCost) || 0,
+        modelLabel: (details && (details.modelLabel || details.model || details.replicateModel)) || REPLICATE_VIDEO_MODEL_LABEL,
         message: (details && details.message) || '',
         resolve
       })
@@ -229,6 +230,7 @@ export default function App() {
         aspectRatio: d.aspect_ratio,
         duration: d.duration_seconds,
         provider: videoProviderId,
+        replicateModel: d.replicate_model || 'ltx',
         confirmCost: videoProviderId === 'replicate' ? requestReplicateConfirmation : undefined,
         onConfirmed: () => setNode({ status: 'generating', status_message: 'Generating video...', last_start_frame_url: startFrameUrl })
       })
@@ -761,6 +763,7 @@ export default function App() {
           savedMedia={savedMedia}
           onGenerateNode={generateForNode}
           providerMode={(project.canvas && project.canvas.provider_mode) || 'manual'}
+          videoProviderId={selectedVideoProvider(project.canvas || {})}
           scenes={(project.canvas && project.canvas.scenes) || []}
           onAttachResultToScene={attachNodeResultToScene}
           onExportNodeToTimeline={exportNodeToTimeline}
@@ -1105,7 +1108,7 @@ export default function App() {
               <div className="modal-body">
                 <p><b>Duration:</b> {replicateConfirm.seconds} seconds</p>
                 <p><b>Estimated cost:</b> ${replicateConfirm.estimatedCost.toFixed(2)}</p>
-                <p><b>Model:</b> {REPLICATE_VIDEO_MODEL_LABEL}</p>
+                <p><b>Model:</b> {replicateConfirm.modelLabel}</p>
                 <p>This will charge your Replicate trial. Mock mode is free if you're still testing.</p>
                 <div className="row">
                   <button className="ghost" onClick={() => closeReplicateConfirmation(false)}>Cancel</button>

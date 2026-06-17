@@ -167,6 +167,7 @@ export const NODE_DEFS = {
       user_prompt: '',
       model: VIDEO_MODELS[0],
       model_id: 'mock-video',
+      replicate_model: 'ltx',
       duration_seconds: 5,
       resolution: '1080p',
       aspect_ratio: '9:16',

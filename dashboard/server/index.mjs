@@ -389,7 +389,8 @@ const server = http.createServer(async (req, res) => {
 
       const provider = String(payload.provider || payload.provider_id || 'mock').toLowerCase()
       if (provider === 'replicate') {
-        const estimate = estimateVideoCost(payload.duration)
+        const replicateModel = payload.replicate_model || payload.replicateModel || payload.model_id || payload.model
+        const estimate = estimateVideoCost(payload.duration, replicateModel)
         if (payload.confirmed !== true) {
           return send(res, 200, {
             status: 'error',
@@ -405,7 +406,8 @@ const server = http.createServer(async (req, res) => {
             aspect_ratio: payload.aspect_ratio || payload.aspectRatio,
             duration: payload.duration,
             media_root: MEDIA_ROOT,
-            confirmed: payload.confirmed
+            confirmed: payload.confirmed,
+            model_id: replicateModel
           })
           return send(res, 202, job)
         } catch (e) {

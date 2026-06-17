@@ -783,6 +783,17 @@ async function main() {
     const replicateOpt = videoOpts.find((x) => x.value === 'replicate')
     if (!videoOpts.some((x) => x.value === 'mock') || !replicateOpt) throw new Error('Video Provider options incomplete')
     if (replicateOpt.disabled) throw new Error('Replicate video provider should be enabled behind the confirmation gate')
+    await page.getByRole('button', { name: 'Add Video Generator node' }).click()
+    const videoSel = page.locator('label.field', { hasText: 'Video Provider' }).locator('select')
+    await videoSel.selectOption('replicate')
+    await page.getByText('Replicate uses paid credit. Mock is free.', { exact: true }).waitFor()
+    const replicateModelSel = page.locator('label.field', { hasText: 'Replicate model' }).locator('select')
+    await replicateModelSel.waitFor()
+    if ((await replicateModelSel.inputValue()) !== 'ltx') throw new Error('Replicate model default should be ltx')
+    const replicateModelOpts = await replicateModelSel.locator('option').evaluateAll((o) => o.map((x) => ({ value: x.value, text: x.textContent || '' })))
+    if (!replicateModelOpts.some((x) => x.value === 'ltx' && x.text.includes('$0.03/s'))) throw new Error('LTX cheap model option missing')
+    if (!replicateModelOpts.some((x) => x.value === 'wan-720p' && x.text.includes('$0.09/s'))) throw new Error('WAN quality model option missing')
+    await videoSel.selectOption('mock')
 
     await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('.sidebar-left button.nav')).find((el) => el.querySelector('.nav-text')?.textContent?.trim() === 'Canvas')

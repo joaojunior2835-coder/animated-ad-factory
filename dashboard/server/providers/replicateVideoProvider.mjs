@@ -7,16 +7,44 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import Replicate from 'replicate'
 
-export const REPLICATE_VIDEO_MODEL = 'wavespeedai/wan-2.1-i2v-720p:1f0a7fa066689a087b597a314f60ef74d1a720fa1fb9a7083487c4b01db3395f'
-const REPLICATE_VIDEO_VERSION = REPLICATE_VIDEO_MODEL.split(':')[1]
-const COST_PER_SECOND = 0.09
+export const REPLICATE_VIDEO_MODELS = {
+  ltx: {
+    key: 'ltx',
+    label: 'LTX-Video',
+    fullName: 'lightricks/ltx-video:8c47da666861d081eeb4d1261853087de23923a268a69b63febdf5dc1dee08e4',
+    costPerSecond: 0.03,
+    filePrefix: 'replicate-ltx-video'
+  },
+  'wan-720p': {
+    key: 'wan-720p',
+    label: 'WAN 2.1 i2v 720p',
+    fullName: 'wavespeedai/wan-2.1-i2v-720p:1f0a7fa066689a087b597a314f60ef74d1a720fa1fb9a7083487c4b01db3395f',
+    costPerSecond: 0.09,
+    filePrefix: 'replicate-wan-i2v'
+  }
+}
+export const DEFAULT_REPLICATE_VIDEO_MODEL = 'ltx'
+export const REPLICATE_VIDEO_MODEL = REPLICATE_VIDEO_MODELS[DEFAULT_REPLICATE_VIDEO_MODEL].fullName
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024
 const VALID_ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1', '4:3'])
 const jobs = new Map()
 
-export function estimateVideoCost(durationSeconds) {
+export function resolveReplicateVideoModel(modelId) {
+  const key = String(modelId || DEFAULT_REPLICATE_VIDEO_MODEL).trim()
+  return REPLICATE_VIDEO_MODELS[key] || REPLICATE_VIDEO_MODELS[DEFAULT_REPLICATE_VIDEO_MODEL]
+}
+
+export function estimateVideoCost(durationSeconds, modelId) {
+  const model = resolveReplicateVideoModel(modelId)
   const seconds = Number.isFinite(Number(durationSeconds)) && Number(durationSeconds) > 0 ? Number(durationSeconds) : 5
-  return { seconds, estimatedCost: Number((seconds * COST_PER_SECOND).toFixed(2)) }
+  return {
+    seconds,
+    estimatedCost: Number((seconds * model.costPerSecond).toFixed(2)),
+    costPerSecond: model.costPerSecond,
+    replicateModel: model.key,
+    model: model.fullName,
+    modelLabel: model.label
+  }
 }
 
 function client() {
@@ -62,7 +90,7 @@ function outputUrl(output) {
   return String(value)
 }
 
-async function downloadResult(url, mediaRoot) {
+async function downloadResult(url, mediaRoot, model) {
   const parsed = new URL(url)
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Replicate returned an unsupported video URL.')
   const response = await fetch(parsed, { redirect: 'follow' })
@@ -75,7 +103,7 @@ async function downloadResult(url, mediaRoot) {
   if (buffer.length > MAX_VIDEO_BYTES) throw new Error('Replicate video exceeded the local download size limit.')
 
   const tempDir = path.resolve(mediaRoot, 'temp')
-  const fileName = `replicate-wan-i2v-${Date.now()}-${randomUUID()}.mp4`
+  const fileName = `${model.filePrefix}-${Date.now()}-${randomUUID()}.mp4`
   const destination = path.resolve(tempDir, fileName)
   const tempPrefix = tempDir.endsWith(path.sep) ? tempDir : tempDir + path.sep
   if (!destination.startsWith(tempPrefix)) throw new Error('Refused to write outside local-media/temp.')
@@ -84,9 +112,10 @@ async function downloadResult(url, mediaRoot) {
   return { local_url: `/media/temp/${fileName}`, file_name: fileName, mime_type: 'video/mp4', file_size: buffer.length }
 }
 
-export async function createReplicateVideoJob({ prompt, start_frame, aspect_ratio, duration, media_root, confirmed } = {}) {
+export async function createReplicateVideoJob({ prompt, start_frame, aspect_ratio, duration, media_root, confirmed, model_id } = {}) {
+  const model = resolveReplicateVideoModel(model_id)
   if (confirmed !== true) {
-    const estimate = estimateVideoCost(duration)
+    const estimate = estimateVideoCost(duration, model.key)
     return {
       status: 'error',
       error: 'confirmation_required',
@@ -99,13 +128,16 @@ export async function createReplicateVideoJob({ prompt, start_frame, aspect_rati
     image: resolveLocalStartFrame(start_frame, media_root),
     aspect_ratio: VALID_ASPECT_RATIOS.has(aspect_ratio) ? aspect_ratio : '16:9'
   }
-  const prediction = await client().predictions.create({ version: REPLICATE_VIDEO_VERSION, input })
+  const prediction = await client().predictions.create({ version: model.fullName.split(':')[1], input })
   const jobId = `replicate-video-${prediction.id}`
   jobs.set(jobId, {
     jobId,
     predictionId: prediction.id,
+    replicateModel: model.key,
+    model: model.fullName,
+    modelLabel: model.label,
     prompt: input.prompt,
-    duration: estimateVideoCost(duration).seconds,
+    duration: estimateVideoCost(duration, model.key).seconds,
     status: 'generating',
     createdAt: Date.now(),
     mediaRoot: media_root
@@ -130,7 +162,7 @@ export async function getReplicateVideoJob(jobId) {
     if (prediction.status !== 'succeeded') return { status: 'generating' }
 
     job.status = 'saving'
-    const saved = await downloadResult(outputUrl(prediction.output), job.mediaRoot)
+    const saved = await downloadResult(outputUrl(prediction.output), job.mediaRoot, resolveReplicateVideoModel(job.replicateModel))
     job.status = 'done'
     job.result = {
       success: true,
@@ -144,7 +176,8 @@ export async function getReplicateVideoJob(jobId) {
       source_type: 'api',
       status: 'success',
       prompt: job.prompt,
-      model: REPLICATE_VIDEO_MODEL,
+      model: job.model,
+      model_label: job.modelLabel,
       storage: 'local_disk',
       created_at: new Date(job.createdAt).toISOString(),
       ...saved
