@@ -566,7 +566,9 @@ export function normalizeStudio(data) {
       landingPageUrl: str(p.landingPageUrl),
       category: str(p.category)
     },
-    format: formatById(d.format) ? d.format : null,
+    format: formatById(typeof d.format === 'object' && d.format ? d.format.id : d.format)
+      ? (typeof d.format === 'object' && d.format ? d.format.id : d.format)
+      : null,
     characters: Array.isArray(d.characters) ? d.characters.map(str).filter(Boolean).slice(0, 2) : [],
     charactersManual: !!d.charactersManual,
     brief: {
@@ -781,10 +783,16 @@ function lineFor(purpose, studio, lang) {
     }
     case 'podcast_intro':
       return t(lang, `Bienvenue ! Aujourd’hui on parle de ${name}, avec quelqu’un qui l’utilise vraiment.`, `Welcome back! Today we’re talking about ${name}, with someone who actually uses it.`)
+    case 'podcast_intro_problem':
+      return t(lang, `On parle de ${name}, parce que le vrai problème revient souvent le soir.`, `We’re talking about ${name}, because the real problem keeps showing up at night.`)
     case 'podcast_empathy':
       return t(lang, 'Attends — je ne savais pas que c’était à ce point. Vraiment tous les soirs ?', 'Wait — I had no idea it was that bad. Really, every single night?')
     case 'podcast_discovery_q':
       return t(lang, `Et comment tu as découvert ${name}, alors ?`, `So how did you even find ${name}?`)
+    case 'podcast_discovery_turn':
+      return t(lang, `J’ai découvert ${name}, puis après quelques jours, mes soirées ont changé.`, `I found ${name}, then after a few days, my evenings started changing.`)
+    case 'podcast_reaction_discovery':
+      return t(lang, `Attends, comment tu es passée du problème à ${name} concrètement ?`, `Wait, how did you get from the problem to ${name}, concretely?`)
     case 'podcast_skeptic':
       return t(lang, 'Honnêtement, j’étais sceptique. J’ai essayé un soir, sans y croire du tout.', 'Honestly, I was skeptical. I tried it one evening without believing in it at all.')
     case 'podcast_turn':
@@ -799,6 +807,8 @@ function lineFor(purpose, studio, lang) {
       return t(lang, 'Du coup j’ai testé aussi — et franchement, je comprends pourquoi tu en parles.', 'So I tried it too — and honestly, now I get why you talk about it.')
     case 'podcast_problem':
       return str(b.problem).trim() || t(lang, 'Franchement, j’ai tout essayé pendant des années, sans résultat.', 'Honestly, I tried everything for years, with no results.')
+    case 'podcast_problem_result':
+      return t(lang, `J’avais ce problème chaque soir, puis ${name} m’a vraiment aidée.`, `I had this problem every night, then ${name} really helped me.`)
     case 'podcast_question':
       return t(lang, 'Attends, explique-moi — qu’est-ce qui ne marchait pas exactement ?', 'Wait, explain that to me — what exactly wasn’t working?')
     case 'podcast_story':
@@ -838,12 +848,16 @@ function voLineFor(purpose, studio, lang) {
 const EMOTIONAL_BEATS = {
   podcast_result_hook: 'curiosity',
   podcast_intro: 'anticipation',
+  podcast_intro_problem: 'concern',
   podcast_empathy: 'hope',
   podcast_discovery_q: 'curiosity',
+  podcast_discovery_turn: 'hope',
+  podcast_reaction_discovery: 'curiosity',
   podcast_skeptic: 'reassurance',
   podcast_turn: 'hope',
   podcast_result: 'satisfaction',
   podcast_host_endorse: 'trust',
+  podcast_problem_result: 'relief',
   testimonial_before: 'frustration',
   testimonial_search: 'tension',
   testimonial_experience: 'relief',
@@ -897,12 +911,16 @@ export function purposeLabel(purpose) {
     podcast_reaction: 'Reaction',
     podcast_result_hook: 'Hook (Result First)',
     podcast_intro: 'Host Intro',
+    podcast_intro_problem: 'Intro + Problem',
     podcast_empathy: 'Host Reaction',
     podcast_discovery_q: 'Discovery Question',
+    podcast_discovery_turn: 'Discovery + Turn',
+    podcast_reaction_discovery: 'Reaction + Discovery',
     podcast_skeptic: 'First Impression',
     podcast_turn: 'The Turn',
     podcast_result: 'Result',
     podcast_host_endorse: 'Host Endorsement',
+    podcast_problem_result: 'Problem + Result',
     testimonial_before: 'The Before',
     testimonial_search: 'The Search',
     testimonial_experience: 'The Experience',
@@ -957,10 +975,85 @@ function cinematicScene(num, purpose, characterId, studio, lang, shotType, visua
   }
 }
 
+function sceneCountForDuration(studio, format) {
+  const targetDuration = Number(studio && studio.brief && studio.brief.duration) || 30
+  const avgClipDuration = 6
+  const maxScenes = Math.max(3, Math.floor(targetDuration / avgClipDuration))
+  return Math.max(1, Math.min(Number(format && format.clipCount) || maxScenes, maxScenes))
+}
+
+function compressedArc(fullArc, targetCount, priorityMiddle = []) {
+  const arc = Array.isArray(fullArc) ? fullArc.filter(Boolean) : []
+  const count = Math.min(Math.max(1, Number(targetCount) || arc.length), arc.length)
+  if (count >= arc.length) return arc.slice()
+  if (count === 1) return [arc[0]]
+  const first = arc[0]
+  const last = arc[arc.length - 1]
+  const middle = arc.slice(1, -1)
+  const picked = []
+  const add = (purpose) => {
+    if (picked.length >= count - 2) return
+    if (middle.includes(purpose) && !picked.includes(purpose)) picked.push(purpose)
+  }
+  priorityMiddle.forEach(add)
+  middle.forEach(add)
+  const ordered = middle.filter((purpose) => picked.includes(purpose))
+  return [first, ...ordered.slice(0, count - 2), last]
+}
+
+function podcastArcForCount(count) {
+  if (count <= 3) return ['podcast_result_hook', 'podcast_problem_result', 'cta']
+  if (count <= 5) return ['podcast_result_hook', 'podcast_intro_problem', 'podcast_discovery_turn', 'podcast_result', 'cta']
+  if (count <= 7) return ['podcast_result_hook', 'podcast_intro', 'podcast_problem', 'podcast_reaction_discovery', 'podcast_turn', 'podcast_result', 'cta']
+  return ['podcast_result_hook', 'podcast_intro', 'podcast_problem', 'podcast_empathy', 'podcast_discovery_q', 'podcast_skeptic', 'podcast_turn', 'podcast_result', 'podcast_host_endorse', 'cta']
+}
+
+function compressedSlots(fullSlots, targetCount, priorityPurposes = []) {
+  const slots = Array.isArray(fullSlots) ? fullSlots.filter(Boolean) : []
+  const count = Math.min(Math.max(1, Number(targetCount) || slots.length), slots.length)
+  if (count >= slots.length) return slots.slice()
+  if (count === 1) return [slots[0]]
+  const middle = slots.slice(1, -1)
+  const picked = []
+  const add = (slot) => {
+    if (picked.length >= count - 2) return
+    if (slot && !picked.includes(slot)) picked.push(slot)
+  }
+  for (const purpose of priorityPurposes) {
+    const slot = middle.find((item) => item[0] === purpose && !picked.includes(item))
+    add(slot)
+  }
+  middle.forEach(add)
+  const ordered = middle.filter((slot) => picked.includes(slot))
+  return [slots[0], ...ordered.slice(0, count - 2), slots[slots.length - 1]]
+}
+
+function applyDurationBudget(scenes, targetDuration) {
+  const target = Number(targetDuration) || 30
+  const maxTotal = Math.floor(target * 1.1)
+  const out = (Array.isArray(scenes) ? scenes : []).map((scene) => ({ ...scene }))
+  const total = () => out.reduce((sum, scene) => sum + (Number(scene.clipDuration) || 0), 0)
+  let guard = 0
+  while (out.length && total() > maxTotal && guard < 100) {
+    guard += 1
+    const idx = out.reduce((best, scene, i) => {
+      const dur = Number(scene.clipDuration) || 0
+      const bestDur = best >= 0 ? Number(out[best].clipDuration) || 0 : 0
+      return dur > bestDur && dur > 4 ? i : best
+    }, -1)
+    if (idx < 0) break
+    const current = Number(out[idx].clipDuration) || 6
+    const next = current > 8 ? 8 : current > 6 ? 6 : 4
+    out[idx].clipDuration = next
+    out[idx].duration = next
+  }
+  return out
+}
+
 // Generate the full scene outline for a studio. Pure and deterministic:
 // the same studio always yields the same outline.
-// Rules: scene count = format.clipCount; scene 1 = hook; last scene = CTA;
-// podcast alternates speakers; talking head keeps one speaker; cinematic
+// Rules: scene count is capped by target duration; scene 1 = hook; last scene =
+// CTA; podcast alternates speakers; talking head keeps one speaker; cinematic
 // mixes product shots and voiceover scenes; French formats speak French.
 export function generateSceneOutline(studio) {
   const scenes = buildSceneOutline(studio)
@@ -979,14 +1072,16 @@ function buildSceneOutline(studio) {
   if (!format) return []
   const lang = studioLanguage(s)
   const chars = s.characters
-  const c1 = chars[0] || ''
-  const c2 = chars[1] || c1
+  const defaultChars = getDefaultCharactersForFormat(s.format)
+  const c1 = chars[0] || defaultChars[0] || ''
+  const c2 = chars[1] || defaultChars[1] || c1
+  const sceneCount = sceneCountForDuration(s, format)
 
   if (format.id === 'ugc_talking_head') {
     // 6-scene arc: hook → problem → discovery → mechanism → proof → CTA.
     const baseVisual = 'Mid-shot, speaker centered, phone-camera framing. Natural daylight from a window, lived-in room behind.'
-    const arc = ['hook', 'problem', 'discovery', 'mechanism', 'proof', 'cta']
-    return arc.slice(0, format.clipCount).map((purpose, i) => {
+    const arc = compressedArc(['hook', 'problem', 'discovery', 'mechanism', 'proof', 'cta'], sceneCount, ['problem', 'discovery', 'proof', 'mechanism'])
+    return applyDurationBudget(arc.map((purpose, i) => {
       const sc = speakerScene(i + 1, purpose, c1, s, lang, baseVisual)
       if (purpose === 'hook') {
         sc.shotType = 'talking head — product held at chest height'
@@ -995,55 +1090,45 @@ function buildSceneOutline(studio) {
         sc.shotType = 'talking head — static camera, mid-shot'
       }
       return sc
-    })
+    }), s.brief.duration)
   }
 
   if (format.id === 'ugc_testimonial') {
     // 7-scene arc: verdict first, then the story earns it.
     const baseVisual = 'Mid-shot, lived-in room, soft window light. Handheld phone framing with slight natural movement.'
-    const arc = ['hook', 'testimonial_before', 'testimonial_search', 'discovery', 'testimonial_experience', 'testimonial_result', 'testimonial_cta']
-    return arc.slice(0, format.clipCount).map((purpose, i) => {
+    const arc = compressedArc(['hook', 'testimonial_before', 'testimonial_search', 'discovery', 'testimonial_experience', 'testimonial_result', 'testimonial_cta'], sceneCount, ['testimonial_before', 'discovery', 'testimonial_result', 'testimonial_experience'])
+    return applyDurationBudget(arc.map((purpose, i) => {
       const sc = speakerScene(i + 1, purpose, c1, s, lang, baseVisual)
       sc.shotType = 'testimonial — handheld mid-shot, eye level'
       return sc
-    })
+    }), s.brief.duration)
   }
 
   if (format.id === 'ugc_podcast' || format.id === 'french_podcast') {
-    // Reverse-chronology podcast arc: the guest gives the RESULT first, then
-    // the conversation earns it. Explicit speaker map (host = c1, guest = c2).
-    const slots = [
-      ['podcast_result_hook', 'guest'], // 1 — result first
-      ['podcast_intro', 'host'], // 2 — welcome + topic
-      ['podcast_problem', 'guest'], // 3 — the problem
-      ['podcast_empathy', 'host'], // 4 — "I had no idea"
-      ['podcast_discovery_q', 'host'], // 5 — how did you find it?
-      ['podcast_skeptic', 'guest'], // 6 — skepticism, first try
-      ['podcast_turn', 'guest'], // 7 — something changed
-      ['podcast_result', 'guest'], // 8 — concrete result
-      ['podcast_host_endorse', 'host'], // 9 — host tried it too
-      ['cta', 'host'] // 10 — direct recommendation
-    ]
+    // Reverse-chronology podcast arc: result-first hook, then the conversation
+    // earns it. Speaker assignment is strict ABAB by scene number.
+    const arc = podcastArcForCount(sceneCount)
     const guestVisual = 'Two-shot at the podcast desk, both speakers visible. The host leans slightly toward the guest as the guest speaks. Warm key light per speaker, soft background falloff. Static camera.'
     const hostVisual = 'Two-shot at the podcast desk, both speakers visible. The guest listens and nods naturally as the host speaks. Warm podcast lighting, mics in frame. Static camera.'
-    return slots.slice(0, format.clipCount).map(([purpose, role], i) => {
+    return applyDurationBudget(arc.map((purpose, i) => {
+      const role = i % 2 === 0 ? 'host' : 'guest'
       const speaker = role === 'host' ? c1 : c2
       const sc = speakerScene(i + 1, purpose, speaker, s, lang, role === 'host' ? hostVisual : guestVisual)
       sc.shotType = `podcast two-shot — ${role} speaking, static camera`
       return sc
-    })
+    }), s.brief.duration)
   }
 
   if (format.id === 'unboxing') {
     const setting = 'Desk or table with the sealed delivery box, handheld UGC framing'
-    const arc = ['hook', 'unbox_open', 'unbox_reaction', 'benefit', 'mechanism', 'proof', 'cta']
-    return arc.slice(0, format.clipCount).map((purpose, i) => {
+    const arc = compressedArc(['hook', 'unbox_open', 'unbox_reaction', 'benefit', 'mechanism', 'proof', 'cta'], sceneCount, ['unbox_open', 'unbox_reaction', 'benefit', 'proof'])
+    return applyDurationBudget(arc.map((purpose, i) => {
       const sc = speakerScene(i + 1, purpose, c1, s, lang, setting)
       if (purpose === 'hook') sc.shotType = 'talking head — sealed box held up to camera'
       if (purpose === 'unbox_open') sc.shotType = 'close-up — hands opening the box'
       if (purpose === 'unbox_reaction') sc.shotType = 'talking head — product in hand, first look'
       return sc
-    })
+    }), s.brief.duration)
   }
 
   if (format.id === 'tutorial') {
@@ -1067,7 +1152,7 @@ function buildSceneOutline(studio) {
       'Quick tip: prepare everything ahead — it’s much easier.',
       'Last step: watch the difference build week after week.'
     ]
-    const stepCount = format.clipCount - 2
+    const stepCount = Math.max(1, sceneCount - 2)
     const scenes = [speakerScene(1, 'hook', c1, s, lang, setting)]
     for (let i = 0; i < stepCount; i++) {
       const line = t(lang, frSteps[i % frSteps.length], enSteps[i % enSteps.length])
@@ -1084,14 +1169,14 @@ function buildSceneOutline(studio) {
         clipDuration
       })
     }
-    scenes.push(speakerScene(format.clipCount, 'cta', c1, s, lang, setting))
-    return scenes
+    scenes.push(speakerScene(sceneCount, 'cta', c1, s, lang, setting))
+    return applyDurationBudget(scenes, s.brief.duration)
   }
 
   if (format.id === 'product_review') {
     const setting = 'Lived-in room, product on the table in front, honest framing'
-    const arc = ['hook', 'discovery', 'benefit', 'mechanism', 'review_con', 'proof', 'cta']
-    return arc.slice(0, format.clipCount).map((purpose, i) => {
+    const arc = compressedArc(['hook', 'discovery', 'benefit', 'mechanism', 'review_con', 'proof', 'cta'], sceneCount, ['benefit', 'proof', 'review_con', 'discovery'])
+    return applyDurationBudget(arc.map((purpose, i) => {
       const sc = speakerScene(i + 1, purpose, c1, s, lang, setting)
       if (purpose === 'hook') {
         sc.dialogueLine = lineFor('review_verdict', s, lang)
@@ -1099,7 +1184,7 @@ function buildSceneOutline(studio) {
         sc.duration = sc.clipDuration
       }
       return sc
-    })
+    }), s.brief.duration)
   }
 
   if (format.id === 'cinematic_product') {
@@ -1113,9 +1198,10 @@ function buildSceneOutline(studio) {
       ['product_in_use', 'product-in-use shot', `${name} being used naturally in its real context, top-down view`, 'proof'],
       ['cta', 'product hero end card', `${name} on a clean branded backdrop with space for the CTA overlay`, 'cta']
     ]
-    return slots.slice(0, format.clipCount).map(([purpose, shotType, visual, voPurpose], i) =>
+    const selectedSlots = compressedSlots(slots, sceneCount, ['lifestyle', 'product_reveal', 'product_in_use', 'macro_detail'])
+    return applyDurationBudget(selectedSlots.map(([purpose, shotType, visual, voPurpose], i) =>
       cinematicScene(i + 1, purpose, c1, s, lang, shotType, visual, voPurpose)
-    )
+    ), s.brief.duration)
   }
 
   return []

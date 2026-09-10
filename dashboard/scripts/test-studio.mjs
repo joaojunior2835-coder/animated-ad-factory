@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { emptyStudio, generateFramePrompts, generateOmniPrompts, inferStudioFromQuickPrompt, generateHookVariants, buildVariantExports } from '../src/lib/marketingStudioModel.js'
+import { emptyStudio, FORMATS, generateFramePrompts, generateOmniPrompts, generateSceneOutline, inferStudioFromQuickPrompt, generateHookVariants, buildVariantExports } from '../src/lib/marketingStudioModel.js'
 
 let passed = 0
 
@@ -48,12 +48,34 @@ test('Gibberish returns valid defaults', () => {
   assert.equal(studio.format, 'ugc_talking_head')
 })
 
+test('French podcast 30s outline caps scenes and alternates speakers', () => {
+  const studio30s = {
+    ...emptyStudio(),
+    product: { name: 'Calme' },
+    format: FORMATS.find(f => f.id === 'french_podcast'),
+    characters: ['podcast_host_fr', 'podcast_guest_fr'],
+    brief: { duration: 30, language: 'fr' }
+  };
+  const scenes = generateSceneOutline(studio30s);
+
+  assert(scenes.length <= 6, `Expected <=6 scenes, got ${scenes.length}`);
+  const totalDuration = scenes.reduce((sum, s) => sum + s.clipDuration, 0);
+  assert(totalDuration <= 33, `Expected <=33s, got ${totalDuration}s`);
+  assert(scenes[0].purpose.includes('hook'), 'Scene 1 must be hook');
+  assert(scenes[scenes.length-1].purpose === 'cta', 'Last scene must be CTA');
+
+  for (let i = 1; i < scenes.length; i++) {
+    assert(scenes[i].character !== scenes[i-1].character,
+      `Scenes ${i} and ${i+1} have same speaker: ${scenes[i].character}`);
+  }
+})
+
 const calmeStudio = inferStudioFromQuickPrompt('Podcast français 30s pour Calme, boisson anti-stress, cible femmes 25-45, ingrédient ashwagandha, ton authentique', 'fr')
 const calmePrompts = generateOmniPrompts(calmeStudio, calmeStudio.scenes)
 const calmeFrames = generateFramePrompts(calmeStudio, calmeStudio.scenes, calmePrompts)
 
 test('Frame prompts match scene count and shape', () => {
-  assert.equal(calmeStudio.scenes.length, 10)
+  assert.equal(calmeStudio.scenes.length, 5)
   assert.equal(calmeFrames.length, calmeStudio.scenes.length)
   for (const frame of calmeFrames) {
     assert.ok(frame.sceneNumber)
