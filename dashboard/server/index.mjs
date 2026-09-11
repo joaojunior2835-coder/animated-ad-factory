@@ -12,7 +12,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { runOpenAi } from './providers/openaiProvider.mjs'
 import { runOpenRouter } from './providers/openrouterProvider.mjs'
 import { groqModel, runGroq } from './providers/groqProvider.mjs'
@@ -30,9 +30,14 @@ import {
   getNodeCanvasProject,
   deleteNodeCanvasProject,
   importLegacyData,
-  checkDbConnectivity
+  checkDbConnectivity,
+  createProduct,
+  getOrCreateAsset,
+  setProductionRunFinalAsset
 } from './db/repository.mjs'
 import { backupState, inspectBackup, restoreFromBackup, listBackups } from './db/backup.mjs'
+import * as ptRepo from './db/productTestRepository.mjs'
+import { seedDefaultTestPolicy } from './db/productTestRepository.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -682,6 +687,216 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
+  // ---- Product Test lineage (M1) ----
+  // Thin REST over productTestRepository; no business logic lives here.
+  {
+    const ptMatch = (pattern) => {
+      const rx = new RegExp('^' + pattern.replace(/:id/g, '([^/]+)') + '$')
+      const found = rx.exec(url.pathname)
+      return found ? found.slice(1).map(decodeURIComponent) : null
+    }
+    const ok = (payload) => send(res, 200, { ok: true, ...payload })
+    const fail = (status, error) => send(res, status, { ok: false, error })
+    const guard = (fn) => {
+      try {
+        return fn()
+      } catch (e) {
+        return fail(400, e && e.message ? e.message : 'Request failed.')
+      }
+    }
+    const idNum = (v) => Number(v)
+
+    let m
+    if (req.method === 'GET' && url.pathname === '/api/products') {
+      return guard(() => ok({ items: ptRepo.listProducts() }))
+    }
+    if ((m = ptMatch('/api/products/:id')) && req.method === 'GET') {
+      const row = ptRepo.getProduct(idNum(m[0]))
+      return row ? ok({ item: row }) : fail(404, `No product with id ${m[0]}`)
+    }
+    if ((m = ptMatch('/api/products/:id')) && req.method === 'PUT') {
+      const productId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const row = ptRepo.updateProduct(productId, body)
+          return row ? ok({ item: row }) : fail(404, `No product with id ${productId}`)
+        })
+      )
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/product-tests') {
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          let productId = body.productId
+          if (!productId && body.newProduct) {
+            productId = createProduct({
+              name: body.newProduct.name,
+              productUrl: body.newProduct.productUrl || null,
+              supplierUrl: body.newProduct.supplierUrl || null,
+              notes: body.newProduct.notes || null
+            })
+          }
+          if (!productId) return fail(400, 'Provide either productId or newProduct.')
+          return ok({ item: ptRepo.createProductTestForProduct({ ...body, productId }) })
+        })
+      )
+    }
+    if (req.method === 'GET' && url.pathname === '/api/product-tests') {
+      return guard(() => ok({ items: ptRepo.listProductTests() }))
+    }
+    if ((m = ptMatch('/api/product-tests/:id')) && req.method === 'GET') {
+      const row = ptRepo.getProductTestWithLineage(idNum(m[0]))
+      return row ? ok({ item: row }) : fail(404, `No product test with id ${m[0]}`)
+    }
+    if ((m = ptMatch('/api/product-tests/:id/status')) && req.method === 'PATCH') {
+      const testId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const row = ptRepo.updateProductTestStatus(testId, body.status)
+          return row ? ok({ item: row }) : fail(404, `No product test with id ${testId}`)
+        })
+      )
+    }
+    // Pure calculation for live typing feedback — never writes.
+    if ((m = ptMatch('/api/product-tests/:id/margin-preview')) && req.method === 'POST') {
+      const testId = m[0]
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const test = testId === 'new' ? null : ptRepo.getProductTestWithLineage(idNum(testId))
+          return ok({ margin: ptRepo.computeContributionMargin({ ...body, policy: test ? test.policy : null }) })
+        })
+      )
+    }
+
+    if ((m = ptMatch('/api/product-tests/:id/iterations')) && req.method === 'POST') {
+      const testId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const newId = ptRepo.createIterationForTest({ productTestId: testId, ...body })
+          return ok({ item: ptRepo.getIterationWithLineage(newId) })
+        })
+      )
+    }
+    if ((m = ptMatch('/api/product-tests/:id/iterations')) && req.method === 'GET') {
+      return guard(() => ok({ items: ptRepo.listIterationsForTest(idNum(m[0])) }))
+    }
+    if ((m = ptMatch('/api/iterations/:id')) && req.method === 'GET') {
+      const row = ptRepo.getIterationWithLineage(idNum(m[0]))
+      return row ? ok({ item: row }) : fail(404, `No iteration with id ${m[0]}`)
+    }
+
+    if ((m = ptMatch('/api/iterations/:id/creatives')) && req.method === 'POST') {
+      const iterationId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const newId = ptRepo.createCreativeForIteration({ iterationId, ...body })
+          return ok({ item: ptRepo.getCreativeWithLineage(newId) })
+        })
+      )
+    }
+    if ((m = ptMatch('/api/iterations/:id/creatives')) && req.method === 'GET') {
+      return guard(() => ok({ items: ptRepo.listCreativesForIteration(idNum(m[0])) }))
+    }
+    if ((m = ptMatch('/api/creatives/:id')) && req.method === 'GET') {
+      const row = ptRepo.getCreativeWithLineage(idNum(m[0]))
+      return row ? ok({ item: row }) : fail(404, `No creative with id ${m[0]}`)
+    }
+
+    if ((m = ptMatch('/api/creatives/:id/production-runs')) && req.method === 'POST') {
+      const creativeId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const newId = ptRepo.createProductionRunForCreative({ creativeId, productionMethod: body.productionMethod })
+          return ok({ item: ptRepo.getProductionRunWithLineage(newId) })
+        })
+      )
+    }
+    if ((m = ptMatch('/api/creatives/:id/production-runs')) && req.method === 'GET') {
+      return guard(() => ok({ items: ptRepo.listProductionRunsForCreative(idNum(m[0])) }))
+    }
+    if ((m = ptMatch('/api/production-runs/:id')) && req.method === 'GET') {
+      const row = ptRepo.getProductionRunWithLineage(idNum(m[0]))
+      return row ? ok({ item: row }) : fail(404, `No production run with id ${m[0]}`)
+    }
+    if ((m = ptMatch('/api/production-runs/:id/final-asset')) && req.method === 'POST') {
+      const runId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          setProductionRunFinalAsset(runId, Number(body.assetId))
+          return ok({ item: ptRepo.getProductionRunWithLineage(runId) })
+        })
+      )
+    }
+
+    // Manual-entry convenience: register a file already on disk under
+    // local-media/ as an Asset. Hashes the real bytes when the file is there,
+    // and accepts a supplied hash when it is not.
+    if (req.method === 'POST' && url.pathname === '/api/assets/register-external') {
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const rel = String(body.relativePath || '').replace(/^\/+/, '')
+          if (!rel) return fail(400, 'relativePath is required.')
+          const abs = resolveWithinMedia(rel)
+          let contentHash = body.contentHash || null
+          let fileSize = null
+          if (abs && fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+            const buf = fs.readFileSync(abs)
+            contentHash = createHash('sha256').update(buf).digest('hex')
+            fileSize = buf.length
+          }
+          if (!contentHash) {
+            // Nothing on disk and no hash supplied: derive a stable placeholder
+            // from the path so the row stays unique and traceable.
+            contentHash = createHash('sha256').update('external:' + rel).digest('hex')
+          }
+          const asset = getOrCreateAsset({
+            contentHash,
+            relativePath: rel,
+            mimeType: body.mimeType || 'application/octet-stream',
+            fileSize,
+            source: body.source || 'uploaded'
+          })
+          return ok({ item: { ...asset, relativePath: rel, contentHash, fileSize, fileFoundOnDisk: fileSize !== null } })
+        })
+      )
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/accounts') {
+      return guard(() => ok({ items: ptRepo.listAccounts() }))
+    }
+    if (req.method === 'POST' && url.pathname === '/api/accounts') {
+      return readJsonBody(req, res, (body) => guard(() => ok({ item: ptRepo.createAccountIfNotExists(body) })))
+    }
+
+    if ((m = ptMatch('/api/creatives/:id/publications')) && req.method === 'POST') {
+      const creativeId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => ok({ item: ptRepo.createPublicationForCreative({ creativeId, ...body }) }))
+      )
+    }
+    if ((m = ptMatch('/api/creatives/:id/publications')) && req.method === 'GET') {
+      return guard(() => ok({ items: ptRepo.listPublicationsForCreative(idNum(m[0])) }))
+    }
+
+    if ((m = ptMatch('/api/publications/:id/metrics')) && req.method === 'POST') {
+      const publicationId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => ok({ item: ptRepo.addMetricSnapshot({ publicationId, ...body }) }))
+      )
+    }
+    if ((m = ptMatch('/api/publications/:id/metrics')) && req.method === 'GET') {
+      return guard(() => ok({ items: ptRepo.listMetricSnapshotsForPublication(idNum(m[0])) }))
+    }
+
+    if ((m = ptMatch('/api/creatives/:id/review-events')) && req.method === 'POST') {
+      const creativeId = idNum(m[0])
+      return readJsonBody(req, res, (body) => guard(() => ok({ item: ptRepo.addReviewEvent({ creativeId, ...body }) })))
+    }
+    if ((m = ptMatch('/api/creatives/:id/review-events')) && req.method === 'GET') {
+      return guard(() => ok({ items: ptRepo.listReviewEventsForCreative(idNum(m[0])) }))
+    }
+  }
+
   send(res, 404, { ok: false, error: 'Not found' })
 })
 
@@ -689,6 +904,9 @@ const server = http.createServer(async (req, res) => {
 // is fatal: starting with a half-known schema is worse than not starting.
 try {
   runMigrations()
+  // Policy defaults are data, not schema. Idempotent: never overwrites an
+  // existing row, so a policy the user edits later survives restarts.
+  seedDefaultTestPolicy()
 } catch {
   // runMigrations already logged the specific failure.
   console.error('[api] refusing to start: database migrations failed.')
