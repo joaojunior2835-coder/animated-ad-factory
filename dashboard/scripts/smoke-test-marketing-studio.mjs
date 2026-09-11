@@ -26,7 +26,9 @@ import {
   totalPromptDuration,
   isTwoCharacterFormat,
   characterById,
-  CLIP_DURATIONS
+  CLIP_DURATIONS,
+  STUDIO_DURATIONS,
+  formatById
 } from '../src/lib/marketingStudioModel.js'
 
 let passed = 0
@@ -41,8 +43,21 @@ function check(name, ok, detail) {
   }
 }
 
+// Scene count is capped by the brief's target duration: a format only produces
+// its full characteristic arc when the brief is long enough to hold it
+// (maxScenes = floor(duration / 6s per clip)). emptyStudio() defaults to 30s,
+// which caps every format at 5 scenes — so these structural tests pick the
+// shortest allowed duration that fits the format's clipCount. Without this the
+// tests silently assert a truncated arc.
+function durationForFormat(formatId) {
+  const f = formatById(formatId)
+  const needed = (f && f.clipCount ? f.clipCount : 5) * 6
+  return STUDIO_DURATIONS.find((d) => d >= needed) || STUDIO_DURATIONS[STUDIO_DURATIONS.length - 1]
+}
+
 function sampleStudio(formatId, characters, language) {
   const s = emptyStudio()
+  s.brief.duration = durationForFormat(formatId)
   s.product.name = 'NuitCalme'
   s.product.description = 'An evening ritual drink that helps control late-night cravings.'
   s.product.benefits = ['calmer evenings without snacking']
@@ -75,10 +90,10 @@ for (const f of FORMATS) {
   check(`${f.id}: clip durations in {4,6,8,10}`, scenes.every((sc) => CLIP_DURATIONS.includes(sc.clipDuration)))
 
   if (isTwoCharacterFormat(f.id)) {
-    // Reverse-chronology arc speaker map: guest opens with the result, host
-    // intros/reacts/asks, guest carries the story, host endorses and closes.
-    const ROLES = ['guest', 'host', 'guest', 'host', 'host', 'guest', 'guest', 'guest', 'host', 'host']
-    const speakersMatch = scenes.every((sc, i) => sc.character === (ROLES[i] === 'host' ? 'podcast_host_fr' : 'podcast_guest_fr'))
+    // Podcasts now use STRICT speaker alternation, host first — the older
+    // reverse-chronology role map (guest opens, host reacts, clustered turns)
+    // no longer describes what the generator produces.
+    const speakersMatch = scenes.every((sc, i) => sc.character === (i % 2 === 0 ? 'podcast_host_fr' : 'podcast_guest_fr'))
     check(`${f.id}: speaker map matches the podcast arc`, speakersMatch, scenes.map((sc) => sc.character).join(','))
     check(`${f.id}: scene 2 is the host intro`, scenes[1] && scenes[1].purpose === 'podcast_intro')
     check(`${f.id}: both speakers appear`, scenes.some((sc) => sc.character === 'podcast_host_fr') && scenes.some((sc) => sc.character === 'podcast_guest_fr'))
@@ -451,9 +466,15 @@ check('formats: french_podcast is French, cinematic is Cinematic', FORMATS.find(
   check('phase4: talking head is a 6-scene arc', th.length === 6 && th[2].purpose === 'discovery' && th[3].purpose === 'mechanism')
   check('phase4: mechanism line references the ingredient', th[3].dialogueLine.includes('safran'))
 
+  // Scene count is capped by the brief's target duration, so a 30s testimonial
+  // is a 5-scene arc: result lands second-to-last and the CTA is always last.
+  // Index by role rather than by hardcoded position, so a future duration
+  // change moves these scenes without silently breaking the assertion.
   const tm = generateSceneOutline(sampleStudio('ugc_testimonial', ['testimonial_woman'], 'fr'))
-  check('phase4: testimonial arc is verdict-first with time-bound result', /hook/.test(tm[0].purpose) && tm[5].purpose === 'testimonial_result' && /Trente jours|Thirty days/.test(tm[5].dialogueLine))
-  check('phase4: testimonial CTA targets the audience', tm[6].purpose === 'testimonial_cta' && tm[6].dialogueLine.includes('femmes'))
+  const tmResult = tm[tm.length - 2]
+  const tmCta = tm[tm.length - 1]
+  check('phase4: testimonial arc is verdict-first with time-bound result', /hook/.test(tm[0].purpose) && tmResult.purpose === 'testimonial_result' && /Trente jours|Thirty days/.test(tmResult.dialogueLine))
+  check('phase4: testimonial CTA targets the audience', tmCta.purpose === 'testimonial_cta' && tmCta.dialogueLine.includes('femmes'))
 }
 
 console.log('')
