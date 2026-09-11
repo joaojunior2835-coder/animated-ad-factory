@@ -18,6 +18,7 @@
     "dev:all": "node server/dev-all.mjs"
   },
   "dependencies": {
+    "adm-zip": "^0.6.1",
     "better-sqlite3": "^13.0.3",
     "mammoth": "^1.12.0",
     "openai": "^6.42.0",

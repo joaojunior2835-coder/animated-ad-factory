@@ -22,7 +22,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export const MIGRATIONS_DIR = path.resolve(__dirname, 'migrations')
 export const DATA_DIR = path.resolve(__dirname, '..', 'data')
-export const DB_PATH = path.join(DATA_DIR, 'factory.db')
+// FACTORY_DB_PATH lets a process point at its own database file. The QA
+// harnesses use it so their backend never shares state with the real one:
+// since the Node Canvas moved into the database, a shared file would let one
+// run's nodes leak into the next run's assertions.
+export const DB_PATH = process.env.FACTORY_DB_PATH
+  ? path.resolve(process.env.FACTORY_DB_PATH)
+  : path.join(DATA_DIR, 'factory.db')
 
 // The runner owns this table: it must exist before we can ask what has been
 // applied, so it is bootstrapped here and never inside a migration file.

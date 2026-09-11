@@ -32,6 +32,7 @@ import {
   importLegacyData,
   checkDbConnectivity
 } from './db/repository.mjs'
+import { backupState, inspectBackup, restoreFromBackup, listBackups } from './db/backup.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -625,6 +626,59 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return send(res, 500, { ok: false, error: `Import failed: ${e && e.message ? e.message : 'unknown'}` })
       }
+    })
+  }
+
+  // ---- Backup / restore ----
+  if (req.method === 'GET' && url.pathname === '/api/backup/list') {
+    try {
+      return send(res, 200, { ok: true, backups: listBackups() })
+    } catch (e) {
+      return send(res, 500, { ok: false, error: `Could not list backups: ${e && e.message ? e.message : 'unknown'}` })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/backup/create') {
+    return readJsonBody(req, res, (payload) => {
+      try {
+        return send(res, 200, { ok: true, ...backupState({ includeMedia: !!payload.includeMedia }) })
+      } catch (e) {
+        return send(res, 500, { ok: false, error: `Backup failed: ${e && e.message ? e.message : 'unknown'}` })
+      }
+    })
+  }
+
+  // Read-only: never mutates the live database or media.
+  if (req.method === 'POST' && url.pathname === '/api/backup/inspect') {
+    return readJsonBody(req, res, (payload) => {
+      try {
+        return send(res, 200, inspectBackup(payload.archivePath))
+      } catch (e) {
+        return send(res, 500, { ok: false, error: `Inspect failed: ${e && e.message ? e.message : 'unknown'}` })
+      }
+    })
+  }
+
+  // Destructive, and gated on confirmed:true. On success the process stops
+  // rather than hot-swapping the database under an open connection.
+  if (req.method === 'POST' && url.pathname === '/api/backup/restore') {
+    return readJsonBody(req, res, (payload) => {
+      let result
+      try {
+        result = restoreFromBackup(payload.archivePath, { confirmed: payload.confirmed === true })
+      } catch (e) {
+        return send(res, 500, { ok: false, error: `Restore failed: ${e && e.message ? e.message : 'unknown'}` })
+      }
+      send(res, 200, { ok: true, ...result })
+      if (result.restoreStarted) {
+        // Respond first, then shut down so the restored file is only ever
+        // opened by a fresh process.
+        res.on('finish', () => {
+          console.log('[api] restore complete — stopping. Restart with npm run dev:all.')
+          setTimeout(() => process.exit(0), 50)
+        })
+      }
+      return undefined
     })
   }
 

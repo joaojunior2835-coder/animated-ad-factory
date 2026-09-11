@@ -10,3 +10,5 @@ server/data/*.db
 server/data/*.db-journal
 server/data/*.db-wal
 server/data/*.db-shm
+server/backups/
+server/data/qa-*.db

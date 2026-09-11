@@ -56,6 +56,17 @@ let qaBackend = null
 // running on 8787 — qa never reuses it and never makes paid LLM calls.
 const QA_PORT = Number(process.env.QA_API_PORT) || 8788
 const QA_API = `http://127.0.0.1:${QA_PORT}`
+// A throwaway database for the QA backend. The Node Canvas is persisted in the
+// database now, so sharing the real file would let each run's leftover nodes
+// accumulate and break the next run's assertions.
+const QA_DB_PATH = path.resolve(__dirname, '..', 'server', 'data', `qa-${QA_PORT}.db`)
+for (const suffix of ['', '-wal', '-shm']) {
+  try {
+    fs.rmSync(QA_DB_PATH + suffix, { force: true })
+  } catch {
+    /* best effort */
+  }
+}
 const SERVER_ENTRY = path.resolve(__dirname, '..', 'server', 'index.mjs')
 // 1x1 transparent PNG as a valid data URL for save tests.
 const TINY_PNG_DATA_URL =
@@ -78,7 +89,7 @@ async function startQaBackend() {
     throw new Error(`Port ${QA_PORT} is already in use. qa:canvas needs an exclusive keyless backend on ${QA_PORT}. Stop whatever is using it and retry.`)
   }
   const proc = spawn(process.execPath, [SERVER_ENTRY], {
-    env: { ...process.env, PORT: String(QA_PORT), OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
+    env: { ...process.env, PORT: String(QA_PORT), FACTORY_DB_PATH: QA_DB_PATH, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
     stdio: 'ignore'
   })
   let health = null

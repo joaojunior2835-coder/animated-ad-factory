@@ -21,6 +21,17 @@ fs.mkdirSync(ARTIFACTS, { recursive: true })
 
 const QA_PORT = Number(process.env.QA_API_PORT) || 8788
 const QA_API = `http://127.0.0.1:${QA_PORT}`
+// A throwaway database for the QA backend. The Node Canvas is persisted in the
+// database now, so sharing the real file would let each run's leftover nodes
+// accumulate and break the next run's assertions.
+const QA_DB_PATH = path.resolve(__dirname, '..', 'server', 'data', `qa-${QA_PORT}.db`)
+for (const suffix of ['', '-wal', '-shm']) {
+  try {
+    fs.rmSync(QA_DB_PATH + suffix, { force: true })
+  } catch {
+    /* best effort */
+  }
+}
 const FE_PORT = Number(process.env.QA_E2E_FE_PORT) || 5273
 const FE_URL = `http://127.0.0.1:${FE_PORT}/`
 const SERVER_ENTRY = path.resolve(ROOT, 'server', 'index.mjs')
@@ -71,7 +82,7 @@ async function waitPortFree(url) {
 async function startKeylessBackend() {
   if (!(await waitPortFree(QA_API + '/health'))) throw new Error(`Port ${QA_PORT} already in use — qa:e2e needs an exclusive keyless backend there.`)
   const proc = spawn(process.execPath, [SERVER_ENTRY], {
-    env: { ...process.env, PORT: String(QA_PORT), OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
+    env: { ...process.env, PORT: String(QA_PORT), FACTORY_DB_PATH: QA_DB_PATH, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
     stdio: 'ignore'
   })
   let health = null
