@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Local web dashboard MVP for the Animated Ad Factory: one product input to a staged animated ad package.",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server/dev-all.mjs",
+    "dev:web": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "test:docs": "node scripts/smoke-test-doc-importer.mjs",

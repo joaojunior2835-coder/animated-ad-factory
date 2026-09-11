@@ -1,8 +1,9 @@
 # Animated Ad Factory — Dashboard (Local MVP)
 
 A minimal local web dashboard for turning one product input into a staged animated
-ad package. Built with Vite + React. No backend, no auth, no database, no external
-APIs — everything runs in your browser and your work is kept in `localStorage`.
+ad package. Built with Vite + React. No auth and no database — your work is kept in
+`localStorage`. AI features go through a small local-only backend that holds your API
+keys; without keys the app still runs, just without generation.
 
 ## Run it
 
@@ -13,12 +14,24 @@ npm install
 npm run dev
 ```
 
-Vite serves the app at <http://localhost:5173> (it opens automatically). To run it
-inside VS Code, open a terminal in `dashboard/` and run the same commands, then use
-the VS Code "Open in Browser" / Simple Browser on the printed URL.
+That one command starts **both** parts the app needs:
+
+- the Vite frontend at <http://localhost:5173> (it opens automatically),
+- the local API backend at <http://127.0.0.1:8787>.
+
+Open the printed `localhost` URL — do **not** double-click `index.html`, because the
+page only loads when served over http. To run it inside VS Code, open a terminal in
+`dashboard/` and run the same commands, then use the VS Code "Open in Browser" /
+Simple Browser on the printed URL.
+
+The badge in the top-right tells you the state. If it reads *"Local backend
+offline"*, only the frontend is running — stop it and use `npm run dev` (or start the
+backend separately with `npm run dev:server`). See `API_SETUP.md` for adding keys.
 
 Other scripts:
 
+- `npm run dev:web` — frontend only (no backend; AI features will be offline).
+- `npm run dev:server` — backend only.
 - `npm run build` — production build into `dist/`.
 - `npm run preview` — serve the production build locally.
 

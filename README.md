@@ -75,8 +75,8 @@ flow-keyframe-video-pipeline/
 
 `dashboard/` is a local web app — **Animated Ad Factory** — that turns one product
 input into a staged ad package through editable stages, a live project-JSON preview,
-and a Markdown export. It runs entirely in the browser (no backend, auth, database,
-or external APIs).
+and a Markdown export. There is no auth or database; AI features go through a small
+local-only backend that holds your API keys.
 
 ```bash
 cd dashboard
@@ -84,7 +84,9 @@ npm install
 npm run dev
 ```
 
-This opens <http://localhost:5173>. See `dashboard/README.md` for details. The
+That starts the frontend at <http://localhost:5173> (opens automatically) and the
+local backend at <http://127.0.0.1:8787> together. See `dashboard/README.md` for
+details and `dashboard/API_SETUP.md` for API keys. The
 dashboard sits on top of the existing schema, templates, docs, and Python export
 renderer without modifying them.
 

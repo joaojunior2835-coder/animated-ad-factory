@@ -71,18 +71,19 @@ overridden at build/start time with `VITE_API_BASE_URL` (defaults to
 
 ## 3. Run the frontend
 
-In a second terminal:
+`npm run dev` already starts the backend too, so normally you only need:
 
 ```bash
 cd dashboard
-npm run dev          # http://localhost:5173
+npm run dev          # Vite on http://localhost:5173 + backend on 127.0.0.1:8787
 ```
 
-Or run both together:
+`npm run dev:all` is a synonym for the same thing. To run only the frontend (the
+app loads, but AI features report the backend offline):
 
 ```bash
 cd dashboard
-npm run dev:all      # starts Vite + the backend (Ctrl+C stops both)
+npm run dev:web      # http://localhost:5173, no backend
 ```
 
 ## QA isolation (qa:canvas)
@@ -117,8 +118,9 @@ normal backend:
 
 ## Using API mode in the dashboard
 
-1. Start the backend (`npm run dev:server`) and the frontend (`npm run dev`), or
-   both with `npm run dev:all`.
+1. Start the app with `npm run dev` (this runs the frontend and the backend
+   together). Running them separately with `npm run dev:web` and `npm run
+   dev:server` also works.
 2. Open the Canvas → **Board View** → **Production Board**.
 3. Set **Provider Mode** to **API**. An **API health panel** appears showing:
    - **connected / not connected** to the local backend,
@@ -132,7 +134,8 @@ What the messages mean:
 
 - *"API mode is selected, but the local backend is not connected. Run npm run
   dev:server or npm run dev:all."* → the frontend could not reach the local server.
-  Start it.
+  You most likely started the frontend on its own (`npm run dev:web`, or an older
+  `npm run dev` that only ran Vite). Stop it and run `npm run dev`.
 - *"Backend is running, but no API provider key is configured in .env.local."* →
   the server is up but every provider boolean is false. Add a key to `.env.local`
   and restart the server.
