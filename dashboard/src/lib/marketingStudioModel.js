@@ -1462,6 +1462,12 @@ export function extractBriefFromText(text) {
 
 // ---- Named saved sessions (localStorage list; replaces the single slot) ----
 
+// DEPRECATED as of the Phase 4 cutover: Marketing Studio sessions live in the
+// backend database now (src/lib/studioSessionsApi.js). loadSessions/saveSession
+// below are no longer wired into the app — do NOT call them to persist a
+// session, or you will reintroduce a second, diverging copy in localStorage.
+// They remain only because smoke-test-marketing-studio.mjs still exercises
+// loadSessions, and because the one-time legacy import reads this key.
 export const SESSION_STORAGE_KEY = 'aaf_marketing_studio_sessions'
 const LEGACY_SESSION_KEY = 'aaf_marketing_studio_session'
 

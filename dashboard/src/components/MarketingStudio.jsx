@@ -1279,8 +1279,9 @@ function SessionName({ session, onRename }) {
   )
 }
 
-function SessionHome({ sessions, onCreateSession, onQuickGenerate, onOpenSession, onDeleteSession, onRenameSession, onImportMarkdown }) {
+function SessionHome({ sessions, onCreateSession, onQuickGenerate, onOpenSession, onDeleteSession, onRenameSession, onImportMarkdown, sessionsLoading, sessionsError, onRetry, legacySessionCount, legacyImportState, onImportLegacy, onRemoveLegacyCopy }) {
   const [importOpen, setImportOpen] = useState(false)
+  const [legacyBannerHidden, setLegacyBannerHidden] = useState(false)
   const [quickText, setQuickText] = useState('')
   const [quickLanguage, setQuickLanguage] = useState('fr')
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -1317,8 +1318,64 @@ function SessionHome({ sessions, onCreateSession, onQuickGenerate, onOpenSession
         </div>
       </div>
 
+      {sessionsError ? (
+        <div className="note bad" data-testid="studio-sessions-error" style={{ marginBottom: '12px' }}>
+          <b>Backend unavailable.</b> {sessionsError}
+          {onRetry ? (
+            <button className="ghost small" style={{ marginLeft: '8px' }} onClick={onRetry}>
+              Retry save
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* One-time migration prompt. It stops appearing once the browser copy is
+          removed, so "Not now" only needs to hide it for this page view. */}
+      {legacySessionCount > 0 && !legacyBannerHidden ? (
+        <div className="note" data-testid="legacy-import-banner" style={{ marginBottom: '12px' }}>
+          <div>
+            Found {legacySessionCount} Marketing Studio session{legacySessionCount === 1 ? '' : 's'} stored in your
+            browser. Import them into the new database?
+          </div>
+          <div className="row" style={{ gap: '8px', marginTop: '8px' }}>
+            <button
+              className="primary small"
+              data-testid="legacy-import-btn"
+              disabled={legacyImportState && legacyImportState.status === 'working'}
+              onClick={onImportLegacy}
+            >
+              {legacyImportState && legacyImportState.status === 'working' ? 'Importing…' : 'Import'}
+            </button>
+            <button className="ghost small" onClick={() => setLegacyBannerHidden(true)}>
+              Not now
+            </button>
+          </div>
+          {legacyImportState && legacyImportState.message ? (
+            <div
+              className={legacyImportState.status === 'error' ? 'note bad' : 'hint small'}
+              data-testid="legacy-import-result"
+              style={{ marginTop: '8px' }}
+            >
+              {legacyImportState.message}
+            </div>
+          ) : null}
+          {/* Deliberately a separate, explicit click — importing never deletes
+              the browser copy on its own. */}
+          {legacyImportState && legacyImportState.status === 'done' ? (
+            <button
+              className="ghost small danger"
+              data-testid="legacy-remove-btn"
+              style={{ marginTop: '8px' }}
+              onClick={onRemoveLegacyCopy}
+            >
+              Remove legacy browser copy
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="row between ms-home-head">
-        <p className="hint small">Each session is one ad package: brief, format, characters, scenes, prompts. Sessions save automatically on this machine.</p>
+        <p className="hint small">Each session is one ad package: brief, format, characters, scenes, prompts. Sessions save automatically to the local database.</p>
         <div className="row" style={{ gap: '8px' }}>
           <button className="ghost" onClick={() => setImportOpen(true)}>📥 Import from Markdown</button>
           <button className="primary" onClick={onCreateSession}>+ New Studio Session</button>
@@ -1335,7 +1392,11 @@ function SessionHome({ sessions, onCreateSession, onQuickGenerate, onOpenSession
         />
       )}
 
-      {sorted.length === 0 ? (
+      {sessionsLoading ? (
+        <div className="ms-empty-state" data-testid="studio-sessions-loading">
+          <p>Loading sessions…</p>
+        </div>
+      ) : sorted.length === 0 ? (
         <div className="ms-empty-state">
           <p>No sessions yet. Start your first ad.</p>
           <button className="primary" onClick={onCreateSession}>Start your first ad →</button>
@@ -1375,7 +1436,7 @@ function SessionHome({ sessions, onCreateSession, onQuickGenerate, onOpenSession
 }
 
 // ---- Wizard shell ----
-export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onQuickGenerate, wizardStep, onWizardStepChange, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary, onImportSession }) {
+export default function MarketingStudio({ sessions, activeSessionId, studio, onUpdate, onCreateSession, onQuickGenerate, wizardStep, onWizardStepChange, onOpenSession, onCloseSession, onDeleteSession, onRenameSession, onSendToNodeCanvas, onSaveSession, onClearSession, productLibrary, onUpdateProductLibrary, onSaveProductToLibrary, onDeleteProductFromLibrary, onImportSession, sessionsLoading, sessionsError, onRetry, legacySessionCount, legacyImportState, onImportLegacy, onRemoveLegacyCopy }) {
   const step = wizardStep
   const [wizardImportOpen, setWizardImportOpen] = useState(false)
   const [stepDirection, setStepDirection] = useState('forward')
@@ -1399,6 +1460,13 @@ export default function MarketingStudio({ sessions, activeSessionId, studio, onU
         onDeleteSession={onDeleteSession}
         onRenameSession={onRenameSession}
         onImportMarkdown={(studioData, name) => onImportSession && onImportSession(studioData, name)}
+        sessionsLoading={sessionsLoading}
+        sessionsError={sessionsError}
+        onRetry={onRetry}
+        legacySessionCount={legacySessionCount}
+        legacyImportState={legacyImportState}
+        onImportLegacy={onImportLegacy}
+        onRemoveLegacyCopy={onRemoveLegacyCopy}
       />
     )
   }

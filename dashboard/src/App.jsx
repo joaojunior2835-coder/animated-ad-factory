@@ -31,7 +31,18 @@ import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
-import { emptyStudio, normalizeStudio, loadSessions, saveSession, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary, inferStudioFromQuickPrompt, formatById } from './lib/marketingStudioModel.js'
+import { emptyStudio, normalizeStudio, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary, inferStudioFromQuickPrompt, formatById } from './lib/marketingStudioModel.js'
+// Session persistence lives in the backend database as of Phase 4. The model's
+// loadSessions/saveSession localStorage helpers are deliberately NOT imported
+// any more — the only remaining read of that key is the legacy import flow.
+import {
+  fetchSessions as apiFetchSessions,
+  saveSession as apiSaveSession,
+  removeSession as apiRemoveSession,
+  readLegacySessions,
+  importLegacySessions,
+  removeLegacyBrowserCopy
+} from './lib/studioSessionsApi.js'
 import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, effectiveStartFrameUrl, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
@@ -51,8 +62,8 @@ const SPECIAL_NAV = [
   { key: 'marketing_studio', label: '🎬 Marketing Studio' }
 ]
 
-// Marketing Studio sessions are persisted by the model helpers
-// (loadSessions/saveSession) under their own localStorage key, independent
+// Marketing Studio sessions are persisted in the backend database via
+// studioSessionsApi.js (Phase 4 cutover), independent
 // from the project state.
 
 // Signature of the export-relevant Canvas data, for stale-sync detection.
@@ -74,7 +85,11 @@ function syncedProject(project) {
 export default function App() {
   const [project, setProject] = useState(() => loadProject(emptyProject()))
   const [library, setLibrary] = useState(() => loadLibrary())
-  const [studioSessions, setStudioSessions] = useState(() => loadSessions())
+  const [studioSessions, setStudioSessions] = useState([])
+  const [studioSessionsLoading, setStudioSessionsLoading] = useState(true)
+  const [studioSessionsError, setStudioSessionsError] = useState('')
+  const [legacyStudioSessions, setLegacyStudioSessions] = useState(() => readLegacySessions())
+  const [legacyImportState, setLegacyImportState] = useState({ status: 'idle', message: '' })
   const [productLibrary, setProductLibrary] = useState(() => loadProductLibrary())
   const [activeStudioSessionId, setActiveStudioSessionId] = useState(null)
   const [studioWizardStep, setStudioWizardStep] = useState(0)
@@ -409,27 +424,107 @@ export default function App() {
   const setCanvasPreview = (id, dataUrl) => setCanvasPreviews((m) => ({ ...m, [id]: dataUrl }))
   const selectCompetitor = () => setSelectedMethod('competitor_recreation')
 
-  // ---- Marketing Studio (named sessions; persisted under their own key) ----
+  // ---- Marketing Studio (named sessions; persisted in the backend database) ----
+  //
+  // Saving is now an HTTP round-trip rather than a synchronous localStorage
+  // write, so edits are debounced: typing into a textarea must not fire one
+  // request per keystroke. Step transitions bypass the debounce because they
+  // are a natural checkpoint and the user may reload right after one.
+  //
+  // studioSessionsRef mirrors the session list so a save that fires later (or
+  // several edits landing within one render) always reads the newest content
+  // rather than whatever a stale closure captured.
   const activeStudioSession = studioSessions.find((s) => s.id === activeStudioSessionId) || null
   const activeStudio = activeStudioSession ? activeStudioSession.studio : emptyStudio()
 
-  const persistStudioSessions = (updater) =>
-    setStudioSessions((list) => {
-      const next = typeof updater === 'function' ? updater(list) : updater
-      saveSession(next)
-      return next
-    })
+  const studioSessionsRef = useRef([])
+  const studioSaveTimerRef = useRef(null)
+  const studioPendingSaveIdRef = useRef(null)
+  const STUDIO_SAVE_DEBOUNCE_MS = 800
 
-  const updateStudio = (fn) =>
-    persistStudioSessions((list) => {
-      const cur = list.find((s) => s.id === activeStudioSessionId)
-      if (!cur) return list
-      return updateSession(list, activeStudioSessionId, fn(normalizeStudio(cur.studio)))
-    })
+  useEffect(() => {
+    studioSessionsRef.current = studioSessions
+  }, [studioSessions])
+
+  const refreshStudioSessions = async () => {
+    setStudioSessionsLoading(true)
+    try {
+      const list = await apiFetchSessions()
+      studioSessionsRef.current = list
+      setStudioSessions(list)
+      setStudioSessionsError('')
+    } catch (e) {
+      setStudioSessionsError(
+        `Could not reach the local backend: ${e && e.message ? e.message : 'unknown error'}. ` +
+          'Start it with npm run dev, then Retry.'
+      )
+    } finally {
+      setStudioSessionsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    refreshStudioSessions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A failed save leaves React state exactly as it is — the user's work stays
+  // on screen and the error offers a retry, rather than silently vanishing.
+  const persistStudioSession = async (session) => {
+    if (!session) return
+    try {
+      await apiSaveSession(session.id, session.name, session.studio)
+      setStudioSessionsError('')
+    } catch (e) {
+      setStudioSessionsError(
+        `Could not save "${session.name}": ${e && e.message ? e.message : 'unknown error'}. ` +
+          'Your work is still here — fix the backend and click Retry save.'
+      )
+    }
+  }
+
+  const flushStudioSave = () => {
+    if (studioSaveTimerRef.current) {
+      clearTimeout(studioSaveTimerRef.current)
+      studioSaveTimerRef.current = null
+    }
+    const id = studioPendingSaveIdRef.current
+    studioPendingSaveIdRef.current = null
+    if (!id) return
+    persistStudioSession(studioSessionsRef.current.find((s) => s.id === id))
+  }
+
+  const scheduleStudioSave = (id) => {
+    // Switching sessions mid-debounce must not drop the previous one's edit.
+    if (studioPendingSaveIdRef.current && studioPendingSaveIdRef.current !== id) flushStudioSave()
+    studioPendingSaveIdRef.current = id
+    if (studioSaveTimerRef.current) clearTimeout(studioSaveTimerRef.current)
+    studioSaveTimerRef.current = setTimeout(() => {
+      studioSaveTimerRef.current = null
+      flushStudioSave()
+    }, STUDIO_SAVE_DEBOUNCE_MS)
+  }
+
+  const updateStudio = (fn) => {
+    const list = studioSessionsRef.current
+    const cur = list.find((s) => s.id === activeStudioSessionId)
+    if (!cur) return
+    const next = updateSession(list, activeStudioSessionId, fn(normalizeStudio(cur.studio)))
+    studioSessionsRef.current = next // so rapid successive edits compose
+    setStudioSessions(next)
+    scheduleStudioSave(activeStudioSessionId)
+  }
+
+  const addStudioSession = (session, { append = false } = {}) => {
+    const next = append ? [...studioSessionsRef.current, session] : [session, ...studioSessionsRef.current]
+    studioSessionsRef.current = next
+    setStudioSessions(next)
+    persistStudioSession(session) // new sessions save immediately, never debounced
+  }
 
   const createStudioSession = (studioData) => {
     const session = createSession(studioData || emptyStudio())
-    persistStudioSessions((list) => [session, ...list])
+    addStudioSession(session)
     setActiveStudioSessionId(session.id)
     return session.id
   }
@@ -446,7 +541,7 @@ export default function App() {
       updatedAt: now,
       studio: inferred
     }
-    persistStudioSessions((list) => [...list, newSession])
+    addStudioSession(newSession, { append: true })
     setStudioWizardStep(3)
     setActiveStudioSessionId(newSession.id)
   }
@@ -454,18 +549,79 @@ export default function App() {
   const importStudioSession = (studioData, name) => {
     const session = createSession(studioData)
     const namedSession = name ? { ...session, name, name_custom: true } : session
-    persistStudioSessions((list) => [namedSession, ...list])
+    addStudioSession(namedSession)
     setActiveStudioSessionId(namedSession.id)
   }
   const openStudioSession = (id) => setActiveStudioSessionId(id)
-  const closeStudioSession = () => setActiveStudioSessionId(null)
-  const deleteStudioSession = (id) => {
-    persistStudioSessions((list) => deleteSession(list, id))
-    if (id === activeStudioSessionId) setActiveStudioSessionId(null)
+  const closeStudioSession = () => {
+    flushStudioSave() // leaving the wizard is a checkpoint too
+    setActiveStudioSessionId(null)
   }
-  const renameStudioSession = (id, name) => persistStudioSessions((list) => renameSession(list, id, name))
-  const saveStudioSession = () => persistStudioSessions((list) => list) // sessions persist on every change; explicit save re-writes
+  const deleteStudioSession = async (id) => {
+    // Cancel any queued save for this session, or the debounce would recreate
+    // the row moments after the delete request removed it.
+    if (studioPendingSaveIdRef.current === id) {
+      if (studioSaveTimerRef.current) clearTimeout(studioSaveTimerRef.current)
+      studioSaveTimerRef.current = null
+      studioPendingSaveIdRef.current = null
+    }
+    const next = deleteSession(studioSessionsRef.current, id)
+    studioSessionsRef.current = next
+    setStudioSessions(next)
+    if (id === activeStudioSessionId) setActiveStudioSessionId(null)
+    try {
+      await apiRemoveSession(id)
+      setStudioSessionsError('')
+    } catch (e) {
+      setStudioSessionsError(`Could not delete that session: ${e && e.message ? e.message : 'unknown error'}.`)
+      refreshStudioSessions() // put the row back if the server still has it
+    }
+  }
+  const renameStudioSession = (id, name) => {
+    const next = renameSession(studioSessionsRef.current, id, name)
+    studioSessionsRef.current = next
+    setStudioSessions(next)
+    persistStudioSession(next.find((s) => s.id === id))
+  }
+  const saveStudioSession = () => flushStudioSave()
   const clearStudioSession = () => updateStudio(() => emptyStudio())
+  const changeStudioWizardStep = (step) => {
+    setStudioWizardStep(step)
+    flushStudioSave() // immediate, not debounced
+  }
+  const retryStudioSave = () => {
+    if (activeStudioSessionId) {
+      persistStudioSession(studioSessionsRef.current.find((s) => s.id === activeStudioSessionId))
+    } else {
+      refreshStudioSessions()
+    }
+  }
+
+  // ---- One-time legacy import (localStorage -> database) ----
+  const importLegacyStudioSessions = async () => {
+    setLegacyImportState({ status: 'working', message: 'Importing…' })
+    try {
+      const result = await importLegacySessions(legacyStudioSessions)
+      const imported = result.sessionsImported || 0
+      const skipped = result.sessionsSkipped || 0
+      setLegacyImportState({
+        status: 'done',
+        message:
+          imported > 0
+            ? `Imported ${imported} session${imported === 1 ? '' : 's'}.${skipped ? ` ${skipped} already imported.` : ''}`
+            : `${skipped} already imported, 0 new.`
+      })
+      await refreshStudioSessions()
+    } catch (e) {
+      setLegacyImportState({ status: 'error', message: `Import failed: ${e && e.message ? e.message : 'unknown error'}` })
+    }
+  }
+  const removeLegacyStudioCopy = () => {
+    if (!window.confirm('Remove the old Marketing Studio sessions stored in this browser? They are now saved in the database. This cannot be undone.')) return
+    removeLegacyBrowserCopy()
+    setLegacyStudioSessions([])
+    setLegacyImportState({ status: 'idle', message: '' })
+  }
 
   const updateProductLibrary = (fn) =>
     setProductLibrary((lib) => {
@@ -811,7 +967,14 @@ export default function App() {
           onCreateSession={createStudioSession}
           onQuickGenerate={onQuickGenerate}
           wizardStep={studioWizardStep}
-          onWizardStepChange={setStudioWizardStep}
+          onWizardStepChange={changeStudioWizardStep}
+          sessionsLoading={studioSessionsLoading}
+          sessionsError={studioSessionsError}
+          onRetry={retryStudioSave}
+          legacySessionCount={legacyStudioSessions.length}
+          legacyImportState={legacyImportState}
+          onImportLegacy={importLegacyStudioSessions}
+          onRemoveLegacyCopy={removeLegacyStudioCopy}
           onOpenSession={openStudioSession}
           onCloseSession={closeStudioSession}
           onDeleteSession={deleteStudioSession}
@@ -1074,7 +1237,7 @@ export default function App() {
               <div><b>{studioSessions.length}</b> saved session{studioSessions.length === 1 ? '' : 's'}</div>
               <div><b>{productLibrary.length}</b> product{productLibrary.length === 1 ? '' : 's'} in library</div>
             </div>
-            <p className="hint small">Sessions auto-save on this machine. Export a Markdown package from Step 5 to share or re-import later.</p>
+            <p className="hint small">Sessions auto-save to the local database. Export a Markdown package from Step 5 to share or re-import later.</p>
             <div className="ms-aside-rules">
               <h4>Prompt rules in force</h4>
               <ul>
