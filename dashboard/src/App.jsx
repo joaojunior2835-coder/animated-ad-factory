@@ -43,6 +43,8 @@ import {
   importLegacySessions,
   removeLegacyBrowserCopy
 } from './lib/studioSessionsApi.js'
+import { createSaveDebouncer } from './lib/saveDebouncer.js'
+import { fetchNodeCanvas, saveNodeCanvas, importLegacyNodeCanvas, hasCanvasContent, NODE_CANVAS_ID } from './lib/nodeCanvasApi.js'
 import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, effectiveStartFrameUrl, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
@@ -103,10 +105,109 @@ export default function App() {
   const [apiBadge, setApiBadge] = useState({ loading: true, connected: false, openai: false, openrouter: false, groq: false, pollinations: false, url: '' })
   const [replicateConfirm, setReplicateConfirm] = useState(null)
   const firstRenderRef = useRef(true)
+  const prevActiveRef = useRef(active)
+
+  // ---- Node Canvas persistence (backend database as of Phase 5) ----
+  //
+  // Only the node_canvas slice moved. Every other section of the project blob
+  // keeps persisting to localStorage exactly as before — which is why the blob
+  // is still written here, just with node_canvas held out of it.
+  //
+  // The legacy browser canvas is NOT stripped on first save: it stays frozen in
+  // the blob until the user explicitly removes it, so reloading before doing the
+  // import cannot destroy the only copy of their work.
+  const nodeCanvasRef = useRef(null)
+  const [nodeCanvasError, setNodeCanvasError] = useState('')
+  const [legacyNodeCanvas, setLegacyNodeCanvas] = useState(() => {
+    const stored = loadProject(emptyProject()).node_canvas
+    return hasCanvasContent(stored) ? stored : null
+  })
+  const [legacyCanvasImportState, setLegacyCanvasImportState] = useState({ status: 'idle', message: '' })
+  const [legacyCanvasBannerHidden, setLegacyCanvasBannerHidden] = useState(false)
 
   useEffect(() => {
-    saveProject(project)
-  }, [project])
+    saveProject({ ...project, node_canvas: legacyNodeCanvas || emptyNodeCanvas() })
+  }, [project, legacyNodeCanvas])
+
+  // Navigating away from the Node Canvas flushes any queued save, mirroring the
+  // Studio's "switching sessions flushes the previous one". Done via an effect
+  // on `active` so it holds no matter how the section was changed.
+  useEffect(() => {
+    if (prevActiveRef.current === 'node_canvas' && active !== 'node_canvas') flushNodeCanvasSave()
+    prevActiveRef.current = active
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
+
+  const persistNodeCanvas = async () => {
+    const canvas = nodeCanvasRef.current
+    if (!canvas) return
+    try {
+      await saveNodeCanvas(canvas)
+      setNodeCanvasError('')
+    } catch (e) {
+      setNodeCanvasError(
+        `Could not save the Node Canvas: ${e && e.message ? e.message : 'unknown error'}. ` +
+          'Your canvas is still here — fix the backend and click Retry save.'
+      )
+    }
+  }
+  const nodeCanvasDebouncerRef = useRef(null)
+  if (!nodeCanvasDebouncerRef.current) {
+    nodeCanvasDebouncerRef.current = createSaveDebouncer(() => persistNodeCanvas())
+  }
+  const scheduleNodeCanvasSave = () => nodeCanvasDebouncerRef.current.schedule(NODE_CANVAS_ID)
+  const flushNodeCanvasSave = () => nodeCanvasDebouncerRef.current.flush()
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const stored = await fetchNodeCanvas()
+        if (cancelled) return
+        const canvas = normalizeNodeCanvas(stored || emptyNodeCanvas())
+        nodeCanvasRef.current = canvas
+        setProject((p) => ({ ...p, node_canvas: canvas }))
+        setNodeCanvasError('')
+      } catch (e) {
+        if (cancelled) return
+        setNodeCanvasError(
+          `Could not reach the local backend: ${e && e.message ? e.message : 'unknown error'}. ` +
+            'Start it with npm run dev, then Retry.'
+        )
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const importLegacyNodeCanvasCopy = async () => {
+    setLegacyCanvasImportState({ status: 'working', message: 'Importing…' })
+    try {
+      const result = await importLegacyNodeCanvas(legacyNodeCanvas)
+      const imported = result.projectsImported || 0
+      const skipped = result.projectsSkipped || 0
+      const stored = await fetchNodeCanvas()
+      const canvas = normalizeNodeCanvas(stored || emptyNodeCanvas())
+      nodeCanvasRef.current = canvas
+      setProject((p) => ({ ...p, node_canvas: canvas }))
+      setLegacyCanvasImportState({
+        status: 'done',
+        message: imported > 0 ? `Imported the canvas (${canvas.nodes.length} node${canvas.nodes.length === 1 ? '' : 's'}).` : `${skipped} already imported, 0 new.`
+      })
+    } catch (e) {
+      setLegacyCanvasImportState({ status: 'error', message: `Import failed: ${e && e.message ? e.message : 'unknown error'}` })
+    }
+  }
+  const removeLegacyNodeCanvasCopy = () => {
+    if (!window.confirm('Remove the old Node Canvas stored in this browser? It is now saved in the database. Every other part of your project stays untouched. This cannot be undone.')) return
+    // Clearing this state re-saves the blob with node_canvas reset to empty and
+    // every other field preserved — the blob itself is never deleted.
+    setLegacyNodeCanvas(null)
+    setLegacyCanvasImportState({ status: 'idle', message: '' })
+  }
+  const retryNodeCanvasSave = () => persistNodeCanvas()
 
   // Mark the project dirty (snapshot recommended) after the first render.
   useEffect(() => {
@@ -173,7 +274,18 @@ export default function App() {
   // --- canvas ---
   const updateCanvas = (fn) => setProject((p) => ({ ...p, canvas: fn(p.canvas) }))
   // Node Canvas (separate surface) — routes through the same setProject/saveProject path.
-  const updateNodeCanvas = (fn) => setProject((p) => ({ ...p, node_canvas: fn(p.node_canvas || emptyNodeCanvas()) }))
+  // Signature unchanged on purpose: every caller (the Node Canvas UI, "Send to
+  // Node Canvas", "Import Scenes") keeps working untouched. Only what happens
+  // afterwards changed — the canvas is persisted to the database rather than
+  // into the whole-project localStorage blob.
+  const updateNodeCanvas = (fn) => {
+    setProject((p) => {
+      const next = fn(p.node_canvas || emptyNodeCanvas())
+      nodeCanvasRef.current = next
+      return { ...p, node_canvas: next }
+    })
+    scheduleNodeCanvasSave()
+  }
   // Node Canvas → backend generation routing. The component never calls a
   // provider itself; it asks App via this callback. Returns the normalized media
   // result (the caller keeps any data_url as a SESSION preview — base64 is never
@@ -228,8 +340,13 @@ export default function App() {
     if (modelId === 'manual') return undefined
 
     // Push a finished result onto any wired Output nodes (variation list).
-    const propagate = (urls) =>
+    // Flushed immediately rather than debounced: a generation result can cost
+    // real money and minutes, so it must not be lost to a crash in the 800ms
+    // window before the debounce would have fired.
+    const propagate = (urls) => {
       updateNodeCanvas((c) => propagateResultToOutputs(c, nodeId, { url: urls.url || '', local_url: urls.local_url || '', media_type: isVideo ? 'video' : 'image' }))
+      flushNodeCanvasSave()
+    }
 
     // API-mode Mock Video exercises the real asynchronous request/poll/result
     // pipeline without spending credits. Mock mode keeps its immediate fixture.
@@ -438,9 +555,6 @@ export default function App() {
   const activeStudio = activeStudioSession ? activeStudioSession.studio : emptyStudio()
 
   const studioSessionsRef = useRef([])
-  const studioSaveTimerRef = useRef(null)
-  const studioPendingSaveIdRef = useRef(null)
-  const STUDIO_SAVE_DEBOUNCE_MS = 800
 
   useEffect(() => {
     studioSessionsRef.current = studioSessions
@@ -483,27 +597,17 @@ export default function App() {
     }
   }
 
-  const flushStudioSave = () => {
-    if (studioSaveTimerRef.current) {
-      clearTimeout(studioSaveTimerRef.current)
-      studioSaveTimerRef.current = null
-    }
-    const id = studioPendingSaveIdRef.current
-    studioPendingSaveIdRef.current = null
-    if (!id) return
-    persistStudioSession(studioSessionsRef.current.find((s) => s.id === id))
+  // Debounce timing lives in the shared helper so the Studio and the Node
+  // Canvas cannot drift apart. The save callback reads live state via the ref,
+  // so a late-firing timer never writes a stale snapshot.
+  const studioDebouncerRef = useRef(null)
+  if (!studioDebouncerRef.current) {
+    studioDebouncerRef.current = createSaveDebouncer((id) =>
+      persistStudioSession(studioSessionsRef.current.find((s) => s.id === id))
+    )
   }
-
-  const scheduleStudioSave = (id) => {
-    // Switching sessions mid-debounce must not drop the previous one's edit.
-    if (studioPendingSaveIdRef.current && studioPendingSaveIdRef.current !== id) flushStudioSave()
-    studioPendingSaveIdRef.current = id
-    if (studioSaveTimerRef.current) clearTimeout(studioSaveTimerRef.current)
-    studioSaveTimerRef.current = setTimeout(() => {
-      studioSaveTimerRef.current = null
-      flushStudioSave()
-    }, STUDIO_SAVE_DEBOUNCE_MS)
-  }
+  const flushStudioSave = () => studioDebouncerRef.current.flush()
+  const scheduleStudioSave = (id) => studioDebouncerRef.current.schedule(id)
 
   const updateStudio = (fn) => {
     const list = studioSessionsRef.current
@@ -560,11 +664,7 @@ export default function App() {
   const deleteStudioSession = async (id) => {
     // Cancel any queued save for this session, or the debounce would recreate
     // the row moments after the delete request removed it.
-    if (studioPendingSaveIdRef.current === id) {
-      if (studioSaveTimerRef.current) clearTimeout(studioSaveTimerRef.current)
-      studioSaveTimerRef.current = null
-      studioPendingSaveIdRef.current = null
-    }
+    studioDebouncerRef.current.cancel(id)
     const next = deleteSession(studioSessionsRef.current, id)
     studioSessionsRef.current = next
     setStudioSessions(next)
@@ -913,7 +1013,61 @@ export default function App() {
       ;(project.canvas && project.canvas.assets ? project.canvas.assets : []).forEach((a) => { if (a.local_url) pushMedia(a.local_url, a.file_name) })
       ;(project.node_canvas && project.node_canvas.nodes ? project.node_canvas.nodes : []).forEach((n) => { if (n.data && n.data.local_url) pushMedia(n.data.local_url, n.data.file_name) })
       return (
-        <NodeCanvas
+        <>
+          {nodeCanvasError ? (
+            <div className="note bad" data-testid="node-canvas-error" style={{ marginBottom: '12px' }}>
+              <b>Backend unavailable.</b> {nodeCanvasError}
+              <button className="ghost small" style={{ marginLeft: '8px' }} onClick={retryNodeCanvasSave}>
+                Retry save
+              </button>
+            </div>
+          ) : null}
+
+          {/* One-time migration of the pre-Phase-5 browser canvas. Stops
+              appearing once the browser copy is removed. */}
+          {legacyNodeCanvas && !legacyCanvasBannerHidden ? (
+            <div className="note" data-testid="legacy-canvas-banner" style={{ marginBottom: '12px' }}>
+              <div>
+                Found an existing Node Canvas with {legacyNodeCanvas.nodes.length} node
+                {legacyNodeCanvas.nodes.length === 1 ? '' : 's'} stored in your browser. Import it into the new
+                database?
+              </div>
+              <div className="row" style={{ gap: '8px', marginTop: '8px' }}>
+                <button
+                  className="primary small"
+                  data-testid="legacy-canvas-import-btn"
+                  disabled={legacyCanvasImportState.status === 'working'}
+                  onClick={importLegacyNodeCanvasCopy}
+                >
+                  {legacyCanvasImportState.status === 'working' ? 'Importing…' : 'Import'}
+                </button>
+                <button className="ghost small" onClick={() => setLegacyCanvasBannerHidden(true)}>
+                  Not now
+                </button>
+              </div>
+              {legacyCanvasImportState.message ? (
+                <div
+                  className={legacyCanvasImportState.status === 'error' ? 'note bad' : 'hint small'}
+                  data-testid="legacy-canvas-import-result"
+                  style={{ marginTop: '8px' }}
+                >
+                  {legacyCanvasImportState.message}
+                </div>
+              ) : null}
+              {legacyCanvasImportState.status === 'done' ? (
+                <button
+                  className="ghost small danger"
+                  data-testid="legacy-canvas-remove-btn"
+                  style={{ marginTop: '8px' }}
+                  onClick={removeLegacyNodeCanvasCopy}
+                >
+                  Remove legacy browser copy
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          <NodeCanvas
           nodeCanvas={normalizeNodeCanvas(project.node_canvas, { preserveRuntimeStatus: true })}
           onChange={updateNodeCanvas}
           savedMedia={savedMedia}
@@ -954,7 +1108,8 @@ export default function App() {
               </div>
             </div>
           ) : null}
-        />
+          />
+        </>
       )
     }
     if (active === 'marketing_studio') {
