@@ -4,7 +4,9 @@
 // - Reads API keys from dashboard/.env.local into the server process ONLY.
 // - NEVER returns key values to any client (health reports booleans only).
 // - /api/llm calls a real provider for text/JSON (OpenAI only, Part 3).
-//   No image/video, no cloud storage, no database, no login.
+//   No image/video, no cloud storage, no login.
+// - Owns the local SQLite database (server/data/factory.db); schema migrations
+//   run on startup and the server refuses to start if they fail.
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -17,6 +19,7 @@ import { groqModel, runGroq } from './providers/groqProvider.mjs'
 import { runPollinations } from './providers/pollinationsProvider.mjs'
 import { createMockVideoJob, getMockVideoJob } from './providers/mockVideoProvider.mjs'
 import { createReplicateVideoJob, estimateVideoCost, getReplicateVideoJob } from './providers/replicateVideoProvider.mjs'
+import { runMigrations } from './db/migrate.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -509,6 +512,16 @@ const server = http.createServer(async (req, res) => {
 
   send(res, 404, { ok: false, error: 'Not found' })
 })
+
+// Schema must be current before we accept a single request. A failed migration
+// is fatal: starting with a half-known schema is worse than not starting.
+try {
+  runMigrations()
+} catch {
+  // runMigrations already logged the specific failure.
+  console.error('[api] refusing to start: database migrations failed.')
+  process.exit(1)
+}
 
 server.listen(PORT, '127.0.0.1', () => {
   const cfg = providersConfigured()

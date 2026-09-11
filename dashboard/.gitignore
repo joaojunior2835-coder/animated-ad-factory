@@ -6,3 +6,7 @@ qa-artifacts
 local-media
 .env
 .env.local
+server/data/*.db
+server/data/*.db-journal
+server/data/*.db-wal
+server/data/*.db-shm

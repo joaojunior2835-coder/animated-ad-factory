@@ -1,0 +1,5 @@
+# Migration files are checksummed byte-for-byte by dashboard/server/db/migrate.mjs.
+# core.autocrlf would rewrite their line endings on checkout, changing the hash and
+# tripping the "already-applied migration was edited" guard on a machine that did
+# nothing wrong. Pin them to LF everywhere.
+*.sql text eol=lf
