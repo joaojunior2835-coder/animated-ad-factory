@@ -20,6 +20,18 @@ import { runPollinations } from './providers/pollinationsProvider.mjs'
 import { createMockVideoJob, getMockVideoJob } from './providers/mockVideoProvider.mjs'
 import { createReplicateVideoJob, estimateVideoCost, getReplicateVideoJob } from './providers/replicateVideoProvider.mjs'
 import { runMigrations } from './db/migrate.mjs'
+import {
+  upsertMarketingStudioSession,
+  listMarketingStudioSessions,
+  getMarketingStudioSession,
+  deleteMarketingStudioSession,
+  upsertNodeCanvasProject,
+  listNodeCanvasProjects,
+  getNodeCanvasProject,
+  deleteNodeCanvasProject,
+  importLegacyData,
+  checkDbConnectivity
+} from './db/repository.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -84,11 +96,29 @@ function providersConfigured() {
   return out
 }
 
+// Collect and parse a JSON request body, then hand it to `onJson`.
+function readJsonBody(req, res, onJson) {
+  let body = ''
+  req.on('data', (c) => {
+    body += c
+    if (body.length > 2e7) req.destroy()
+  })
+  req.on('end', () => {
+    let payload
+    try {
+      payload = body ? JSON.parse(body) : {}
+    } catch {
+      return send(res, 400, { ok: false, error: 'Invalid JSON body.' })
+    }
+    onJson(payload)
+  })
+}
+
 function send(res, status, obj) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*', // local-only tool
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type'
   })
   res.end(JSON.stringify(obj))
@@ -299,7 +329,8 @@ const server = http.createServer(async (req, res) => {
       openai_image_configured: Boolean(cfg.openai && openaiImageModel()), // key + image model present
       pollinations_image_configured: Boolean(cfg.pollinations),
       mock_video: true,
-      replicate: Boolean(cfg.replicate)
+      replicate: Boolean(cfg.replicate),
+      db: checkDbConnectivity() // real query against factory.db, not a file-exists check
     })
   }
 
@@ -508,6 +539,93 @@ const server = http.createServer(async (req, res) => {
       }
     })
     return
+  }
+
+  // ---- Workspace persistence (backend-owned copies of Studio/Canvas state) ----
+  // Additive only: the live frontend still reads and writes localStorage and
+  // does not call any of these yet.
+  const workspaceRoutes = [
+    {
+      prefix: '/api/studio/sessions',
+      label: 'session',
+      bodyField: 'studio',
+      jsonKey: 'studioJson',
+      list: listMarketingStudioSessions,
+      get: getMarketingStudioSession,
+      upsert: upsertMarketingStudioSession,
+      remove: deleteMarketingStudioSession
+    },
+    {
+      prefix: '/api/canvas/projects',
+      label: 'project',
+      bodyField: 'canvas',
+      jsonKey: 'canvasJson',
+      list: listNodeCanvasProjects,
+      get: getNodeCanvasProject,
+      upsert: upsertNodeCanvasProject,
+      remove: deleteNodeCanvasProject
+    }
+  ]
+
+  for (const route of workspaceRoutes) {
+    if (url.pathname === route.prefix && req.method === 'GET') {
+      try {
+        return send(res, 200, { ok: true, items: route.list() })
+      } catch (e) {
+        return send(res, 500, { ok: false, error: `Database error: ${e && e.message ? e.message : 'unknown'}` })
+      }
+    }
+
+    const idMatch = new RegExp(`^${route.prefix}/([^/]+)$`).exec(url.pathname)
+    if (!idMatch) continue
+    const id = decodeURIComponent(idMatch[1])
+
+    if (req.method === 'GET') {
+      try {
+        const row = route.get(id)
+        if (!row) return send(res, 404, { ok: false, error: `No ${route.label} with id ${id}` })
+        return send(res, 200, { ok: true, item: row })
+      } catch (e) {
+        return send(res, 500, { ok: false, error: `Database error: ${e && e.message ? e.message : 'unknown'}` })
+      }
+    }
+
+    if (req.method === 'DELETE') {
+      try {
+        const result = route.remove(id)
+        if (!result.deleted) return send(res, 404, { ok: false, error: `No ${route.label} with id ${id}` })
+        return send(res, 200, { ok: true, deleted: true, id })
+      } catch (e) {
+        return send(res, 500, { ok: false, error: `Database error: ${e && e.message ? e.message : 'unknown'}` })
+      }
+    }
+
+    if (req.method === 'PUT') {
+      return readJsonBody(req, res, (payload) => {
+        const content = payload[route.bodyField]
+        if (content === undefined || content === null) {
+          return send(res, 400, { ok: false, error: `Body must include "${route.bodyField}".` })
+        }
+        try {
+          // The URL param is the source of truth for the id — a mismatched id
+          // in the body is ignored rather than silently writing elsewhere.
+          const row = route.upsert({ id, name: payload.name || id, [route.jsonKey]: content })
+          return send(res, 200, { ok: true, item: row })
+        } catch (e) {
+          return send(res, 500, { ok: false, error: `Database error: ${e && e.message ? e.message : 'unknown'}` })
+        }
+      })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/migrate/import-local') {
+    return readJsonBody(req, res, (payload) => {
+      try {
+        return send(res, 200, { ok: true, ...importLegacyData(payload) })
+      } catch (e) {
+        return send(res, 500, { ok: false, error: `Import failed: ${e && e.message ? e.message : 'unknown'}` })
+      }
+    })
   }
 
   send(res, 404, { ok: false, error: 'Not found' })

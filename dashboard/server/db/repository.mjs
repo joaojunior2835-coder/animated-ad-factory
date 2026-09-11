@@ -652,3 +652,160 @@ export function assertProductionRunReadyForExecution(productionRunId) {
   }
   return true
 }
+
+// ---------------------------------------------------------------------------
+// Workspace persistence: Marketing Studio sessions and Node Canvas projects.
+//
+// Ids here are CLIENT-generated and stable — they are the same ids the browser
+// already uses in localStorage today (see SESSION_STORAGE_KEY in
+// src/lib/marketingStudioModel.js). So these are upserts, not inserts: saving
+// the same workspace twice updates it in place rather than forking a copy.
+//
+// Nothing in the frontend calls these yet. The live Marketing Studio and Node
+// Canvas still read and write localStorage exactly as before; this is a
+// parallel backend home for the same data.
+// ---------------------------------------------------------------------------
+
+function makeWorkspaceStore({ table, jsonColumn, jsonKey }) {
+  const upsert = ({ id, name, ...rest }) => {
+    const payload = rest[jsonKey]
+    const db = getDb()
+    return db
+      .transaction(() => {
+        db.prepare(
+          `INSERT INTO ${table} (id, name, ${jsonColumn}, created_at, updated_at)
+           VALUES (?, ?, ?, ${NOW}, ${NOW})
+           ON CONFLICT(id) DO UPDATE SET
+             name = excluded.name,
+             ${jsonColumn} = excluded.${jsonColumn},
+             updated_at = ${NOW}`
+        ).run(id, name, JSON.stringify(payload))
+        return db.prepare(`SELECT id, name, updated_at FROM ${table} WHERE id = ?`).get(id)
+      })
+      .immediate()
+  }
+
+  // The list view deliberately omits the JSON blob — a workspace payload can be
+  // large, and a list of twenty of them should not drag twenty full documents
+  // across just to render their names.
+  const list = () =>
+    getDb().prepare(`SELECT id, name, created_at, updated_at FROM ${table} ORDER BY updated_at DESC`).all()
+
+  const get = (id) => {
+    const row = getDb().prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id)
+    if (!row) return null
+    // Return the parsed payload only — carrying the raw JSON string alongside
+    // it would double the response size for no benefit.
+    const { [jsonColumn]: raw, ...rest } = row
+    return { ...rest, [jsonKey]: JSON.parse(raw) }
+  }
+
+  const remove = (id) => ({ deleted: getDb().prepare(`DELETE FROM ${table} WHERE id = ?`).run(id).changes > 0 })
+
+  return { upsert, list, get, remove }
+}
+
+const studioStore = makeWorkspaceStore({
+  table: 'marketing_studio_session',
+  jsonColumn: 'studio_json',
+  jsonKey: 'studioJson',
+})
+const canvasStore = makeWorkspaceStore({
+  table: 'node_canvas_project',
+  jsonColumn: 'canvas_json',
+  jsonKey: 'canvasJson',
+})
+
+export const upsertMarketingStudioSession = studioStore.upsert
+export const listMarketingStudioSessions = studioStore.list
+export const getMarketingStudioSession = studioStore.get
+export const deleteMarketingStudioSession = studioStore.remove
+
+export const upsertNodeCanvasProject = canvasStore.upsert
+export const listNodeCanvasProjects = canvasStore.list
+export const getNodeCanvasProject = canvasStore.get
+export const deleteNodeCanvasProject = canvasStore.remove
+
+// ---------------------------------------------------------------------------
+// Idempotent legacy import
+// ---------------------------------------------------------------------------
+
+/**
+ * Import workspaces out of browser localStorage into the database.
+ *
+ * Each item gets its OWN transaction. A batch import is a long, partly
+ * untrusted operation over data this code has never seen; one malformed
+ * session must not roll back the twenty that already imported cleanly. So a
+ * failure is recorded against that item and the batch continues.
+ *
+ * import_log is what makes re-running safe: an item already recorded there is
+ * skipped, so importing twice imports nothing twice.
+ */
+export function importLegacyData({ marketingStudioSessions = [], nodeCanvasProjects = [] } = {}) {
+  const db = getDb()
+  const summary = {
+    sessionsImported: 0,
+    sessionsSkipped: 0,
+    projectsImported: 0,
+    projectsSkipped: 0,
+    errors: [],
+  }
+
+  const alreadyImported = db.prepare('SELECT 1 FROM import_log WHERE source_type = ? AND source_id = ?')
+  const recordImport = db.prepare(
+    'INSERT OR IGNORE INTO import_log (source_type, source_id) VALUES (?, ?)'
+  )
+
+  // sourceField is the property on the incoming localStorage item ('studio' or
+  // 'canvas'); jsonKey is what the upsert function expects to receive it as.
+  const importOne = ({ items, sourceType, sourceField, jsonKey, upsertFn, importedKey, skippedKey }) => {
+    for (const item of Array.isArray(items) ? items : []) {
+      const id = item && item.id
+      try {
+        if (!id) throw new Error('item has no id')
+        const outcome = db
+          .transaction(() => {
+            if (alreadyImported.get(sourceType, String(id))) return 'skipped'
+            upsertFn({ id, name: item.name, [jsonKey]: item[sourceField] })
+            recordImport.run(sourceType, String(id))
+            return 'imported'
+          })
+          .immediate()
+        summary[outcome === 'skipped' ? skippedKey : importedKey]++
+      } catch (e) {
+        summary.errors.push({ id: id ?? null, error: e && e.message ? e.message : String(e) })
+      }
+    }
+  }
+
+  importOne({
+    items: marketingStudioSessions,
+    sourceType: 'marketing_studio_session',
+    sourceField: 'studio',
+    jsonKey: 'studioJson',
+    upsertFn: upsertMarketingStudioSession,
+    importedKey: 'sessionsImported',
+    skippedKey: 'sessionsSkipped',
+  })
+  importOne({
+    items: nodeCanvasProjects,
+    sourceType: 'node_canvas_project',
+    sourceField: 'canvas',
+    jsonKey: 'canvasJson',
+    upsertFn: upsertNodeCanvasProject,
+    importedKey: 'projectsImported',
+    skippedKey: 'projectsSkipped',
+  })
+
+  return summary
+}
+
+/** Cheap liveness probe for /health: can we actually query the database now? */
+export function checkDbConnectivity() {
+  try {
+    const row = getDb().prepare('SELECT COUNT(*) AS n FROM applied_migrations').get()
+    return typeof row.n === 'number'
+  } catch {
+    return false
+  }
+}
