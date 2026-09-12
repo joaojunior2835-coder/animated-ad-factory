@@ -841,6 +841,365 @@ function AiStrategyWizard({ productTestId, test, onCancel, onApproved }) {
 }
 
 // ---------------------------------------------------------------------------
+// Production Planning wizard.
+//
+// Planning is not spending: nothing here writes to the database until
+// Approve. Every edit re-prices deterministically — either purely
+// client-side (choosing between an already-fetched recommended/cheap video
+// option) or via the cheap /production-plan/reprice call — and NEVER
+// triggers a new Groq call for a pure number or model change.
+// ---------------------------------------------------------------------------
+
+const AVAILABILITY_FIELDS = [
+  ['usableSupplierFootage', 'Usable supplier footage?', 'tristate'],
+  ['productSampleAvailable', 'Physical product sample available?', 'bool'],
+  ['canFilmOriginalFootage', 'Can film original footage?', 'bool'],
+  ['talkingHeadReferenceAvailable', 'Talking-head reference available?', 'bool'],
+]
+
+function AvailabilityForm({ value, onChange }) {
+  const set = (k, v) => onChange({ ...value, [k]: v })
+  return (
+    <div className="fields">
+      {AVAILABILITY_FIELDS.map(([key, label, kind]) =>
+        kind === 'tristate' ? (
+          <Field key={key} label={label}>
+            <select data-testid={`avail-${key}`} value={value[key] || 'unknown'} onChange={(e) => set(key, e.target.value)}>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </Field>
+        ) : (
+          <label key={key} className="row" style={{ gap: '6px', alignItems: 'center' }}>
+            <input type="checkbox" data-testid={`avail-${key}`} checked={!!value[key]} onChange={(e) => set(key, e.target.checked)} />
+            <span>{label}</span>
+          </label>
+        )
+      )}
+    </div>
+  )
+}
+
+const VIDEO_MODEL_OPTIONS = [
+  { value: 'wan-720p', label: 'WAN 2.1 i2v 720p (higher quality)' },
+  { value: 'ltx', label: 'LTX-Video (cheap)' },
+  { value: 'mock', label: 'Mock (free, placeholder)' },
+]
+
+/** Derive the total cost for a specific chosen video model, purely from the
+ * already-fetched componentBreakdown — zero network calls. `role` on each
+ * breakdown row is 'recommended' (wan-720p) or 'cheap_fallback' (ltx). */
+function selectedCostFromBreakdown(plan, plannedModel) {
+  if (!plan || !plan.componentBreakdown) return null
+  const imagesRow = plan.componentBreakdown.find((c) => c.component === 'images')
+  const imageMinor = imagesRow && !imagesRow.unknown ? imagesRow.costMinor : 0
+  const imageUnknown = imagesRow ? !!imagesRow.unknown : false
+
+  if (plannedModel === 'mock') {
+    return { minor: imageMinor, currency: 'USD', unknown: imageUnknown }
+  }
+  const role = plannedModel === 'ltx' ? 'cheap_fallback' : 'recommended'
+  const rows = plan.componentBreakdown.filter((c) => c.component === 'video' && c.role === role)
+  const anyUnknown = imageUnknown || rows.some((r) => r.unknown)
+  const videoMinor = rows.reduce((sum, r) => sum + (r.unknown ? 0 : r.costMinor), 0)
+  return { minor: imageMinor + videoMinor, currency: 'USD', unknown: anyUnknown }
+}
+
+function costLabel(cost) {
+  if (!cost) return '—'
+  const amount = (cost.minor / 100).toFixed(2)
+  return cost.unknown ? `≥ $${amount} (includes unknown-cost components)` : `$${amount}`
+}
+
+function budgetBadgeStyle(status) {
+  if (status === 'WITHIN_TARGET') return { background: '#123d21', border: '1px solid #2f7d4a', color: '#8ff0b0' }
+  if (status === 'ABOVE_TARGET_BELOW_CEILING') return { background: '#40320f', border: '1px solid #a07c1f', color: '#f4d47c' }
+  return { background: '#4a1620', border: '1px solid #a32f43', color: '#ffb0be' }
+}
+
+function PlanCard({ plan, availability, onUpdate, onReprice }) {
+  const [local, setLocal] = useState({
+    fineMethod: plan.draft.fineMethod,
+    generationPlan: plan.draft.generationPlan,
+    plannedProvider: plan.plannedProvider || 'replicate',
+    plannedModel: plan.plannedModel || 'wan-720p',
+    coarseProductionMethod: plan.coarseProductionMethod || 'factory_generated',
+    notes: plan.notes || '',
+  })
+  const repriceTimer = useRef(null)
+
+  const scheduleReprice = (nextDraft) => {
+    if (repriceTimer.current) clearTimeout(repriceTimer.current)
+    repriceTimer.current = setTimeout(() => onReprice(nextDraft), 400)
+  }
+
+  const setField = (field, value) => {
+    const next = { ...local, [field]: value }
+    setLocal(next)
+    if (field === 'fineMethod' || field === 'generationPlan') {
+      const nextDraft = { ...plan.draft, fineMethod: next.fineMethod, generationPlan: next.generationPlan }
+      scheduleReprice(nextDraft)
+    }
+    onUpdate(next)
+  }
+
+  const setImageCount = (n) => setField('generationPlan', { ...local.generationPlan, imageGenerations: Math.max(0, Number(n) || 0) })
+  const setClip = (i, field, value) => {
+    const clips = local.generationPlan.videoClips.map((c, idx) => (idx === i ? { ...c, [field]: field === 'seconds' ? Math.max(0, Number(value) || 0) : value } : c))
+    setField('generationPlan', { ...local.generationPlan, videoClips: clips })
+  }
+  const addClip = () => setField('generationPlan', { ...local.generationPlan, videoClips: [...local.generationPlan.videoClips, { seconds: 6, purpose: '' }] })
+  const removeClip = (i) => setField('generationPlan', { ...local.generationPlan, videoClips: local.generationPlan.videoClips.filter((_, idx) => idx !== i) })
+
+  const displayedCost = selectedCostFromBreakdown(plan, local.plannedModel)
+  const missingAsset = (plan.flags || []).includes('MISSING_REQUIRED_ASSET')
+
+  return (
+    <div className="subpanel" data-testid={`plan-card-${plan.creativeId}`} style={{ marginBottom: '14px' }}>
+      <div className="row between">
+        <b>{plan.creativeCode}</b>
+        <span className="ms-badge" data-testid={`plan-cost-${plan.creativeId}`}>
+          {costLabel(displayedCost)}
+        </span>
+      </div>
+
+      {missingAsset ? (
+        <div className="note bad" data-testid={`missing-asset-${plan.creativeId}`} style={{ marginTop: '8px' }}>
+          ⚠ MISSING_REQUIRED_ASSET — this method depends on an asset that isn't in inventory or marked available.
+          {plan.fallbackMethod ? (
+            <div style={{ marginTop: '4px' }}>
+              Suggested fallback: <b>{plan.fallbackMethod}</b> — {plan.fallbackRationale}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="fields" style={{ marginTop: '8px' }}>
+        <Field label="Fine method">
+          <input className="ms-input" data-testid={`fine-method-${plan.creativeId}`} value={local.fineMethod} onChange={(e) => setField('fineMethod', e.target.value)} />
+        </Field>
+        <Field label="Rationale" hint="from the AI proposal">
+          <textarea className="ms-input" rows={2} value={plan.draft.rationale} readOnly />
+        </Field>
+        <Field label="Planned video model">
+          <select data-testid={`planned-model-${plan.creativeId}`} value={local.plannedModel} onChange={(e) => setField('plannedModel', e.target.value)}>
+            {VIDEO_MODEL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Coarse production method">
+          <select data-testid={`coarse-method-${plan.creativeId}`} value={local.coarseProductionMethod} onChange={(e) => setField('coarseProductionMethod', e.target.value)}>
+            <option value="factory_generated">factory_generated</option>
+            <option value="manual_external">manual_external</option>
+            <option value="mixed">mixed</option>
+          </select>
+        </Field>
+        <Field label="Image generations">
+          <input className="ms-input" data-testid={`image-count-${plan.creativeId}`} value={local.generationPlan.imageGenerations} onChange={(e) => setImageCount(e.target.value)} />
+        </Field>
+        <label className="row" style={{ gap: '6px', alignItems: 'center' }}>
+          <input type="checkbox" checked={!!local.generationPlan.voiceRequired} onChange={(e) => setField('generationPlan', { ...local.generationPlan, voiceRequired: e.target.checked })} />
+          <span>Voice required</span>
+        </label>
+        <Field label="Notes">
+          <textarea className="ms-input" rows={2} value={local.notes} onChange={(e) => setField('notes', e.target.value)} />
+        </Field>
+      </div>
+
+      <div className="hint small" style={{ margin: '8px 0' }}>
+        Video clips
+      </div>
+      {local.generationPlan.videoClips.map((c, i) => (
+        <div className="row" key={i} style={{ gap: '6px', marginBottom: '6px' }}>
+          <input className="ms-input" style={{ maxWidth: '80px' }} value={c.seconds} onChange={(e) => setClip(i, 'seconds', e.target.value)} />
+          <input className="ms-input" placeholder="purpose" value={c.purpose} onChange={(e) => setClip(i, 'purpose', e.target.value)} />
+          <button className="ghost small danger" onClick={() => removeClip(i)}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <button className="ghost small" onClick={addClip}>
+        + Add clip
+      </button>
+    </div>
+  )
+}
+
+function ProductionPlanningWizard({ iterationId, creatives, onCancel, onApproved }) {
+  const [step, setStep] = useState('availability')
+  const [availability, setAvailability] = useState(() => {
+    const init = {}
+    for (const c of creatives) init[c.id] = { usableSupplierFootage: 'unknown', productSampleAvailable: false, canFilmOriginalFootage: false, talkingHeadReferenceAvailable: false }
+    return init
+  })
+  const [plans, setPlans] = useState([])
+  const [batchSummary, setBatchSummary] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [approving, setApproving] = useState(false)
+  const [approveError, setApproveError] = useState('')
+  const [editsById, setEditsById] = useState({})
+
+  const generate = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const r = await api('POST', `/api/iterations/${iterationId}/production-plan/generate`, { availabilityByCreativeId: availability })
+      setPlans(r.plans)
+      setBatchSummary(r.batchSummary)
+      const edits = {}
+      for (const p of r.plans) {
+        if (p.ok) edits[p.creativeId] = { fineMethod: p.draft.fineMethod, generationPlan: p.draft.generationPlan, plannedProvider: 'replicate', plannedModel: 'wan-720p', coarseProductionMethod: 'factory_generated', notes: '' }
+      }
+      setEditsById(edits)
+      setStep('plans')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const reprice = async (creativeId, nextDraft) => {
+    const plan = plans.find((p) => p.creativeId === creativeId)
+    if (!plan || !plan.ok) return
+    try {
+      const priced = await api('POST', '/api/production-plan/reprice', {
+        draft: nextDraft,
+        availabilityDeclarations: availability[creativeId] || {},
+        knownInventory: plan.knownInventory,
+      })
+      setPlans((prev) => prev.map((p) => (p.creativeId === creativeId ? { ...p, ...priced, draft: nextDraft } : p)))
+    } catch {
+      // A failed re-price leaves the last-known price on screen rather than
+      // blanking it — the draft edit itself is not lost either way.
+    }
+  }
+
+  // Batch total recomputed live from whatever is currently displayed per
+  // plan (the selected model's cost), not the original generate-time total.
+  const liveTotal = useMemo(() => {
+    let minor = 0
+    let anyUnknown = false
+    for (const p of plans) {
+      if (!p.ok) continue
+      const edit = editsById[p.creativeId]
+      const cost = selectedCostFromBreakdown(p, edit ? edit.plannedModel : 'wan-720p')
+      if (cost) {
+        minor += cost.minor
+        if (cost.unknown) anyUnknown = true
+      }
+    }
+    return { minor, currency: 'USD', unknown: anyUnknown }
+  }, [plans, editsById])
+
+  const liveStatus = useMemo(() => {
+    if (!batchSummary) return null
+    if (typeof batchSummary.budgetCeilingMinor === 'number' && liveTotal.minor > batchSummary.budgetCeilingMinor) return 'ABOVE_CEILING'
+    if (typeof batchSummary.budgetTargetMinor === 'number' && liveTotal.minor > batchSummary.budgetTargetMinor) return 'ABOVE_TARGET_BELOW_CEILING'
+    return 'WITHIN_TARGET'
+  }, [batchSummary, liveTotal])
+
+  const approve = async () => {
+    setApproving(true)
+    setApproveError('')
+    try {
+      const validPlans = plans.filter((p) => p.ok)
+      const body = {
+        plans: validPlans.map((p) => {
+          const edit = editsById[p.creativeId]
+          return {
+            creativeId: p.creativeId,
+            fineMethod: edit.fineMethod,
+            rationale: p.draft.rationale,
+            requiredAssets: p.draft.requiredAssets,
+            plannedProvider: edit.plannedProvider,
+            plannedModel: edit.plannedModel,
+            generationPlan: edit.generationPlan,
+            estimatedCost: selectedCostFromBreakdown(p, edit.plannedModel),
+            notes: edit.notes,
+            coarseProductionMethod: edit.coarseProductionMethod,
+          }
+        }),
+      }
+      const r = await api('POST', `/api/iterations/${iterationId}/production-plan/approve`, body)
+      onApproved(r.items)
+    } catch (e) {
+      setApproveError(e.message)
+      setApproving(false)
+    }
+  }
+
+  return (
+    <div className="subpanel" data-testid="production-planning-wizard" style={{ marginTop: '12px' }}>
+      <div className="row between">
+        <h4>📋 Plan Production</h4>
+        <button className="ghost small" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+
+      {step === 'availability' ? (
+        <div data-testid="planning-step-availability">
+          <ErrorNote error={error} />
+          {creatives.map((c) => (
+            <div key={c.id} className="subpanel" style={{ marginBottom: '10px' }}>
+              <b>{c.creative_code}</b>
+              <AvailabilityForm value={availability[c.id]} onChange={(v) => setAvailability((a) => ({ ...a, [c.id]: v }))} />
+            </div>
+          ))}
+          <button className="primary" data-testid="generate-plans" disabled={loading} onClick={generate}>
+            {loading ? 'Generating…' : '🤖 Generate Plans'}
+          </button>
+        </div>
+      ) : (
+        <div data-testid="planning-step-plans">
+          <div className="note" data-testid="batch-summary-bar" style={{ marginBottom: '12px', ...budgetBadgeStyle(liveStatus) }}>
+            <b data-testid="batch-total">Total estimated: {costLabel(liveTotal)}</b>
+            {' · '}
+            Target: ${((batchSummary.budgetTargetMinor || 0) / 100).toFixed(2)} · Ceiling: ${((batchSummary.budgetCeilingMinor || 0) / 100).toFixed(2)}
+            {' · '}
+            <span data-testid="batch-status-badge">{liveStatus}</span>
+          </div>
+          <div className="hint small" style={{ marginBottom: '10px' }}>{batchSummary.currencyNote}</div>
+
+          <ErrorNote error={approveError} />
+
+          {plans.map((p) =>
+            p.ok ? (
+              <PlanCard
+                key={p.creativeId}
+                plan={p}
+                availability={availability[p.creativeId]}
+                onUpdate={(edit) => setEditsById((prev) => ({ ...prev, [p.creativeId]: edit }))}
+                onReprice={(nextDraft) => reprice(p.creativeId, nextDraft)}
+              />
+            ) : (
+              <div key={p.creativeId} className="note bad" data-testid={`plan-error-${p.creativeId}`}>
+                {p.creativeCode}: {p.error}
+              </div>
+            )
+          )}
+
+          <div className="row" style={{ gap: '8px', marginTop: '8px' }}>
+            <button className="ghost small" onClick={generate}>
+              🔄 Regenerate Plans
+            </button>
+            <button className="primary" data-testid="approve-production-plan" disabled={approving || plans.every((p) => !p.ok)} onClick={approve}>
+              {approving ? 'Creating…' : '✅ Approve Production Plan'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Creative form
 // ---------------------------------------------------------------------------
 
@@ -1327,6 +1686,8 @@ function ProductTestDetail({ productTestId, onBack, onOpenCreative, onOpenStudio
   const [showIterationForm, setShowIterationForm] = useState(false)
   const [showAiWizard, setShowAiWizard] = useState(false)
   const [showCreativeForm, setShowCreativeForm] = useState(false)
+  const [planningIteration, setPlanningIteration] = useState(null)
+  const [plannedRuns, setPlannedRuns] = useState(null)
   const [error, setError] = useState('')
 
   const load = async () => {
@@ -1490,6 +1851,54 @@ function ProductTestDetail({ productTestId, onBack, onOpenCreative, onOpenStudio
                   </div>
                 ))}
               </div>
+
+              {(creativesByIteration[it.id] || []).length > 0 ? (
+                <button
+                  className="ghost small"
+                  data-testid="plan-production"
+                  style={{ marginTop: '10px' }}
+                  onClick={() => {
+                    setPlannedRuns(null)
+                    setPlanningIteration(it.id)
+                  }}
+                >
+                  📋 Plan Production
+                </button>
+              ) : null}
+
+              {planningIteration === it.id ? (
+                <ProductionPlanningWizard
+                  iterationId={it.id}
+                  creatives={creativesByIteration[it.id] || []}
+                  onCancel={() => setPlanningIteration(null)}
+                  onApproved={async (items) => {
+                    setPlanningIteration(null)
+                    setPlannedRuns(items)
+                    await load()
+                  }}
+                />
+              ) : null}
+
+              {plannedRuns && planningIteration === null ? (
+                <div className="subpanel" data-testid="planned-runs-summary" style={{ marginTop: '10px' }}>
+                  <b>✅ Production plan approved — {plannedRuns.length} ProductionRun(s) created</b>
+                  <div className="ms-session-list" style={{ marginTop: '8px' }}>
+                    {plannedRuns.map((r) => (
+                      <div className="ms-session-row-item" key={r.id} data-testid={`planned-run-${r.id}`}>
+                        <div className="ms-session-info">
+                          <b>
+                            {r.creative_code} · attempt {r.attempt_number}
+                          </b>
+                          <div className="ms-badge-row">
+                            <span className="ms-badge">{r.status}</span>
+                            <span className="ms-badge">{r.production_method}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

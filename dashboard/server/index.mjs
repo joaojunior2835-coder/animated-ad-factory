@@ -40,7 +40,7 @@ import * as ptRepo from './db/productTestRepository.mjs'
 import { seedDefaultTestPolicy } from './db/productTestRepository.mjs'
 import { fetchProductPageText } from './lib/safeFetch.mjs'
 import { generateResearchDraft, generateStrategyDraft, validateResearchDraft } from './lib/organicStrategy.mjs'
-import { generateBatchProductionPlan } from './lib/productionPlanner.mjs'
+import { generateBatchProductionPlan, priceProductionPlan } from './lib/productionPlanner.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -991,6 +991,17 @@ const server = http.createServer(async (req, res) => {
           return fail(500, `Production plan generation failed: ${e && e.message ? e.message : 'unknown error'}`)
         }
       })
+    }
+
+    // Cheap re-price: pure computation over an already-generated (and
+    // possibly hand-edited) draft. Never calls Groq — a pure number/model
+    // change should never cost an AI call. Not creative/iteration-scoped:
+    // knownInventory is passed through unchanged from the original generate
+    // response, since editing a draft never changes what's linked in the DB.
+    if (req.method === 'POST' && url.pathname === '/api/production-plan/reprice') {
+      return readJsonBody(req, res, (body) =>
+        guard(() => ok(priceProductionPlan(body.draft, body.availabilityDeclarations || {}, body.knownInventory || {})))
+      )
     }
 
     if ((m = ptMatch('/api/iterations/:id/production-plan/approve')) && req.method === 'POST') {
