@@ -395,15 +395,33 @@ export function createCreativeForIteration({
 // ProductionRun
 // ---------------------------------------------------------------------------
 
+/**
+ * A Creative's first ProductionRun becomes its active_production_run_id.
+ * This column has existed since M0 but nothing ever set it (confirmed by a
+ * repo-wide search before this fix) — a real, small pre-existing gap, safe
+ * to close here since no code anywhere reads it yet. The composite FK
+ * (active_production_run_id, id) REFERENCES production_run(id, creative_id)
+ * only accepts a run that belongs to this same creative, which is true by
+ * construction immediately after creating it.
+ */
 export function createProductionRunForCreative({ creativeId, productionMethod }) {
   const db = getDb()
   return db
     .transaction(() => {
+      const creative = requireRow(
+        db.prepare('SELECT active_production_run_id FROM creative WHERE id = ?').get(creativeId),
+        `createProductionRunForCreative: no creative with id ${creativeId}`
+      )
       const maxRow = db
         .prepare('SELECT MAX(attempt_number) AS maxAttempt FROM production_run WHERE creative_id = ?')
         .get(creativeId)
       const attemptNumber = (maxRow && maxRow.maxAttempt ? Number(maxRow.maxAttempt) : 0) + 1
-      return createProductionRun({ creativeId, attemptNumber, productionMethod })
+      const runId = createProductionRun({ creativeId, attemptNumber, productionMethod })
+
+      if (creative.active_production_run_id === null) {
+        db.prepare(`UPDATE creative SET active_production_run_id = ?, updated_at = ${NOW} WHERE id = ?`).run(runId, creativeId)
+      }
+      return runId
     })
     .immediate()
 }
