@@ -311,6 +311,536 @@ function NewIterationForm({ productTestId, onCancel, onCreated }) {
 }
 
 // ---------------------------------------------------------------------------
+// AI-assisted strategy wizard — Step A (research) and Step B (strategy).
+//
+// Nothing here writes to the database until the final Approve action. Step A
+// and Step B only call research/generate and strategy/generate, both of which
+// are read-only from the database's point of view.
+// ---------------------------------------------------------------------------
+
+/** Editable list of plain strings — add / edit / remove rows. */
+function EditableStringList({ items, onChange, placeholder, testId }) {
+  const list = Array.isArray(items) ? items : []
+  const setAt = (i, value) => onChange(list.map((v, idx) => (idx === i ? value : v)))
+  const removeAt = (i) => onChange(list.filter((_, idx) => idx !== i))
+  return (
+    <div>
+      {list.map((v, i) => (
+        <div className="row" key={i} style={{ gap: '6px', marginBottom: '4px' }}>
+          <input
+            className="ms-input"
+            data-testid={testId ? `${testId}-${i}` : undefined}
+            value={v}
+            placeholder={placeholder}
+            onChange={(e) => setAt(i, e.target.value)}
+          />
+          <button className="ghost small danger" onClick={() => removeAt(i)}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <button className="ghost small" onClick={() => onChange([...list, ''])}>
+        + Add
+      </button>
+    </div>
+  )
+}
+
+/** Editable list of {momentOrTrigger, whyKey} pairs — used for moments/emotionalTriggers. */
+function EditableRowPairList({ items, onChange, keyA, keyB, labelA, labelB }) {
+  const list = Array.isArray(items) ? items : []
+  const setField = (i, field, value) => onChange(list.map((v, idx) => (idx === i ? { ...v, [field]: value } : v)))
+  const removeAt = (i) => onChange(list.filter((_, idx) => idx !== i))
+  return (
+    <div>
+      {list.map((row, i) => (
+        <div className="subpanel" key={i} style={{ marginBottom: '6px', padding: '8px' }}>
+          <div className="row" style={{ gap: '6px' }}>
+            <input className="ms-input" placeholder={labelA} value={row[keyA] || ''} onChange={(e) => setField(i, keyA, e.target.value)} />
+            <button className="ghost small danger" onClick={() => removeAt(i)}>
+              ✕
+            </button>
+          </div>
+          <input className="ms-input" style={{ marginTop: '4px' }} placeholder={labelB} value={row[keyB] || ''} onChange={(e) => setField(i, keyB, e.target.value)} />
+        </div>
+      ))}
+      <button className="ghost small" onClick={() => onChange([...list, { [keyA]: '', [keyB]: '' }])}>
+        + Add
+      </button>
+    </div>
+  )
+}
+
+/** Editable customerLanguage list — phrase + a SOURCE-DERIVED/INFERRED badge. */
+function EditableCustomerLanguage({ items, onChange }) {
+  const list = Array.isArray(items) ? items : []
+  const setField = (i, field, value) => onChange(list.map((v, idx) => (idx === i ? { ...v, [field]: value } : v)))
+  const removeAt = (i) => onChange(list.filter((_, idx) => idx !== i))
+  return (
+    <div>
+      {list.map((row, i) => (
+        <div className="row" key={i} style={{ gap: '6px', marginBottom: '4px', alignItems: 'center' }}>
+          <input className="ms-input" value={row.phrase || ''} onChange={(e) => setField(i, 'phrase', e.target.value)} />
+          <select value={row.provenance || 'INFERRED'} onChange={(e) => setField(i, 'provenance', e.target.value)}>
+            <option value="SOURCE-DERIVED">SOURCE-DERIVED</option>
+            <option value="INFERRED">INFERRED</option>
+          </select>
+          <button className="ghost small danger" onClick={() => removeAt(i)}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <button className="ghost small" onClick={() => onChange([...list, { phrase: '', provenance: 'INFERRED' }])}>
+        + Add
+      </button>
+    </div>
+  )
+}
+
+function ResearchStep({ test, draft, setDraft, sourceFetch, loading, error, onRegenerate, onContinue }) {
+  const p = draft?.product || {}
+  const vd = draft?.visualDemonstration || {}
+  const av = draft?.primaryAvatar || {}
+  const op = draft?.organicPotential || {}
+
+  const patch = (path, value) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d))
+      let obj = next
+      for (let i = 0; i < path.length - 1; i++) obj = obj[path[i]]
+      obj[path[path.length - 1]] = value
+      return next
+    })
+  }
+
+  return (
+    <div data-testid="ai-wizard-step-a">
+      <ErrorNote error={error} onRetry={onRegenerate} />
+
+      {loading ? (
+        <div className="ms-empty-state" data-testid="research-loading">
+          <p>Researching {test.product_name}…</p>
+        </div>
+      ) : draft ? (
+        <>
+          <div className="note" data-testid="source-fetch-status" style={{ marginBottom: '12px' }}>
+            {sourceFetch && sourceFetch.ok ? (
+              <>
+                Using product page content from <b>{sourceFetch.finalUrl}</b>, fetched {new Date(sourceFetch.fetchedAt).toLocaleString()}.
+              </>
+            ) : sourceFetch && sourceFetch.attempted ? (
+              <>Product page could not be read automatically ({sourceFetch.reason}) — using Product Test details only.</>
+            ) : (
+              <>Product page fetch not attempted — using Product Test details only.</>
+            )}
+          </div>
+
+          <div className="subpanel" style={{ marginBottom: '10px' }}>
+            <h4>Product</h4>
+            <Field label="What it is">
+              <textarea className="ms-input" rows={2} value={p.whatItIs || ''} onChange={(e) => patch(['product', 'whatItIs'], e.target.value)} />
+            </Field>
+            <Field label="Mechanism">
+              <textarea className="ms-input" rows={2} value={p.mechanism || ''} onChange={(e) => patch(['product', 'mechanism'], e.target.value)} />
+            </Field>
+            <Field label="Key characteristics">
+              <EditableStringList items={p.keyCharacteristics} onChange={(v) => patch(['product', 'keyCharacteristics'], v)} />
+            </Field>
+            <Field label="Limitations">
+              <EditableStringList items={p.limitations} onChange={(v) => patch(['product', 'limitations'], v)} />
+            </Field>
+            <Field label="Provenance">
+              <select value={p.provenance || 'UNKNOWN'} onChange={(e) => patch(['product', 'provenance'], e.target.value)}>
+                <option value="SOURCE FACT">SOURCE FACT</option>
+                <option value="INFERENCE">INFERENCE</option>
+                <option value="UNKNOWN">UNKNOWN</option>
+              </select>
+            </Field>
+          </div>
+
+          <div className="subpanel" style={{ marginBottom: '10px' }}>
+            <h4>Visual demonstration</h4>
+            <Field label="First seconds clarity">
+              <textarea className="ms-input" rows={2} value={vd.firstSecondsClarity || ''} onChange={(e) => patch(['visualDemonstration', 'firstSecondsClarity'], e.target.value)} />
+            </Field>
+            <Field label="Strongest demo ideas">
+              <EditableStringList items={vd.strongestDemoIdeas} onChange={(v) => patch(['visualDemonstration', 'strongestDemoIdeas'], v)} />
+            </Field>
+            <label className="row" style={{ gap: '6px', alignItems: 'center' }}>
+              <input type="checkbox" checked={!!vd.isOutcomeVisible} onChange={(e) => patch(['visualDemonstration', 'isOutcomeVisible'], e.target.checked)} />
+              <span>Outcome is visible</span>
+            </label>
+            <Field label="Risks">
+              <EditableStringList items={vd.risks} onChange={(v) => patch(['visualDemonstration', 'risks'], v)} />
+            </Field>
+          </div>
+
+          <div className="subpanel" style={{ marginBottom: '10px' }}>
+            <h4>Primary avatar</h4>
+            <Field label="Who they are">
+              <textarea className="ms-input" rows={2} value={av.whoTheyAre || ''} onChange={(e) => patch(['primaryAvatar', 'whoTheyAre'], e.target.value)} />
+            </Field>
+            <Field label="Main problem">
+              <textarea className="ms-input" rows={2} value={av.mainProblem || ''} onChange={(e) => patch(['primaryAvatar', 'mainProblem'], e.target.value)} />
+            </Field>
+            <Field label="Desired outcome">
+              <textarea className="ms-input" rows={2} value={av.desiredOutcome || ''} onChange={(e) => patch(['primaryAvatar', 'desiredOutcome'], e.target.value)} />
+            </Field>
+            <Field label="Main objections">
+              <EditableStringList items={av.mainObjections} onChange={(v) => patch(['primaryAvatar', 'mainObjections'], v)} />
+            </Field>
+            <Field label="Current alternatives">
+              <textarea className="ms-input" rows={2} value={av.currentAlternatives || ''} onChange={(e) => patch(['primaryAvatar', 'currentAlternatives'], e.target.value)} />
+            </Field>
+          </div>
+
+          <div className="subpanel" style={{ marginBottom: '10px' }}>
+            <h4>Moments</h4>
+            <EditableRowPairList items={draft.moments} onChange={(v) => patch(['moments'], v)} keyA="moment" keyB="whyItMatters" labelA="Moment" labelB="Why it matters" />
+          </div>
+
+          <div className="subpanel" style={{ marginBottom: '10px' }}>
+            <h4>Emotional triggers</h4>
+            <EditableRowPairList items={draft.emotionalTriggers} onChange={(v) => patch(['emotionalTriggers'], v)} keyA="trigger" keyB="whyItApplies" labelA="Trigger" labelB="Why it applies" />
+          </div>
+
+          <div className="subpanel" style={{ marginBottom: '10px' }}>
+            <h4>Customer language</h4>
+            <EditableCustomerLanguage items={draft.customerLanguage} onChange={(v) => patch(['customerLanguage'], v)} />
+          </div>
+
+          <div className="subpanel" style={{ marginBottom: '10px' }}>
+            <h4>Organic potential</h4>
+            <Field label="Strengths">
+              <EditableStringList items={op.strengths} onChange={(v) => patch(['organicPotential', 'strengths'], v)} />
+            </Field>
+            <Field label="Risks">
+              <EditableStringList items={op.risks} onChange={(v) => patch(['organicPotential', 'risks'], v)} />
+            </Field>
+            <Field label="Unknowns">
+              <EditableStringList items={op.unknowns} onChange={(v) => patch(['organicPotential', 'unknowns'], v)} />
+            </Field>
+          </div>
+
+          <div className="row" style={{ gap: '8px' }}>
+            <button
+              className="ghost"
+              onClick={() => {
+                if (window.confirm('Regenerate research? Your current edits will be discarded.')) onRegenerate()
+              }}
+            >
+              🔄 Regenerate Research
+            </button>
+            <button className="primary" data-testid="continue-to-strategy" disabled={!draft} onClick={onContinue}>
+              Continue to Strategy →
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function ExecutionCard({ execution, flaggedHooks, onChange, onRemove, onMoveUp, onMoveDown }) {
+  const set = (field, value) => onChange({ ...execution, [field]: value })
+  const isFlagged = flaggedHooks.has(execution.hookText)
+  return (
+    <div className="subpanel" data-testid="execution-card" style={{ marginBottom: '8px', border: isFlagged ? '1px solid #a32f43' : undefined }}>
+      {isFlagged ? (
+        <div className="note bad" data-testid="near-duplicate-warning" style={{ marginBottom: '6px' }}>
+          ⚠ This hook is very similar to another execution — consider differentiating it further.
+        </div>
+      ) : null}
+      <div className="fields">
+        <Field label="Format">
+          <input className="ms-input" value={execution.format || ''} onChange={(e) => set('format', e.target.value)} />
+        </Field>
+        <Field label="Hook family">
+          <input className="ms-input" value={execution.hookFamily || ''} onChange={(e) => set('hookFamily', e.target.value)} />
+        </Field>
+        <Field label="Hook text">
+          <input className="ms-input" data-testid="execution-hook-text" value={execution.hookText || ''} onChange={(e) => set('hookText', e.target.value)} />
+        </Field>
+        <Field label="First frame concept">
+          <textarea className="ms-input" rows={2} value={execution.firstFrameConcept || ''} onChange={(e) => set('firstFrameConcept', e.target.value)} />
+        </Field>
+        <Field label="Core scenario">
+          <textarea className="ms-input" rows={2} value={execution.coreScenario || ''} onChange={(e) => set('coreScenario', e.target.value)} />
+        </Field>
+        <Field label="Differentiation note">
+          <textarea className="ms-input" rows={2} value={execution.differentiationNote || ''} onChange={(e) => set('differentiationNote', e.target.value)} />
+        </Field>
+        <Field label="Suggested duration range">
+          <input className="ms-input" value={execution.suggestedDurationRange || ''} onChange={(e) => set('suggestedDurationRange', e.target.value)} />
+        </Field>
+        <Field label="Production notes">
+          <input className="ms-input" value={execution.productionNotes || ''} onChange={(e) => set('productionNotes', e.target.value)} />
+        </Field>
+      </div>
+      <div className="row" style={{ gap: '6px', marginTop: '6px' }}>
+        <button className="ghost small" onClick={onMoveUp}>
+          ↑
+        </button>
+        <button className="ghost small" onClick={onMoveDown}>
+          ↓
+        </button>
+        <button className="ghost small danger" data-testid="remove-execution" onClick={onRemove}>
+          Delete
+        </button>
+      </div>
+    </div>
+  )
+}
+
+const BLANK_EXECUTION = {
+  format: '',
+  hookFamily: '',
+  hookText: '',
+  firstFrameConcept: '',
+  coreScenario: '',
+  differentiationNote: '',
+  suggestedDurationRange: null,
+  productionNotes: null,
+}
+
+function StrategyStep({ angles, setAngles, duplicateWarnings, loading, error, targetCount, setTargetCount, mode, setMode, onGenerate, onApprove, approving }) {
+  const flaggedHooks = useMemo(() => {
+    const s = new Set()
+    for (const w of duplicateWarnings || []) {
+      s.add(w.hookA)
+      s.add(w.hookB)
+    }
+    return s
+  }, [duplicateWarnings])
+
+  const updateAngle = (i, next) => setAngles((prev) => prev.map((a, idx) => (idx === i ? next : a)))
+  const updateExecution = (ai, ei, next) =>
+    updateAngle(ai, { ...angles[ai], executions: angles[ai].executions.map((e, idx) => (idx === ei ? next : e)) })
+  const removeExecution = (ai, ei) =>
+    updateAngle(ai, { ...angles[ai], executions: angles[ai].executions.filter((_, idx) => idx !== ei) })
+  const addExecution = (ai) => updateAngle(ai, { ...angles[ai], executions: [...angles[ai].executions, { ...BLANK_EXECUTION }] })
+  const moveExecution = (ai, ei, dir) => {
+    const execs = [...angles[ai].executions]
+    const target = ei + dir
+    if (target < 0 || target >= execs.length) return
+    ;[execs[ei], execs[target]] = [execs[target], execs[ei]]
+    updateAngle(ai, { ...angles[ai], executions: execs })
+  }
+  const addAngle = () => setAngles((prev) => [...prev, { angleName: '', angleRationale: '', executions: [{ ...BLANK_EXECUTION }] }])
+  const removeAngle = (ai) => setAngles((prev) => prev.filter((_, idx) => idx !== ai))
+
+  const totalExecutions = (angles || []).reduce((n, a) => n + (a.executions || []).length, 0)
+
+  return (
+    <div data-testid="ai-wizard-step-b">
+      <ErrorNote error={error} />
+      <div className="row" style={{ gap: '12px', marginBottom: '10px' }}>
+        <Field label="Target execution count">
+          <select data-testid="target-count" value={targetCount} onChange={(e) => setTargetCount(Number(e.target.value))}>
+            <option value={6}>6</option>
+            <option value={8}>8</option>
+            <option value={12}>12</option>
+            <option value={16}>16</option>
+          </select>
+        </Field>
+        <Field label="Mode">
+          <select data-testid="strategy-mode" value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="exploratory">Exploratory</option>
+            <option value="confirmatory">Confirmatory</option>
+          </select>
+        </Field>
+        <button className="primary" data-testid="generate-strategy" onClick={onGenerate} disabled={loading} style={{ alignSelf: 'flex-end' }}>
+          {loading ? 'Generating…' : angles.length ? '🔄 Regenerate Strategy' : '🤖 Generate Strategy'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="ms-empty-state" data-testid="strategy-loading">
+          <p>Generating strategy…</p>
+        </div>
+      ) : angles.length > 0 ? (
+        <>
+          <p className="hint small">
+            {angles.length} angle{angles.length === 1 ? '' : 's'}, {totalExecutions} execution{totalExecutions === 1 ? '' : 's'} total.
+          </p>
+          {angles.map((angle, ai) => (
+            <div className="subpanel" key={ai} data-testid={`angle-card-${ai}`} style={{ marginBottom: '14px' }}>
+              <div className="row between">
+                <input
+                  className="ms-input"
+                  style={{ fontWeight: 'bold' }}
+                  value={angle.angleName || ''}
+                  onChange={(e) => updateAngle(ai, { ...angle, angleName: e.target.value })}
+                />
+                <button className="ghost small danger" onClick={() => removeAngle(ai)}>
+                  Delete angle
+                </button>
+              </div>
+              <textarea
+                className="ms-input"
+                rows={2}
+                style={{ marginTop: '6px' }}
+                value={angle.angleRationale || ''}
+                onChange={(e) => updateAngle(ai, { ...angle, angleRationale: e.target.value })}
+              />
+              <div style={{ marginTop: '10px' }}>
+                {(angle.executions || []).map((execution, ei) => (
+                  <ExecutionCard
+                    key={ei}
+                    execution={execution}
+                    flaggedHooks={flaggedHooks}
+                    onChange={(next) => updateExecution(ai, ei, next)}
+                    onRemove={() => removeExecution(ai, ei)}
+                    onMoveUp={() => moveExecution(ai, ei, -1)}
+                    onMoveDown={() => moveExecution(ai, ei, 1)}
+                  />
+                ))}
+              </div>
+              <button className="ghost small" onClick={() => addExecution(ai)}>
+                + Add execution
+              </button>
+            </div>
+          ))}
+          <button className="ghost small" onClick={addAngle}>
+            + Add angle
+          </button>
+
+          <div className="row" style={{ gap: '8px', marginTop: '16px' }}>
+            <button className="primary" data-testid="approve-strategy" disabled={approving || totalExecutions === 0} onClick={onApprove}>
+              {approving ? 'Creating…' : '✅ Approve & Create Iteration'}
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function AiStrategyWizard({ productTestId, test, onCancel, onApproved }) {
+  const [step, setStep] = useState('a')
+  const [researchDraft, setResearchDraft] = useState(null)
+  const [sourceFetch, setSourceFetch] = useState(null)
+  const [researchLoading, setResearchLoading] = useState(true)
+  const [researchError, setResearchError] = useState('')
+
+  const [angles, setAngles] = useState([])
+  const [duplicateWarnings, setDuplicateWarnings] = useState([])
+  const [strategyLoading, setStrategyLoading] = useState(false)
+  const [strategyError, setStrategyError] = useState('')
+  const [targetCount, setTargetCount] = useState(12)
+  const [mode, setMode] = useState('exploratory')
+  const [approving, setApproving] = useState(false)
+  const [approveError, setApproveError] = useState('')
+
+  const runResearch = async () => {
+    setResearchLoading(true)
+    setResearchError('')
+    setResearchDraft(null)
+    try {
+      const r = await api('POST', `/api/product-tests/${productTestId}/research/generate`, { useSourcePage: true })
+      setResearchDraft(r.draft)
+      setSourceFetch(r.sourceFetch)
+    } catch (e) {
+      setResearchError(e.message)
+    } finally {
+      setResearchLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    runResearch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const runStrategy = async () => {
+    setStrategyLoading(true)
+    setStrategyError('')
+    try {
+      const r = await api('POST', `/api/product-tests/${productTestId}/strategy/generate`, {
+        researchDraft,
+        targetCount,
+        mode,
+      })
+      setAngles(r.draft.angles || [])
+      setDuplicateWarnings(r.duplicateWarnings || [])
+    } catch (e) {
+      setStrategyError(e.message)
+    } finally {
+      setStrategyLoading(false)
+    }
+  }
+
+  const approve = async () => {
+    setApproving(true)
+    setApproveError('')
+    try {
+      const strategyRows = []
+      for (const angle of angles) {
+        for (const execution of angle.executions || []) {
+          strategyRows.push({ ...execution, angle: angle.angleName })
+        }
+      }
+      const r = await api('POST', `/api/product-tests/${productTestId}/approve-strategy`, {
+        mode,
+        researchDraft,
+        strategyRows,
+        policyOverrides: {},
+        targetCount,
+      })
+      onApproved(r.item)
+    } catch (e) {
+      setApproveError(e.message)
+      setApproving(false)
+    }
+  }
+
+  return (
+    <div className="subpanel" data-testid="ai-strategy-wizard" style={{ marginTop: '12px' }}>
+      <div className="row between">
+        <h4>🤖 AI-Assisted Strategy — {step === 'a' ? 'Step 1: Research' : 'Step 2: Strategy'}</h4>
+        <button className="ghost small" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+
+      {step === 'a' ? (
+        <ResearchStep
+          test={test}
+          draft={researchDraft}
+          setDraft={setResearchDraft}
+          sourceFetch={sourceFetch}
+          loading={researchLoading}
+          error={researchError}
+          onRegenerate={runResearch}
+          onContinue={() => setStep('b')}
+        />
+      ) : (
+        <>
+          <ErrorNote error={approveError} />
+          <StrategyStep
+            angles={angles}
+            setAngles={setAngles}
+            duplicateWarnings={duplicateWarnings}
+            loading={strategyLoading}
+            error={strategyError}
+            targetCount={targetCount}
+            setTargetCount={setTargetCount}
+            mode={mode}
+            setMode={setMode}
+            onGenerate={runStrategy}
+            onApprove={approve}
+            approving={approving}
+          />
+          <button className="ghost small" style={{ marginTop: '8px' }} onClick={() => setStep('a')}>
+            ← Back to Research
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Creative form
 // ---------------------------------------------------------------------------
 
@@ -795,6 +1325,7 @@ function ProductTestDetail({ productTestId, onBack, onOpenCreative, onOpenStudio
   const [creativesByIteration, setCreativesByIteration] = useState({})
   const [openIteration, setOpenIteration] = useState(null)
   const [showIterationForm, setShowIterationForm] = useState(false)
+  const [showAiWizard, setShowAiWizard] = useState(false)
   const [showCreativeForm, setShowCreativeForm] = useState(false)
   const [error, setError] = useState('')
 
@@ -870,9 +1401,14 @@ function ProductTestDetail({ productTestId, onBack, onOpenCreative, onOpenStudio
 
       <div className="row between" style={{ marginTop: '18px' }}>
         <h3>Iterations</h3>
-        <button className="primary small" data-testid="add-iteration" onClick={() => setShowIterationForm(true)}>
-          + New Iteration
-        </button>
+        <div className="row" style={{ gap: '8px' }}>
+          <button className="primary small" data-testid="add-iteration" onClick={() => setShowIterationForm(true)}>
+            + New Iteration
+          </button>
+          <button className="ghost small" data-testid="ai-generate-strategy" onClick={() => setShowAiWizard(true)}>
+            🤖 Generate Strategy with AI
+          </button>
+        </div>
       </div>
 
       {showIterationForm ? (
@@ -887,7 +1423,20 @@ function ProductTestDetail({ productTestId, onBack, onOpenCreative, onOpenStudio
         />
       ) : null}
 
-      {iterations.length === 0 && !showIterationForm ? <p className="hint small">No iterations yet.</p> : null}
+      {showAiWizard ? (
+        <AiStrategyWizard
+          productTestId={productTestId}
+          test={test}
+          onCancel={() => setShowAiWizard(false)}
+          onApproved={async ({ iteration }) => {
+            setShowAiWizard(false)
+            setOpenIteration(iteration.id)
+            await load()
+          }}
+        />
+      ) : null}
+
+      {iterations.length === 0 && !showIterationForm && !showAiWizard ? <p className="hint small">No iterations yet.</p> : null}
 
       {iterations.map((it) => (
         <div className="subpanel" key={it.id} style={{ marginTop: '12px' }} data-testid={`iteration-${it.id}`}>
