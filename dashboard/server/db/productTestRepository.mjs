@@ -591,3 +591,115 @@ export function addReviewEvent({ creativeId, productionRunId = null, eventType, 
 export function listReviewEventsForCreative(creativeId) {
   return getDb().prepare('SELECT * FROM review_event WHERE creative_id = ? ORDER BY id DESC').all(creativeId)
 }
+
+// ---------------------------------------------------------------------------
+// AI-assisted strategy approval (M2)
+//
+// research/generate and strategy/generate (server/lib/organicStrategy.mjs)
+// write nothing to the database — only this function does, and only atomically.
+// It reuses createIterationForTest and createCreativeForIteration directly
+// rather than duplicating their code generation / lineage-derivation logic.
+// This is safe without modifying either function: better-sqlite3's
+// db.transaction(fn) automatically uses SAVEPOINT/RELEASE instead of
+// BEGIN/COMMIT when called while db.inTransaction is already true, so calling
+// them from inside this function's own .immediate() transaction nests
+// correctly and rolls back completely on any failure. Verified empirically
+// (not just by reading the library source) before relying on it here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Compact provenance carried into strategy_snapshot.research — deliberately
+ * NOT the full fetched page text (that can be kilobytes of scraped HTML-derived
+ * text; it already served its purpose informing the research draft and has no
+ * reason to be duplicated into every iteration row going forward).
+ */
+function buildStrategyProvenance(researchDraft) {
+  const rd = researchDraft || {}
+  const sourceMeta = rd.sourceMeta || {}
+  const product = rd.product || {}
+  const avatar = rd.primaryAvatar || {}
+
+  const researchSummary = [product.whatItIs, avatar.mainProblem].filter(Boolean).join(' — ')
+
+  const sourceLabeledFacts = []
+  for (const item of rd.customerLanguage || []) sourceLabeledFacts.push({ type: 'customerLanguage', ...item })
+  if (product.provenance === 'SOURCE FACT') {
+    sourceLabeledFacts.push({
+      type: 'product',
+      provenance: 'SOURCE FACT',
+      whatItIs: product.whatItIs,
+      mechanism: product.mechanism,
+    })
+  }
+
+  return {
+    sourceUrl: sourceMeta.sourceUrl ?? null,
+    fetchSucceeded: !!sourceMeta.fetchSucceeded,
+    fetchedAt: sourceMeta.fetchedAt ?? null,
+    contentHash: sourceMeta.contentHash ?? null,
+    researchSummary,
+    sourceLabeledFacts,
+  }
+}
+
+/**
+ * Create one Iteration and its Creatives from an approved (human-edited)
+ * strategy, all in a single transaction. Any failure — including a single bad
+ * row partway through — rolls back the entire batch: zero Iteration, zero
+ * Creatives, never a partial mess.
+ *
+ * strategyRows: flat array, one entry per execution, each carrying its parent
+ * angle's name as `angle` plus the execution fields (format, hookFamily,
+ * hookText, coreScenario, differentiationNote, defaultProductionMethod?).
+ * targetCount: the originally requested execution count (informational —
+ * strategyRows may have been edited/trimmed since generation); defaults to
+ * strategyRows.length when not supplied.
+ */
+export function approveStrategyForProductTest({
+  productTestId,
+  mode,
+  researchDraft,
+  strategyRows,
+  policyOverrides = {},
+  targetCount,
+}) {
+  if (!Array.isArray(strategyRows) || strategyRows.length === 0) {
+    throw new Error('approveStrategyForProductTest: strategyRows must be a non-empty array')
+  }
+
+  const db = getDb()
+  return db
+    .transaction(() => {
+      const provenance = buildStrategyProvenance(researchDraft)
+      const strategySnapshot = {
+        research: provenance,
+        matrix: strategyRows,
+        generatedAt: new Date().toISOString(),
+        targetCount: Number.isFinite(Number(targetCount)) ? Number(targetCount) : strategyRows.length,
+        actualCount: strategyRows.length,
+      }
+
+      const iterationId = createIterationForTest({
+        productTestId,
+        mode,
+        strategySnapshot,
+        policyOverrides,
+      })
+
+      for (const row of strategyRows) {
+        const conceptSummary = [row.coreScenario, row.differentiationNote].filter(Boolean).join(' — ') || null
+        createCreativeForIteration({
+          iterationId,
+          angle: row.angle,
+          format: row.format,
+          hookFamily: row.hookFamily || null,
+          hookText: row.hookText || null,
+          conceptSummary,
+          defaultProductionMethod: row.defaultProductionMethod || 'factory_generated',
+        })
+      }
+
+      return iterationId
+    })
+    .immediate()
+}

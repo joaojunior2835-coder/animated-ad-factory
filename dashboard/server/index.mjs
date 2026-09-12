@@ -38,6 +38,8 @@ import {
 import { backupState, inspectBackup, restoreFromBackup, listBackups } from './db/backup.mjs'
 import * as ptRepo from './db/productTestRepository.mjs'
 import { seedDefaultTestPolicy } from './db/productTestRepository.mjs'
+import { fetchProductPageText } from './lib/safeFetch.mjs'
+import { generateResearchDraft, generateStrategyDraft, validateResearchDraft } from './lib/organicStrategy.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -894,6 +896,84 @@ const server = http.createServer(async (req, res) => {
     }
     if ((m = ptMatch('/api/creatives/:id/review-events')) && req.method === 'GET') {
       return guard(() => ok({ items: ptRepo.listReviewEventsForCreative(idNum(m[0])) }))
+    }
+
+    // ---- M2: AI-assisted research + strategy generation ----
+    // Nothing in this block writes to the database except approve-strategy,
+    // and that one writes atomically or not at all.
+    if ((m = ptMatch('/api/product-tests/:id/research/generate')) && req.method === 'POST') {
+      const testId = idNum(m[0])
+      return readJsonBody(req, res, async (body) => {
+        try {
+          const productTest = ptRepo.getProductTestWithLineage(testId)
+          if (!productTest) return fail(404, `No product test with id ${testId}`)
+
+          let fetchResult = null
+          if (body.useSourcePage) {
+            const url = body.productUrl || productTest.product_url || productTest.supplier_url
+            if (url) fetchResult = await fetchProductPageText(url)
+          }
+
+          const result = await generateResearchDraft({ productTest, fetchResult })
+          if (!result.ok) return fail(502, result.error || 'Research generation failed.')
+          // sourceFetch carries the attempt's outcome for UI display — never the
+          // extracted page text itself, which already served its purpose and has
+          // no reason to round-trip back to the client a second time.
+          return ok({
+            draft: result.draft,
+            sourceFetch: {
+              attempted: !!fetchResult,
+              ok: !!(fetchResult && fetchResult.ok),
+              reason: fetchResult && !fetchResult.ok ? fetchResult.reason : null,
+              finalUrl: fetchResult && fetchResult.ok ? fetchResult.finalUrl : null,
+              fetchedAt: fetchResult && fetchResult.ok ? fetchResult.fetchedAt : null
+            }
+          })
+        } catch (e) {
+          return fail(500, `Research generation failed: ${e && e.message ? e.message : 'unknown error'}`)
+        }
+      })
+    }
+
+    if ((m = ptMatch('/api/product-tests/:id/strategy/generate')) && req.method === 'POST') {
+      return readJsonBody(req, res, async (body) => {
+        try {
+          const targetCount = Number.isFinite(Number(body.targetCount)) ? Number(body.targetCount) : 12
+          const result = await generateStrategyDraft({
+            researchDraft: body.researchDraft,
+            targetCount,
+            mode: body.mode || 'exploratory'
+          })
+          if (!result.ok) return fail(502, result.error || 'Strategy generation failed.')
+          return ok({ draft: result.draft, duplicateWarnings: result.duplicateWarnings })
+        } catch (e) {
+          return fail(500, `Strategy generation failed: ${e && e.message ? e.message : 'unknown error'}`)
+        }
+      })
+    }
+
+    if ((m = ptMatch('/api/product-tests/:id/approve-strategy')) && req.method === 'POST') {
+      const testId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          const researchCheck = validateResearchDraft(body.researchDraft)
+          if (!researchCheck.valid) return fail(400, `researchDraft is invalid: ${researchCheck.errors.join('; ')}`)
+          if (!Array.isArray(body.strategyRows) || body.strategyRows.length === 0) {
+            return fail(400, 'strategyRows must be a non-empty array.')
+          }
+          const iterationId = ptRepo.approveStrategyForProductTest({
+            productTestId: testId,
+            mode: body.mode,
+            researchDraft: body.researchDraft,
+            strategyRows: body.strategyRows,
+            policyOverrides: body.policyOverrides || {},
+            targetCount: body.targetCount
+          })
+          const iteration = ptRepo.getIterationWithLineage(iterationId)
+          const creatives = ptRepo.listCreativesForIteration(iterationId)
+          return ok({ item: { iteration, creatives } })
+        })
+      )
     }
   }
 
