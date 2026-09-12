@@ -31,6 +31,7 @@ import CopyStagePrompt from './components/CopyStagePrompt.jsx'
 import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
+import ProductTests from './components/ProductTests.jsx'
 import { emptyStudio, normalizeStudio, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary, inferStudioFromQuickPrompt, formatById } from './lib/marketingStudioModel.js'
 // Session persistence lives in the backend database as of Phase 4. The model's
 // loadSessions/saveSession localStorage helpers are deliberately NOT imported
@@ -61,7 +62,8 @@ const SPECIAL_NAV = [
   { key: 'handoff', label: 'AI Handoff' },
   { key: 'canvas', label: 'Canvas' },
   { key: 'node_canvas', label: 'Node Canvas' },
-  { key: 'marketing_studio', label: '🎬 Marketing Studio' }
+  { key: 'marketing_studio', label: '🎬 Marketing Studio' },
+  { key: 'product_tests', label: '🧪 Product Tests' }
 ]
 
 // Marketing Studio sessions are persisted in the backend database via
@@ -1112,6 +1114,16 @@ export default function App() {
         </>
       )
     }
+    if (active === 'product_tests') {
+      return (
+        <ProductTests
+          onOpenStudioSession={(sessionId) => {
+            setActiveStudioSessionId(sessionId)
+            setActive('marketing_studio')
+          }}
+        />
+      )
+    }
     if (active === 'marketing_studio') {
       return (
         <MarketingStudio
@@ -1332,6 +1344,10 @@ export default function App() {
     if (item.key === 'canvas') return (project.canvas && project.canvas.scenes && project.canvas.scenes.length > 0) || false
     if (item.key === 'node_canvas') return (project.node_canvas && project.node_canvas.nodes && project.node_canvas.nodes.length > 0) || false
     if (item.key === 'marketing_studio') return studioSessions.length > 0
+    // Product Tests owns its own data and loads it from the backend, so App has
+    // no count to report here. Explicit false rather than falling through to the
+    // project[item.key] lookup, which would silently mean the same thing.
+    if (item.key === 'product_tests') return false
     if (item.kind === 'clips') return project.clips.length > 0
     if (item.kind === 'export') return false
     return (project[item.key] || '').trim().length > 0
