@@ -40,6 +40,7 @@ import * as ptRepo from './db/productTestRepository.mjs'
 import { seedDefaultTestPolicy } from './db/productTestRepository.mjs'
 import { fetchProductPageText } from './lib/safeFetch.mjs'
 import { generateResearchDraft, generateStrategyDraft, validateResearchDraft } from './lib/organicStrategy.mjs'
+import { generateBatchProductionPlan } from './lib/productionPlanner.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -972,6 +973,35 @@ const server = http.createServer(async (req, res) => {
           const iteration = ptRepo.getIterationWithLineage(iterationId)
           const creatives = ptRepo.listCreativesForIteration(iterationId)
           return ok({ item: { iteration, creatives } })
+        })
+      )
+    }
+
+    // ---- M4: Production planning ----
+    // Planning is not spending: /generate writes nothing; /approve creates
+    // ProductionRuns in status 'planned' only — zero Jobs, zero
+    // BudgetReservations, zero Cost rows.
+    if ((m = ptMatch('/api/iterations/:id/production-plan/generate')) && req.method === 'POST') {
+      const iterationId = idNum(m[0])
+      return readJsonBody(req, res, async (body) => {
+        try {
+          const result = await generateBatchProductionPlan(iterationId, body.availabilityByCreativeId || {})
+          return ok(result)
+        } catch (e) {
+          return fail(500, `Production plan generation failed: ${e && e.message ? e.message : 'unknown error'}`)
+        }
+      })
+    }
+
+    if ((m = ptMatch('/api/iterations/:id/production-plan/approve')) && req.method === 'POST') {
+      return readJsonBody(req, res, (body) =>
+        guard(() => {
+          if (!Array.isArray(body.plans) || body.plans.length === 0) {
+            return fail(400, 'plans must be a non-empty array.')
+          }
+          const runIds = ptRepo.approveProductionPlan({ plans: body.plans })
+          const items = runIds.map((id) => ptRepo.getProductionRunWithLineage(id))
+          return ok({ items })
         })
       )
     }

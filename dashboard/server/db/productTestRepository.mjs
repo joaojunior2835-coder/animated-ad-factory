@@ -721,3 +721,77 @@ export function approveStrategyForProductTest({
     })
     .immediate()
 }
+
+// ---------------------------------------------------------------------------
+// Production planning approval (M4)
+//
+// generateBatchProductionPlan / priceProductionPlan (server/lib/
+// productionPlanner.mjs) write nothing to the database. Only this function
+// does, and only atomically. Planning is not spending: it creates
+// ProductionRuns in status 'planned' with spec_frozen_at left null — zero
+// Jobs, zero BudgetReservations, zero Cost rows.
+// ---------------------------------------------------------------------------
+
+/**
+ * Create one planned ProductionRun per plan, all in a single transaction.
+ * Any failure — including one bad plan partway through — rolls back the
+ * entire batch, same discipline as approveStrategyForProductTest.
+ *
+ * coarseProductionMethod is NOT pre-validated in JS: an invalid value is left
+ * to fail the real production_run.production_method CHECK constraint inside
+ * createProductionRunForCreative, the same way a manually-entered one would,
+ * so the failure path is identical regardless of where the bad value came
+ * from — and the transaction rolls back identically either way.
+ *
+ * Each plan: { creativeId, fineMethod, rationale, requiredAssets,
+ *   plannedProvider, plannedModel, generationPlan, estimatedCost, notes,
+ *   coarseProductionMethod }
+ */
+export function approveProductionPlan({ plans }) {
+  if (!Array.isArray(plans) || plans.length === 0) {
+    throw new Error('approveProductionPlan: plans must be a non-empty array')
+  }
+
+  const db = getDb()
+  return db
+    .transaction(() => {
+      const createdRunIds = []
+      for (const plan of plans) {
+        const runId = createProductionRunForCreative({
+          creativeId: plan.creativeId,
+          productionMethod: plan.coarseProductionMethod,
+        })
+
+        const gp = plan.generationPlan || {}
+        const estimatedVideoSeconds = (gp.videoClips || []).reduce((sum, c) => sum + (Number(c.seconds) || 0), 0)
+
+        const specSnapshot = {
+          schemaVersion: 1,
+          planning: {
+            fineMethod: plan.fineMethod,
+            rationale: plan.rationale || null,
+            requiredAssets: plan.requiredAssets || [],
+            plannedProvider: plan.plannedProvider || null,
+            plannedModel: plan.plannedModel || null,
+            estimatedGenerationCounts: {
+              images: gp.imageGenerations || 0,
+              videoClips: (gp.videoClips || []).length,
+            },
+            estimatedVideoSeconds,
+            estimatedCost: plan.estimatedCost || null,
+            productionNotes: plan.notes || null,
+          },
+          execution: null,
+        }
+
+        // A direct UPDATE, deliberately NOT freezeProductionRunSpec — that
+        // function also stamps spec_frozen_at, and spec_frozen_at must stay
+        // null here. It is reserved for actual execution dispatch, a later
+        // milestone; this is planning, not spending.
+        db.prepare('UPDATE production_run SET spec_snapshot = ? WHERE id = ?').run(JSON.stringify(specSnapshot), runId)
+        createdRunIds.push(runId)
+      }
+      return createdRunIds
+    })
+    .immediate()
+}

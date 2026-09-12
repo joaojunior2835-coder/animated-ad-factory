@@ -11,7 +11,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runGroq } from '../providers/groqProvider.mjs'
 import { getDb } from '../db/repository.mjs'
-import { getCreativeWithLineage } from '../db/productTestRepository.mjs'
+import { getCreativeWithLineage, getIterationWithLineage, listCreativesForIteration } from '../db/productTestRepository.mjs'
 import { getConfiguredRates, estimateComponentCost } from './rateCatalog.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -337,5 +337,77 @@ export function priceProductionPlan(draft, availabilityDeclarations, knownInvent
     cheapFallbackCost: gp.videoClips && gp.videoClips.length ? { minor: cheapFallbackCostMinor, currency: 'USD', unknown: cheapFallbackVideoUnknown || (imageMinor === 0 && componentBreakdown.some((c) => c.component === 'images' && c.unknown)) } : null,
     unknownCostComponents,
     componentBreakdown,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batch planning across every Creative in an Iteration. Nothing written to
+// the database — this only generates and prices drafts.
+// ---------------------------------------------------------------------------
+
+function classifyBudgetStatus(totalMinor, budgetTargetMinor, budgetCeilingMinor) {
+  if (typeof budgetCeilingMinor === 'number' && totalMinor > budgetCeilingMinor) return 'ABOVE_CEILING'
+  if (typeof budgetTargetMinor === 'number' && totalMinor > budgetTargetMinor) return 'ABOVE_TARGET_BELOW_CEILING'
+  return 'WITHIN_TARGET'
+}
+
+/**
+ * Generate + price a plan for every Creative in an Iteration. One Groq call
+ * per Creative; a failure on one Creative is recorded against it and does
+ * not stop the rest of the batch (this is a read-only preview — there is
+ * nothing to roll back).
+ *
+ * Budget comparison uses the Iteration's own execution_policy_snapshot —
+ * the already-locked source of truth — never a new budget field. See
+ * rateCatalog.mjs's currency note: this compares a USD cost estimate against
+ * a EUR-denominated ceiling at face value, an explicitly-flagged
+ * simplification for this milestone.
+ */
+export async function generateBatchProductionPlan(iterationId, availabilityByCreativeId = {}) {
+  const iteration = getIterationWithLineage(iterationId)
+  if (!iteration) throw new Error(`generateBatchProductionPlan: no iteration with id ${iterationId}`)
+  const creatives = listCreativesForIteration(iterationId)
+
+  const plans = []
+  for (const creative of creatives) {
+    const availability = availabilityByCreativeId[creative.id] || availabilityByCreativeId[String(creative.id)] || {}
+    const generated = await generateProductionPlanDraft(creative.id, availability)
+    if (!generated.ok) {
+      plans.push({ creativeId: creative.id, creativeCode: creative.creative_code, ok: false, error: generated.error })
+      continue
+    }
+    const priced = priceProductionPlan(generated.draft, availability, generated.knownInventory)
+    plans.push({ creativeId: creative.id, creativeCode: creative.creative_code, ok: true, ...priced })
+  }
+
+  const policy = iteration.executionPolicy || {}
+  const budgetTargetMinor = typeof policy.budgetTargetMinor === 'number' ? policy.budgetTargetMinor : null
+  const budgetCeilingMinor = typeof policy.budgetCeilingMinor === 'number' ? policy.budgetCeilingMinor : null
+
+  let totalRecommendedMinor = 0
+  let anyUnknown = false
+  const methodCounts = {}
+  for (const p of plans) {
+    if (!p.ok) continue
+    if (p.recommendedCost.unknown) anyUnknown = true
+    totalRecommendedMinor += p.recommendedCost.minor
+    const method = p.draft && p.draft.fineMethod
+    if (method) methodCounts[method] = (methodCounts[method] || 0) + 1
+  }
+
+  const status = classifyBudgetStatus(totalRecommendedMinor, budgetTargetMinor, budgetCeilingMinor)
+
+  return {
+    plans,
+    batchSummary: {
+      totalRecommendedCost: { minor: totalRecommendedMinor, currency: 'USD', unknown: anyUnknown },
+      methodCounts,
+      budgetTargetMinor,
+      budgetCeilingMinor,
+      budgetCurrency: policy.currency || null,
+      currencyNote:
+        'totalRecommendedCost is in USD (Replicate\'s real billing currency); budgetTargetMinor/budgetCeilingMinor are in the Iteration policy\'s own currency (typically EUR). Compared at face value for this milestone — no fx conversion is wired for planning-stage estimates.',
+      status,
+    },
   }
 }
