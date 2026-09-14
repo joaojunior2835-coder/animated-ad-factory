@@ -21,6 +21,15 @@ export const REPLICATE_VIDEO_MODELS = {
     fullName: 'wavespeedai/wan-2.1-i2v-720p:1f0a7fa066689a087b597a314f60ef74d1a720fa1fb9a7083487c4b01db3395f',
     costPerSecond: 0.09,
     filePrefix: 'replicate-wan-i2v'
+  },
+  'seedance-2.0-fast': {
+    key: 'seedance-2.0-fast',
+    label: 'Seedance 2.0 Fast',
+    fullName: 'bytedance/seedance-2.0-fast',
+    costPerSecond: 0.07,
+    costPerSecondByResolution: { '480p': 0.07, '720p': 0.15 },
+    costPerSecondWithVideoInput: { '480p': 0.08, '720p': 0.17 },
+    filePrefix: 'replicate-seedance-2-fast'
   }
 }
 export const DEFAULT_REPLICATE_VIDEO_MODEL = 'ltx'
@@ -34,13 +43,15 @@ export function resolveReplicateVideoModel(modelId) {
   return REPLICATE_VIDEO_MODELS[key] || REPLICATE_VIDEO_MODELS[DEFAULT_REPLICATE_VIDEO_MODEL]
 }
 
-export function estimateVideoCost(durationSeconds, modelId) {
+export function estimateVideoCost(durationSeconds, modelId, { resolution = '480p', hasVideoInput = false } = {}) {
   const model = resolveReplicateVideoModel(modelId)
   const seconds = Number.isFinite(Number(durationSeconds)) && Number(durationSeconds) > 0 ? Number(durationSeconds) : 5
+  const rateTable = hasVideoInput ? model.costPerSecondWithVideoInput : model.costPerSecondByResolution
+  const costPerSecond = rateTable ? rateTable[resolution] || rateTable['480p'] : model.costPerSecond
   return {
     seconds,
-    estimatedCost: Number((seconds * model.costPerSecond).toFixed(2)),
-    costPerSecond: model.costPerSecond,
+    estimatedCost: Number((seconds * costPerSecond).toFixed(2)),
+    costPerSecond,
     replicateModel: model.key,
     model: model.fullName,
     modelLabel: model.label
@@ -48,9 +59,15 @@ export function estimateVideoCost(durationSeconds, modelId) {
 }
 
 function client() {
+  if (replicateClientOverride) return replicateClientOverride
   const token = String(process.env.REPLICATE_API_TOKEN || '').trim()
   if (!token) throw new Error('Replicate API token is not configured.')
   return new Replicate({ auth: token })
+}
+
+let replicateClientOverride = null
+export function setReplicateClientForTests(value) {
+  replicateClientOverride = value || null
 }
 
 function resolveLocalStartFrame(startFrameUrl, mediaRoot) {
@@ -76,9 +93,7 @@ function resolveLocalStartFrame(startFrameUrl, mediaRoot) {
   const buffer = fs.readFileSync(filePath)
   if (!buffer.length) throw new Error('Start frame image is empty.')
   if (buffer.length > 20 * 1024 * 1024) throw new Error('Start frame image exceeds the 20MB limit.')
-  const ext = path.extname(filePath).toLowerCase()
-  const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png'
-  return `data:${mime};base64,${buffer.toString('base64')}`
+  return buffer
 }
 
 function outputUrl(output) {
@@ -112,10 +127,32 @@ async function downloadResult(url, mediaRoot, model) {
   return { local_url: `/media/temp/${fileName}`, file_name: fileName, mime_type: 'video/mp4', file_size: buffer.length }
 }
 
-export async function createReplicateVideoJob({ prompt, start_frame, aspect_ratio, duration, media_root, confirmed, model_id } = {}) {
+export function buildReplicateVideoInput({ prompt, start_frame, image, aspect_ratio, aspectRatio, duration, resolution, generate_audio, generateAudio, seed, media_root, model_id } = {}) {
+  const model = resolveReplicateVideoModel(model_id)
+  if (model.key === 'seedance-2.0-fast') {
+    const input = {
+      prompt: String(prompt || '').trim(),
+      duration: Number.isFinite(Number(duration)) && Number(duration) > 0 ? Number(duration) : 5,
+      resolution: ['480p', '720p'].includes(resolution) ? resolution : '480p',
+      aspect_ratio: String(aspect_ratio || aspectRatio || '9:16'),
+      generate_audio: generate_audio === undefined && generateAudio === undefined ? true : Boolean(generate_audio ?? generateAudio),
+    }
+    const imageInput = start_frame || image
+    if (imageInput) input.image = resolveLocalStartFrame(imageInput, media_root)
+    if (Number.isInteger(Number(seed))) input.seed = Number(seed)
+    return input
+  }
+  return {
+    prompt: String(prompt || '').trim(),
+    image: resolveLocalStartFrame(start_frame || image, media_root),
+    aspect_ratio: VALID_ASPECT_RATIOS.has(aspect_ratio || aspectRatio) ? aspect_ratio || aspectRatio : '16:9'
+  }
+}
+
+export async function createReplicateVideoJob({ prompt, start_frame, image, aspect_ratio, aspectRatio, duration, resolution, generate_audio, generateAudio, seed, media_root, confirmed, model_id } = {}) {
   const model = resolveReplicateVideoModel(model_id)
   if (confirmed !== true) {
-    const estimate = estimateVideoCost(duration, model.key)
+    const estimate = estimateVideoCost(duration, model.key, { resolution })
     return {
       status: 'error',
       error: 'confirmation_required',
@@ -123,13 +160,13 @@ export async function createReplicateVideoJob({ prompt, start_frame, aspect_rati
       message: `Replicate video generation is estimated to cost $${estimate.estimatedCost.toFixed(2)} for ${estimate.seconds} seconds. Send confirmed: true to create a paid prediction.`
     }
   }
-  const input = {
-    prompt: String(prompt || '').trim(),
-    image: resolveLocalStartFrame(start_frame, media_root),
-    aspect_ratio: VALID_ASPECT_RATIOS.has(aspect_ratio) ? aspect_ratio : '16:9'
-  }
-  const prediction = await client().predictions.create({ version: model.fullName.split(':')[1], input })
-  const jobId = `replicate-video-${prediction.id}`
+  const input = buildReplicateVideoInput({ prompt, start_frame, image, aspect_ratio, aspectRatio, duration, resolution, generate_audio, generateAudio, seed, media_root, model_id })
+  if (model.key === 'seedance-2.0-fast' && !input.prompt) throw new Error('Seedance video prompt is required.')
+  const request = model.key === 'seedance-2.0-fast'
+    ? { model: model.fullName, input }
+    : { version: model.fullName.split(':')[1], input }
+  const prediction = await client().predictions.create(request)
+  const jobId = model.key === 'seedance-2.0-fast' ? `replicate-seedance-video-${prediction.id}` : `replicate-video-${prediction.id}`
   jobs.set(jobId, {
     jobId,
     predictionId: prediction.id,
@@ -137,7 +174,7 @@ export async function createReplicateVideoJob({ prompt, start_frame, aspect_rati
     model: model.fullName,
     modelLabel: model.label,
     prompt: input.prompt,
-    duration: estimateVideoCost(duration, model.key).seconds,
+    duration: estimateVideoCost(duration, model.key, { resolution }).seconds,
     status: 'generating',
     createdAt: Date.now(),
     mediaRoot: media_root
@@ -149,16 +186,17 @@ export async function getReplicateVideoJob(jobId) {
   const requestedId = String(jobId || '')
   let job = jobs.get(requestedId)
   if (!job) {
-    const match = /^replicate-video-(.+)$/.exec(requestedId)
+    const seedanceMatch = /^replicate-seedance-video-(.+)$/.exec(requestedId)
+    const match = seedanceMatch || /^replicate-video-(.+)$/.exec(requestedId)
     if (!match) return { status: 'error', error: 'Replicate video job not found.' }
     // The external id is durable by design: a fresh server can recover the
     // prediction from Replicate without relying on this process-local Map.
     job = {
       jobId: requestedId,
       predictionId: match[1],
-      replicateModel: DEFAULT_REPLICATE_VIDEO_MODEL,
-      model: resolveReplicateVideoModel(DEFAULT_REPLICATE_VIDEO_MODEL).fullName,
-      modelLabel: resolveReplicateVideoModel(DEFAULT_REPLICATE_VIDEO_MODEL).label,
+      replicateModel: seedanceMatch ? 'seedance-2.0-fast' : DEFAULT_REPLICATE_VIDEO_MODEL,
+      model: resolveReplicateVideoModel(seedanceMatch ? 'seedance-2.0-fast' : DEFAULT_REPLICATE_VIDEO_MODEL).fullName,
+      modelLabel: resolveReplicateVideoModel(seedanceMatch ? 'seedance-2.0-fast' : DEFAULT_REPLICATE_VIDEO_MODEL).label,
       prompt: '',
       duration: 0,
       status: 'generating',

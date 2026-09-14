@@ -61,9 +61,13 @@ function providerForPlan(snapshot, capability) {
   return resolvedProvider(snapshot, capability)
 }
 
-function componentCost(capability, provider, model, quantity) {
+function videoRateKey(model, resolution = '480p') {
+  return model === 'seedance-2.0-fast' ? `${model}-${resolution === '720p' ? '720p' : '480p'}` : model
+}
+
+function componentCost(capability, provider, model, quantity, options = {}) {
   if (provider === 'mock') return { minor: 0, currency: BASE_CURRENCY, paid: false, known: true }
-  const key = capability === 'generate_video' ? model : provider
+  const key = capability === 'generate_video' ? videoRateKey(model, options.resolution) : provider
   const priced = estimateComponentCost(capability === 'generate_video' ? 'video' : 'image', key, quantity)
   if (priced.unknown) return { known: false, reason: priced.reason, paid: false }
   return { minor: priced.costMinor, currency: priced.currency, paid: priced.costMinor > 0, known: true }
@@ -97,16 +101,24 @@ export function materializeJobsForProductionRun(productionRunId) {
     const videoModel = resolvedModel(snapshot, 'generate_video', videoProvider)
     for (let i = 0; i < gp.videoClips.length; i++) {
       const clip = gp.videoClips[i] || {}
-      const seconds = Number(clip.seconds) || 0
-      const cost = componentCost('generate_video', videoProvider, videoModel, seconds)
+      const isSeedance = videoModel === 'seedance-2.0-fast'
+      const seconds = Number(clip.seconds) || (isSeedance ? 5 : 0)
+      const resolution = ['480p', '720p'].includes(clip.resolution) ? clip.resolution : '480p'
+      const aspectRatio = clip.aspect_ratio || clip.aspectRatio || (isSeedance ? '9:16' : '16:9')
+      const startFrame = clip.start_frame || clip.startFrame || clip.image || null
+      const needsStartFrame = Boolean(startFrame || clip.needs_start_frame || clip.needsStartFrame || /image|frame|start/i.test(String(clip.purpose || '')))
+      const cost = componentCost('generate_video', videoProvider, videoModel, seconds, { resolution })
       const videoJobId = createJob({ productionRunId, capability: 'generate_video', provider: videoProvider, inputParams: {
-        model: videoModel, sequence: i + 1, seconds, purpose: clip.purpose || '',
-        needs_start_frame: /image|frame|start/i.test(String(clip.purpose || '')),
+        model: videoModel, sequence: i + 1, seconds, duration: seconds,
+        prompt: clip.prompt || clip.purpose || '', purpose: clip.purpose || '',
+        aspect_ratio: aspectRatio, resolution,
+        generate_audio: clip.generate_audio ?? clip.generateAudio ?? (isSeedance ? true : undefined),
+        start_frame: startFrame, needs_start_frame: needsStartFrame,
         estimated_cost_minor: cost.known ? cost.minor : 0, estimated_currency: cost.currency || null,
       } })
       jobs.push({ id: videoJobId, capability: 'generate_video', sequence: i + 1 })
       const imageDependency = jobs.find((job) => job.capability === 'generate_image')
-      if (imageDependency && /image|frame|start/i.test(String(clip.purpose || ''))) {
+      if (imageDependency && needsStartFrame && !startFrame) {
         createJobDependency({ jobId: videoJobId, dependsOnJobId: imageDependency.id, dependencyType: 'start_frame' })
       }
     }    // There is no voice provider in the current catalog. It is represented in
@@ -170,7 +182,7 @@ function preflightOne(runId) {
   for (const clip of gp.videoClips) {
     const provider = providerForPlan(snapshot, 'generate_video')
     const model = resolvedModel(snapshot, 'generate_video', provider)
-    const issue = addCost('generate_video', provider, model, Number(clip.seconds) || 0)
+    const issue = addCost('generate_video', provider, videoRateKey(model, clip.resolution), Number(clip.seconds) || (model === 'seedance-2.0-fast' ? 5 : 0))
     if (issue) return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: issue.reason, currentFxRate, fxUpdatedAt }
   }
   const originalEstimate = snapshot?.planning?.estimatedCost

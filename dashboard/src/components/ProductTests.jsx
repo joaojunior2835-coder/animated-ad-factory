@@ -882,6 +882,7 @@ function AvailabilityForm({ value, onChange }) {
 }
 
 const VIDEO_MODEL_OPTIONS = [
+  { value: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
   { value: 'wan-720p', label: 'WAN 2.1 i2v 720p (higher quality)' },
   { value: 'ltx', label: 'LTX-Video (cheap)' },
   { value: 'mock', label: 'Mock (free, placeholder)' },
@@ -890,7 +891,7 @@ const VIDEO_MODEL_OPTIONS = [
 /** Derive the total cost for a specific chosen video model, purely from the
  * already-fetched componentBreakdown — zero network calls. `role` on each
  * breakdown row is 'recommended' (wan-720p) or 'cheap_fallback' (ltx). */
-function selectedCostFromBreakdown(plan, plannedModel) {
+function selectedCostFromBreakdown(plan, plannedModel, generationPlan = plan?.draft?.generationPlan) {
   if (!plan || !plan.componentBreakdown) return null
   const imagesRow = plan.componentBreakdown.find((c) => c.component === 'images')
   const imageMinor = imagesRow && !imagesRow.unknown ? imagesRow.costMinor : 0
@@ -898,6 +899,18 @@ function selectedCostFromBreakdown(plan, plannedModel) {
 
   if (plannedModel === 'mock') {
     return { minor: imageMinor, currency: 'USD', unknown: imageUnknown }
+  }
+  if (plannedModel === 'seedance-2.0-fast') {
+    const clips = generationPlan?.videoClips || []
+    let unknown = imageUnknown
+    let videoMinor = 0
+    for (let i = 0; i < clips.length; i++) {
+      const role = clips[i].resolution === '720p' ? 'seedance_720p' : 'seedance_480p'
+      const row = plan.componentBreakdown.find((c) => c.component === 'video' && c.clipIndex === i && c.role === role)
+      if (!row || row.unknown) unknown = true
+      else videoMinor += row.costMinor
+    }
+    return { minor: imageMinor + videoMinor, currency: 'USD', unknown }
   }
   const role = plannedModel === 'ltx' ? 'cheap_fallback' : 'recommended'
   const rows = plan.componentBreakdown.filter((c) => c.component === 'video' && c.role === role)
@@ -949,10 +962,13 @@ function PlanCard({ plan, availability, onUpdate, onReprice }) {
     const clips = local.generationPlan.videoClips.map((c, idx) => (idx === i ? { ...c, [field]: field === 'seconds' ? Math.max(0, Number(value) || 0) : value } : c))
     setField('generationPlan', { ...local.generationPlan, videoClips: clips })
   }
-  const addClip = () => setField('generationPlan', { ...local.generationPlan, videoClips: [...local.generationPlan.videoClips, { seconds: 6, purpose: '' }] })
+  const addClip = () => setField('generationPlan', { ...local.generationPlan, videoClips: [...local.generationPlan.videoClips, {
+    seconds: local.plannedModel === 'seedance-2.0-fast' ? 5 : 6,
+    purpose: '', prompt: '', resolution: '480p', aspect_ratio: '9:16', generate_audio: true,
+  }] })
   const removeClip = (i) => setField('generationPlan', { ...local.generationPlan, videoClips: local.generationPlan.videoClips.filter((_, idx) => idx !== i) })
 
-  const displayedCost = selectedCostFromBreakdown(plan, local.plannedModel)
+  const displayedCost = selectedCostFromBreakdown(plan, local.plannedModel, local.generationPlan)
   const missingAsset = (plan.flags || []).includes('MISSING_REQUIRED_ASSET')
 
   return (
@@ -1020,9 +1036,15 @@ function PlanCard({ plan, availability, onUpdate, onReprice }) {
         Video clips
       </div>
       {local.generationPlan.videoClips.map((c, i) => (
-        <div className="row" key={i} style={{ gap: '6px', marginBottom: '6px' }}>
-          <input className="ms-input" style={{ maxWidth: '80px' }} value={c.seconds} onChange={(e) => setClip(i, 'seconds', e.target.value)} />
-          <input className="ms-input" placeholder="purpose" value={c.purpose} onChange={(e) => setClip(i, 'purpose', e.target.value)} />
+        <div className="row" key={i} style={{ gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
+          <input className="ms-input" aria-label={`Clip ${i + 1} duration`} style={{ maxWidth: '80px' }} value={c.seconds || 5} onChange={(e) => setClip(i, 'seconds', e.target.value)} />
+          <input className="ms-input" aria-label={`Clip ${i + 1} prompt`} placeholder="video prompt" value={c.prompt || ''} onChange={(e) => setClip(i, 'prompt', e.target.value)} />
+          <input className="ms-input" aria-label={`Clip ${i + 1} purpose`} placeholder="purpose" value={c.purpose} onChange={(e) => setClip(i, 'purpose', e.target.value)} />
+          {local.plannedModel === 'seedance-2.0-fast' ? <>
+            <select aria-label={`Clip ${i + 1} resolution`} value={c.resolution || '480p'} onChange={(e) => setClip(i, 'resolution', e.target.value)}><option value="480p">480p</option><option value="720p">720p</option></select>
+            <select aria-label={`Clip ${i + 1} aspect ratio`} value={c.aspect_ratio || '9:16'} onChange={(e) => setClip(i, 'aspect_ratio', e.target.value)}><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="4:3">4:3</option></select>
+            <input className="ms-input" aria-label={`Clip ${i + 1} start frame`} placeholder="optional /media/... start frame" value={c.start_frame || ''} onChange={(e) => setClip(i, 'start_frame', e.target.value)} />
+          </> : null}
           <button className="ghost small danger" onClick={() => removeClip(i)}>
             ✕
           </button>
@@ -1094,7 +1116,7 @@ function ProductionPlanningWizard({ iterationId, creatives, onCancel, onApproved
     for (const p of plans) {
       if (!p.ok) continue
       const edit = editsById[p.creativeId]
-      const cost = selectedCostFromBreakdown(p, edit ? edit.plannedModel : 'wan-720p')
+      const cost = selectedCostFromBreakdown(p, edit ? edit.plannedModel : 'wan-720p', edit?.generationPlan)
       if (cost) {
         minor += cost.minor
         if (cost.unknown) anyUnknown = true
@@ -1126,7 +1148,7 @@ function ProductionPlanningWizard({ iterationId, creatives, onCancel, onApproved
             plannedProvider: edit.plannedProvider,
             plannedModel: edit.plannedModel,
             generationPlan: edit.generationPlan,
-            estimatedCost: selectedCostFromBreakdown(p, edit.plannedModel),
+            estimatedCost: selectedCostFromBreakdown(p, edit.plannedModel, edit.generationPlan),
             notes: edit.notes,
             coarseProductionMethod: edit.coarseProductionMethod,
           }

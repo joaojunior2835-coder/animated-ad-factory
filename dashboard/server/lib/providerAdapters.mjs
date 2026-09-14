@@ -1,6 +1,7 @@
 // Normalized execution adapters for the providers already present in the app.
 // The legacy provider functions stay intact; this layer gives production
 // dispatch one stable contract and keeps raw provider status for reconciliation.
+import path from 'node:path'
 import { createMockVideoJob, getMockVideoJob, shouldFailTransientOnce } from '../providers/mockVideoProvider.mjs'
 import { createReplicateVideoJob, getReplicateVideoJob } from '../providers/replicateVideoProvider.mjs'
 import { runPollinations } from '../providers/pollinationsProvider.mjs'
@@ -61,7 +62,7 @@ function adapterForReplicate() {
     provider: 'replicate',
     async dispatch(params = {}) {
       try {
-        const response = await createReplicateVideoJob({ ...params, confirmed: true })
+        const response = await createReplicateVideoJob({ ...params, media_root: path.resolve(process.cwd(), 'local-media'), confirmed: true })
         if (!response || !response.jobId) throw classified(response && response.error, 'non_retryable')
         return { externalRequestId: response.jobId, initialStatus: statusFromLegacy(response.status) }
       } catch (error) {

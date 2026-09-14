@@ -29,6 +29,8 @@ export function getConfiguredRates() {
   // reflected here automatically.
   const ltxPerSecond = estimateVideoCost(1, 'ltx')
   const wanPerSecond = estimateVideoCost(1, 'wan-720p')
+  const seedance480PerSecond = estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '480p' })
+  const seedance720PerSecond = estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '720p' })
 
   return {
     image: {
@@ -52,6 +54,22 @@ export function getConfiguredRates() {
         configured: isConfigured('REPLICATE_API_TOKEN'),
         quality: 'higher',
         label: REPLICATE_VIDEO_MODELS['wan-720p'].label,
+      },
+      'seedance-2.0-fast-480p': {
+        costPerSecondMinor: Math.round(seedance480PerSecond.costPerSecond * 100),
+        costPerSecondWithVideoInputMinor: Math.round(estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '480p', hasVideoInput: true }).costPerSecond * 100),
+        currency: 'USD',
+        configured: isConfigured('REPLICATE_API_TOKEN'),
+        quality: 'fast',
+        label: 'Seedance 2.0 Fast · 480p',
+      },
+      'seedance-2.0-fast-720p': {
+        costPerSecondMinor: Math.round(seedance720PerSecond.costPerSecond * 100),
+        costPerSecondWithVideoInputMinor: Math.round(estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '720p', hasVideoInput: true }).costPerSecond * 100),
+        currency: 'USD',
+        configured: isConfigured('REPLICATE_API_TOKEN'),
+        quality: 'fast-hd',
+        label: 'Seedance 2.0 Fast · 720p',
       },
       mock: {
         costPerSecondMinor: 0,

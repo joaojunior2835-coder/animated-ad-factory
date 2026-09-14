@@ -15,6 +15,7 @@ import {
   settleJob,
   completeFreeJob,
   getJobAssetLink,
+  listJobDependencies,
   getProductionRunExecution,
   attachAssetLink,
   getOrCreateAsset,
@@ -57,13 +58,25 @@ function costForJob(job) {
   const provider = String(job.provider || '').toLowerCase()
   if (provider === 'mock') return { unknown: false, minor: 0, currency: BASE_CURRENCY }
   const model = String(params.model || '').toLowerCase()
+  const videoModelKey = model === 'seedance-2.0-fast'
+    ? `${model}-${params.resolution === '720p' ? '720p' : '480p'}`
+    : model
   const priced = job.capability === 'generate_video'
-    ? estimateComponentCost('video', model === 'mock-video' ? 'mock' : model, params.seconds || 0)
+    ? estimateComponentCost('video', videoModelKey === 'mock-video' ? 'mock' : videoModelKey, params.seconds || params.duration || 0)
     : job.capability === 'generate_image'
       ? estimateComponentCost('image', provider, 1)
       : { unknown: true, reason: `unpriceable_capability:${job.capability}` }
   if (priced.unknown) return { unknown: true, reason: priced.reason }
   return { unknown: false, minor: priced.costMinor, currency: priced.currency }
+}
+
+function dependencyInputs(job) {
+  if (job.capability !== 'generate_video' || !job.inputParams?.needs_start_frame || job.inputParams.start_frame) return {}
+  const dependency = listJobDependencies(job.id).find((row) => row.dependency_type === 'start_frame')
+  if (!dependency) return {}
+  const asset = getJobAssetLink(dependency.depends_on_job_id)
+  if (!asset || !asset.relative_path) return {}
+  return { start_frame: `/media/${String(asset.relative_path).replace(/\\/g, '/')}` }
 }
 
 function nowIso() { return new Date().toISOString() }
@@ -257,6 +270,7 @@ async function dispatchJob(jobId) {
   try {
     dispatched = await adapter.dispatch({
       ...params,
+      ...dependencyInputs(job),
       provider: job.provider,
       model_id: params.model || job.providerModel,
       action_type: job.capability,

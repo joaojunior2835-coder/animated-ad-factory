@@ -287,11 +287,16 @@ export function priceProductionPlan(draft, availabilityDeclarations, knownInvent
   const recommendedModel = 'wan-720p' // higher cost of the two configured video options
   const cheapModel = 'ltx' // lower cost of the two configured video options
 
-  for (const clip of gp.videoClips || []) {
+  for (let clipIndex = 0; clipIndex < (gp.videoClips || []).length; clipIndex++) {
+    const clip = gp.videoClips[clipIndex]
     const recommended = estimateComponentCost('video', recommendedModel, clip.seconds)
     const cheap = estimateComponentCost('video', cheapModel, clip.seconds)
-    componentBreakdown.push({ component: 'video', purpose: clip.purpose, seconds: clip.seconds, provider: recommendedModel, role: 'recommended', ...recommended })
-    componentBreakdown.push({ component: 'video', purpose: clip.purpose, seconds: clip.seconds, provider: cheapModel, role: 'cheap_fallback', ...cheap })
+    const seedance480 = estimateComponentCost('video', 'seedance-2.0-fast-480p', clip.seconds || 5)
+    const seedance720 = estimateComponentCost('video', 'seedance-2.0-fast-720p', clip.seconds || 5)
+    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds, provider: recommendedModel, role: 'recommended', ...recommended })
+    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds, provider: cheapModel, role: 'cheap_fallback', ...cheap })
+    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds || 5, provider: 'replicate', model: 'seedance-2.0-fast', resolution: '480p', role: 'seedance_480p', ...seedance480 })
+    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds || 5, provider: 'replicate', model: 'seedance-2.0-fast', resolution: '720p', role: 'seedance_720p', ...seedance720 })
     if (recommended.unknown) {
       recommendedVideoUnknown = true
       unknownCostComponents.push({ component: `video:${clip.purpose}`, provider: recommendedModel, reason: recommended.reason })
