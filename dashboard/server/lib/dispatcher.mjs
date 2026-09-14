@@ -85,6 +85,17 @@ function dependencyInputs(job) {
 
 function nowIso() { return new Date().toISOString() }
 
+// Operator-only progress metadata. Never changes a submission marker, request
+// ID, reconciliation state, retry eligibility or accounting.
+function progressReporter(attemptId) {
+  return phase => {
+    if (!attemptId || !['Preparing references','Uploading references','Downloading'].includes(phase)) return
+    const attempt=getExecutionAttempt(attemptId)
+    if (!attempt || attempt.failure_classification || attempt.reconciliation_status==='reconciled') return
+    updateExecutionAttempt(attemptId,{resultData:{...attempt.resultData,operatorProgress:{phase,at:nowIso(),pid:process.pid}}})
+  }
+}
+
 function mediaFileForResult(result) {
   const local = String(result && result.local_url || '')
   if (!local) return null
@@ -160,7 +171,7 @@ async function reconcileAttempt(attempt, { allowRetry = true } = {}) {
   const adapter = getProviderAdapter(attempt.provider)
   let checked
   try {
-    checked = await adapter.checkStatus(attempt.external_request_id)
+    checked = await adapter.checkStatus(attempt.external_request_id,{onProgress:progressReporter(attempt.id)})
     if (getExecutionAttempt(attempt.id)?.reconciliation_status !== 'pending') return { status: 'skipped', jobId: attempt.job_id }
     updateExecutionAttempt(attempt.id, { providerStatus: checked.providerStatus, lastCheckedAt: nowIso() })
   } catch (error) {
@@ -320,7 +331,7 @@ async function dispatchJob(jobId) {
       input_prompt: params.input_prompt || params.prompt || params.output_prompt || `Production ${job.capability} ${params.sequence || ''}`,
       prompt: params.prompt || params.output_prompt || `Production ${job.capability} ${params.sequence || ''}`,
       duration: params.seconds,
-    })
+    }, {onProgress:progressReporter(submissionAttempt?.id)})
   } catch (error) {
     if (reservation) {
       const classification = classifyProviderError(error, job.provider)

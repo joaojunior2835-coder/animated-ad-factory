@@ -34,13 +34,19 @@ function asset(id, type) {
 }
 function stateOf(s) {
   const details = s.runId ? runDetails(s.runId) : null
-  const ambiguous = details?.attempts.some(a => a.reconciliation_status === 'reconciliation_required') || details?.run.jobs.some(j => /ambiguous_billing/.test(j.error_message || ''))
+  const activeProgress = a => {
+    const p=parse(a.result_data).operatorProgress
+    if (!p || a.failure_classification || !['Preparing references','Uploading references','Downloading'].includes(p.phase) || Date.now()-Date.parse(p.at)>600000) return null
+    try { process.kill(p.pid,0); return p.phase } catch { return null }
+  }
+  const ambiguous = details?.attempts.some(a => a.reconciliation_status === 'reconciliation_required' && !(a.provider_status==='SUBMISSION_UNRESOLVED' && activeProgress(a))) || details?.run.jobs.some(j => /ambiguous_billing/.test(j.error_message || ''))
   // Keep a missing-file scene editable; preview reports the missing media and
   // approval/assembly validate its real local file before accepting it.
   const media = s.selectedAssetId ? getDb().prepare('SELECT * FROM asset WHERE id=?').get(s.selectedAssetId) : details?.finalAsset || null
   const status = ambiguous ? 'Reconciliation required' : details?.run.status === 'failed' ? 'Failed' : details?.run.status === 'executing' ? (details.attempts.some(a => a.provider_status === 'IN_PROGRESS') ? 'Generating' : 'Queued') : media ? 'Complete' : details?.run.status === 'planned' ? 'Ready' : 'Ready'
   const current = !s.runId || s.generatedSignature === signature(s)
-  return { ...s, status, current, media, approved: Boolean(s.approved && current && media), details }
+  const displayStatus=['Queued','Generating'].includes(status) ? details?.attempts.map(activeProgress).find(Boolean) || status : status
+  return { ...s, status, displayStatus, current, media, approved: Boolean(s.approved && current && media), details }
 }
 function editable(s) {
   const live = stateOf(s)
@@ -186,6 +192,29 @@ export function chooseGeneratorResult(id, { revision, sceneId, approved, assetId
       s.approved = approved
     }
     state.quote = null; write(id, state); return generatorWorkspace(id)
+  }).immediate()
+}
+export function reuseGeneratorScene(id, {revision,sceneId,targetCreativeId,newCreativeTitle}) {
+  return getDb().transaction(()=>{
+    const state=read(id);version(state,revision)
+    const [source]=selectedScenes(state,[sceneId]);editable(source)
+    const live=stateOf(source)
+    fail(live.media && live.current && live.status==='Complete','Choose a completed, current scene to reuse.')
+    const output=asset(live.media.id,'video'), owner=creative(id)
+    const productTestId=getDb().prepare('SELECT product_test_id FROM iteration WHERE id=?').get(owner.iteration_id).product_test_id
+    if (!targetCreativeId) targetCreativeId=createGeneratorCreative({productTestId,angle:newCreativeTitle}).creativeId
+    const target=creative(targetCreativeId)
+    fail(Number(target.id)!==Number(id),'Choose another Creative, or use the current scene controls.')
+    fail(getDb().prepare('SELECT product_test_id FROM iteration WHERE id=?').get(target.iteration_id).product_test_id===productTestId,'Choose a Creative for the same Product Test.')
+    const next=read(target.id)
+    const existing=next.scenes.find(s=>s.reuseSource?.creativeId===Number(id) && s.reuseSource?.sceneId===sceneId && s.selectedAssetId===output.id)
+    if (existing) return {creativeId:target.id,sceneId:existing.id,reused:true}
+    fail(next.scenes.length<12,'The destination already has 12 scenes.')
+    const copied={...config(source),id:randomUUID(),selectedAssetId:output.id,approved:false,reuseSource:{creativeId:Number(id),sceneId,runId:source.runId || null,assetId:output.id}}
+    copied.generatedSignature=signature(copied)
+    next.scenes.push(copied);next.quote=null;write(target.id,next)
+    attachAssetLink(output.id,{creativeId:target.id},'scene_source')
+    return {creativeId:target.id,sceneId:copied.id,reused:false}
   }).immediate()
 }
 export async function assembleGenerator(id, { revision }) {

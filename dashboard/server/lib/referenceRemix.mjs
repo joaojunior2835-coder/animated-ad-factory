@@ -7,6 +7,7 @@ import { mediaRoot, localAssetPath, videoTool, runVideoTool, inspectVideo } from
 
 export const REFERENCE_ROLES = ['PRODUCT','PACKAGING','CHARACTER','OUTFIT','BACKGROUND','LOCATION','APP_SCREEN','STYLE','OTHER']
 export const REMIX_MODES = ['product_swap','character_swap','background_swap','outfit','motion_transfer','full_remix']
+export const CREATIVE_ANALYSIS_FIELDS = ['setting','subject','product','shotTypes','camera','lighting','visualStyle','pacing','sceneOrder','actions','hook','demonstration','cta','textOverlays']
 const assert = (ok, message) => { if (!ok) throw new Error(message) }
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const text = (value, max = 6000) => { assert(typeof value === 'string' && value.length <= max, 'Reference text is too long.'); return value }
@@ -126,7 +127,8 @@ export function normalizeRemix(raw = {}) {
   assert(images.length<=9,'Use up to nine reference images.')
   const keep=(raw.keep || []).map(v=>text(v,100)),change=(raw.change || []).map(v=>text(v,100))
   assert(keep.length<=12 && change.length<=12,'Too many guidance selections.')
-  return {editMode:raw.editMode,sourceAssetId:Number(raw.sourceAssetId)||null,preparedAssetId:Number(raw.preparedAssetId)||null,audioAssetId:Number(raw.audioAssetId)||null,images,keep,change,instructions:text(raw.instructions || ''),transcript:text(raw.transcript || '',12000),script:text(raw.script || '',12000),scriptApproved:raw.scriptApproved===true,promptContext:typeof raw.promptContext==='string'?raw.promptContext:'',observations:text(raw.observations || ''),analysis:raw.analysis || null}
+  const creativeAnalysis=Object.fromEntries(CREATIVE_ANALYSIS_FIELDS.filter(k=>raw.creativeAnalysis?.[k]).map(k=>[k,text(raw.creativeAnalysis[k],500)]))
+  return {editMode:raw.editMode,sourceAssetId:Number(raw.sourceAssetId)||null,preparedAssetId:Number(raw.preparedAssetId)||null,audioAssetId:Number(raw.audioAssetId)||null,images,keep,change,instructions:text(raw.instructions || ''),transcript:text(raw.transcript || '',12000),script:text(raw.script || '',12000),scriptApproved:raw.scriptApproved===true,promptContext:typeof raw.promptContext==='string'?raw.promptContext:'',observations:text(raw.observations || ''),...(Object.keys(creativeAnalysis).length ? {creativeAnalysis} : {}),analysis:raw.analysis || null}
 }
 export function remixParams(s) {
   const r=s.remix
@@ -139,7 +141,10 @@ export function remixParams(s) {
 }
 export function remixPromptContext(scene) {
   const r=scene.remix
-  return hash(JSON.stringify([r.editMode,r.sourceAssetId,r.preparedAssetId,r.audioAssetId,r.images,r.keep,r.change,r.instructions,r.observations,r.script,r.analysis?.beats,scene.generateAudio]))
+  const values=[r.editMode,r.sourceAssetId,r.preparedAssetId,r.audioAssetId,r.images,r.keep,r.change,r.instructions,r.observations,r.script,r.analysis?.beats,scene.generateAudio]
+  const structured=CREATIVE_ANALYSIS_FIELDS.filter(k=>r.creativeAnalysis?.[k]).map(k=>[k,r.creativeAnalysis[k]])
+  if (structured.length) values.push(structured) // Preserve existing approved draft hashes when no new fields are used.
+  return hash(JSON.stringify(values))
 }
 export function referenceAliases(images) {
   const counts={}
@@ -153,6 +158,7 @@ export function buildRemixPrompt(scene, productName, creative = {}) {
     ...aliases.map(a=>`${a.token} supplies the ${a.role.toLowerCase().replaceAll('_',' ')} reference (${a.alias}).`),
     `KEEP guidance: ${r.keep.join(', ') || 'use the reference beat structure'}.`, `CHANGE guidance: ${r.change.join(', ') || 'adapt to the current product'}.`,r.instructions,r.observations,
     beats && `Operator-reviewed beat outline:\n${beats}`,
+    r.creativeAnalysis && `Operator-authored creative analysis (guidance, not verified facts):\n${Object.entries(r.creativeAnalysis).map(([k,v])=>`${k}: ${v}`).join('\n')}`,
     'Adapt the creative framework to the current product. Do not reproduce competitor brands, logos, unsupported claims, testimonials or exact source dialogue. Do not invent product benefits.',
     scene.generateAudio ? `New adapted dialogue / audio direction:\n${script}${r.audioAssetId ? '\nUse @Audio1 for the requested audio style, not unapproved source words.' : ''}` : 'Silent output. The adapted script is planning/caption guidance for later use, not spoken dialogue.',
   ].filter(Boolean).join('\n\n')

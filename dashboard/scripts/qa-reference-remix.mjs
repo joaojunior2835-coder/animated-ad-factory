@@ -31,8 +31,8 @@ try{
     await check(mode+': upload video/image, set role and KEEP/CHANGE in dashboard',async()=>{
       await page.getByLabel('New Creative title').fill(mode);await page.getByRole('button',{name:'Create Creative',exact:true}).click();await page.getByRole('heading',{name:mode,exact:true}).waitFor()
       await page.getByRole('button',{name:'Add remix scene',exact:true}).click();await saved()
-      await scene().getByLabel('Upload reference video',{exact:true}).setInputFiles(video);await scene().getByText(/Original preserved locally/).waitFor();await saved()
-      await scene().getByLabel('Upload reference image',{exact:true}).setInputFiles(image);await scene().getByAltText('@Product reference').waitFor();await saved()
+      if(mode==='background_swap')await scene().getByLabel('Reference video from Media Library',{exact:true}).selectOption(String((await read(1)).scenes[0].remix.sourceAssetId));else await scene().getByLabel('Upload reference video',{exact:true}).setInputFiles(video);await scene().getByText(/Original preserved locally/).waitFor();await saved()
+      if(mode==='background_swap'){await scene().getByLabel('Reference image from Media Library',{exact:true}).selectOption(String((await read(1)).scenes[0].remix.images[0].assetId));await scene().getByRole('button',{name:'Add selected reference',exact:true}).click()}else await scene().getByLabel('Upload reference image',{exact:true}).setInputFiles(image);await scene().getByAltText('@Product reference').waitFor();await saved()
       await scene().getByLabel('Remix mode',{exact:true}).selectOption(mode)
       if(mode==='background_swap')await scene().getByLabel('Reference 1 role',{exact:true}).selectOption('BACKGROUND')
       await scene().getByLabel('What should change?',{exact:true}).fill(mode==='background_swap'?'Rebuild the environment from @Background and keep the camera.':'Replace that product with @Product and keep the vibe.')
@@ -43,7 +43,7 @@ try{
       assert.equal(await scene().locator('.remix-frames img').count(),6)
       await scene().getByLabel('Beat / creative mechanism').first().fill('Hook, product demonstration, CTA')
       await scene().getByLabel('Observed subjects, product, environment & creative structure').fill('Casual product demonstration. Close framing, calm pacing. Adapt the hook and CTA to our suitcase; no competitor claims.')
-      await scene().getByLabel('Original Transcript',{exact:true}).fill('Competitor sentence not approved for copying.')
+      await scene().getByText('Structured creative analysis · editable',{exact:true}).click();await scene().getByLabel('Analysis: Hook structure',{exact:true}).fill('Question, then product reveal');await scene().getByLabel('Analysis: Setting',{exact:true}).fill('Bedroom');await scene().getByLabel('Original Transcript',{exact:true}).fill('Competitor sentence not approved for copying.')
       await saved();await scene().getByRole('button',{name:'Build adapted script & prompt',exact:true}).click();await saved()
       await scene().getByText('Advanced Prompt · editable',{exact:true}).click();assert.match(await scene().getByLabel('Seedance reference prompt').inputValue(),/@Video1/)
       assert.ok(!(await scene().getByLabel('Seedance reference prompt').inputValue()).includes('Competitor sentence'))
@@ -60,7 +60,12 @@ try{
     await check(mode+': original/remix playback, refresh, use as Creative via M6',async()=>{
       await scene().getByRole('button',{name:'Restart / play both',exact:true}).click();await page.waitForFunction(()=>[...document.querySelectorAll('.remix-video-pair video')].every(v=>v.currentTime>.1&&!v.paused))
       await page.reload();await scene().getByRole('button',{name:'Use as Creative',exact:true}).waitFor();assert.equal(await scene().locator('.remix-video-pair video').count(),2)
-      await scene().getByRole('button',{name:'Use as Creative',exact:true}).click();await page.getByRole('button',{name:'Download final MP4',exact:true}).waitFor({timeout:90000});const w=await read(id);assert.equal(w.final.run.status,'complete');assert.equal(w.final.sources.length,1)
+      // Hold the assembly response to prove comparison download cannot silently
+      // ignore a click while the shared action lock is still finishing.
+      let releaseAssembly;const assemblyGate=new Promise(resolve=>{releaseAssembly=resolve})
+      await page.route(api+`/api/operator/generator/${id}/assemble`,async route=>{const response=await route.fetch();await assemblyGate;await route.fulfill({response})})
+      await scene().getByRole('button',{name:'Use as Creative',exact:true}).click();assert.equal(await scene().getByRole('button',{name:'Download remix',exact:true}).isDisabled(),true);releaseAssembly()
+      await page.getByRole('button',{name:'Download final MP4',exact:true}).waitFor({timeout:90000});await page.unroute(api+`/api/operator/generator/${id}/assemble`);const w=await read(id);assert.equal(w.final.run.status,'complete');assert.equal(w.final.sources.length,1)
       const event=page.waitForEvent('download');await scene().getByRole('button',{name:'Download remix',exact:true}).click();assert.equal((await event).suggestedFilename(),'final-ad.mp4')
       await scene().locator('.remix-comparison').scrollIntoViewIfNeeded();await page.screenshot({path:`qa-artifacts/remix-${mode}-comparison.png`})
     })
@@ -68,6 +73,24 @@ try{
   await check('Long adapted script splits into shared-reference segments, editable before spending',async()=>{
     const s=page.getByTestId('generator-scene-1');await s.getByLabel('Adapted Script',{exact:true}).fill('Meet our suitcase and follow the start of a new journey. Show the front of the suitcase in a calm natural opening shot. Move closer and demonstrate the handle and wheels without adding any unverified claims. End with a simple invitation to discover the suitcase and its design.')
     await saved();await s.getByRole('button',{name:'Split script into linked segments',exact:true}).click();await page.getByTestId('generator-scene-2').waitFor();await saved();const w=await read(3);assert.ok(w.scenes.length>=2);assert.ok(w.scenes.every(s=>s.remix.preparedAssetId===w.scenes[0].remix.preparedAssetId));assert.ok(w.scenes.every(s=>!s.remix.scriptApproved));assert.ok(w.scenes.every(s=>s.seconds<=15))
+  })
+  await check('Reuse a completed remix in a new Creative without copying the Asset or generating',async()=>{
+    await page.getByLabel('Creative',{exact:true}).selectOption('1');const source=await read(1),s=page.getByTestId('generator-scene-1');await s.getByRole('button',{name:'Use as Creative',exact:true}).waitFor()
+    await s.getByText('Use in another Creative',{exact:true}).click();await s.getByLabel('New remix Creative title',{exact:true}).fill('Reusable suitcase scene');await s.getByRole('button',{name:'Add remix to Creative',exact:true}).click();await page.getByRole('heading',{name:'Reusable suitcase scene',exact:true}).waitFor()
+    const target=await read(4);assert.equal(target.scenes[0].media.id,source.scenes[0].media.id);assert.equal(target.scenes[0].runId,undefined);assert.equal(target.scenes[0].reuseSource.creativeId,1);assert.equal(target.scenes[0].remix.creativeAnalysis.setting,'Bedroom')
+    await page.getByTestId('generator-scene-1').getByRole('button',{name:'Use as Scene',exact:true}).click();await page.getByText('1 / 1 approved',{exact:true}).waitFor()
+  })
+  await check('Backend restart and browser refresh preserve reused remix and structured analysis',async()=>{
+    server.kill();await new Promise(resolve=>server.once('exit',resolve));server=spawn(process.execPath,['server/index.mjs'],{env,windowsHide:true,stdio:'ignore'})
+    let ready=false;for(let n=0;n<60;n++){try{if((await fetch(api+'/health')).ok){ready=true;break}}catch{}await wait(200)}assert.ok(ready)
+    await page.reload();await page.getByText('1 / 1 approved',{exact:true}).waitFor();const w=await read(4);assert.equal(w.scenes[0].remix.creativeAnalysis.setting,'Bedroom');assert.equal(w.scenes[0].media.id,(await read(1)).scenes[0].media.id)
+  })
+  await check('Persisted progress phases and manual-reconciliation rendering remain distinct',async()=>{
+    const original=await (await fetch(api+'/api/operator/generator/4')).json()
+    for(const phase of ['Preparing references','Uploading references','Downloading']){
+      await page.route(api+'/api/operator/generator/4',route=>{const data=structuredClone(original);Object.assign(data.workspace.scenes[0],{status:'Queued',displayStatus:phase,approved:false});return route.fulfill({json:data})});await page.reload();await page.getByTestId('generator-scene-1').getByRole('status').filter({hasText:phase}).waitFor();assert.equal(await page.getByTestId('generator-scene-1').getByRole('button',{name:'Regenerate remix',exact:true}).isDisabled(),true);await page.unroute(api+'/api/operator/generator/4')
+    }
+    await page.reload()
   })
   await check('Mobile controls and comparison fit; no browser errors or external calls',async()=>{
     await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.getByTestId('generator-scene-1').scrollIntoViewIfNeeded();await page.screenshot({path:'qa-artifacts/remix-mobile.png'});assert.deepEqual(errors,[]);assert.deepEqual(external,[])

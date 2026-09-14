@@ -204,7 +204,7 @@ async function seedanceImageUrl(client, value, mediaRoot) {
 }
 
 /** Durable M5 Seedance submission. Unlike the direct MCP helpers below, this deliberately does not wait for completion. */
-export async function createFalSeedanceVideoJob({ prompt, start_frame, image, resolution = '480p', duration = 5, aspect_ratio, aspectRatio, generate_audio, generateAudio, media_root, confirmed, generation_mode, reference_video_ids, reference_image_ids, reference_audio_ids } = {}) {
+export async function createFalSeedanceVideoJob({ prompt, start_frame, image, resolution = '480p', duration = 5, aspect_ratio, aspectRatio, generate_audio, generateAudio, media_root, confirmed, generation_mode, reference_video_ids, reference_image_ids, reference_audio_ids, onProgress } = {}) {
   const invalid = (message) => Object.assign(new Error(message), { failure_classification: 'non_retryable' })
   if (confirmed !== true) throw invalid('confirmation_required')
   const client = configuredClient()
@@ -227,6 +227,7 @@ export async function createFalSeedanceVideoJob({ prompt, start_frame, image, re
   }
   if (mode === 'r2v') {
     try {
+      onProgress?.('Preparing references')
       if (!['9:16','auto'].includes(input.aspect_ratio)) throw new Error('Reference aspect ratio must be 9:16 or auto.')
       const references = referenceInputs({generation_mode,reference_video_ids,reference_image_ids,reference_audio_ids})
       const upload = async a => {
@@ -235,6 +236,7 @@ export async function createFalSeedanceVideoJob({ prompt, start_frame, image, re
         if (parsed.protocol !== 'https:' || !/(^|\.)fal\.media$/.test(parsed.hostname)) throw new Error('fal storage did not return a public fal.media URL.')
         return url
       }
+      onProgress?.('Uploading references')
       input.video_urls = await Promise.all(references.videos.map(upload))
       input.image_urls = await Promise.all(references.images.map(upload))
       input.audio_urls = await Promise.all(references.audios.map(upload))
@@ -259,7 +261,7 @@ export async function createFalSeedanceVideoJob({ prompt, start_frame, image, re
 }
 
 /** Restart-safe M5 status/result lookup using only the durable external request id. */
-export async function getFalSeedanceVideoJob(externalRequestId, { media_root } = {}) {
+export async function getFalSeedanceVideoJob(externalRequestId, { media_root, onProgress } = {}) {
   const client = configuredClient()
   if (!client) throw new Error('FAL_API_KEY_NOT_CONFIGURED')
   const request = parseSeedanceExternalId(externalRequestId)
@@ -276,6 +278,7 @@ export async function getFalSeedanceVideoJob(externalRequestId, { media_root } =
     completed = await client.queue.result(request.endpoint, { requestId: request.requestId })
     const video = videoFrom(completed?.data)
     if (!video) throw new Error('fal.ai returned no Seedance video in its response.')
+    if (request.mode === 'r2v') onProgress?.('Downloading')
     const downloaded = await downloadToBuffer(video.url)
     const saved = saveTemp(media_root || path.resolve(process.cwd(), 'local-media'), downloaded.buffer, downloaded.mime, 'fal-seedance-2-fast', VIDEO_MIME_EXTENSIONS, 'video/mp4')
     if (request.mode === 'r2v') await inspectVideo(saved.filePath)

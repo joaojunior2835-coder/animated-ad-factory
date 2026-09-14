@@ -108,9 +108,9 @@ function adapterForReplicate() {
 function adapterForFal() {
   return {
     provider: 'fal',
-    async dispatch(params = {}) {
+    async dispatch(params = {}, {onProgress} = {}) {
       try {
-        const response = await createFalSeedanceVideoJob({ ...params, media_root: localMediaRoot(), confirmed: true })
+        const response = await createFalSeedanceVideoJob({ ...params, media_root: localMediaRoot(), confirmed: true, onProgress })
         return { externalRequestId: response.jobId, initialStatus: statusFromLegacy(response.status) }
       } catch (error) {
         if (error && error.failure_classification) throw error
@@ -118,8 +118,8 @@ function adapterForFal() {
         throw classified(error && error.message, status === 429 || status >= 500 ? 'transient_retryable' : 'ambiguous_billing')
       }
     },
-    async checkStatus(externalRequestId) {
-      const response = await getFalSeedanceVideoJob(externalRequestId, { media_root: localMediaRoot() })
+    async checkStatus(externalRequestId, {onProgress} = {}) {
+      const response = await getFalSeedanceVideoJob(externalRequestId, { media_root: localMediaRoot(), onProgress })
       return { status: statusFromLegacy(response.status), resultData: response.result, providerStatus: response.status }
     },
     extractResult(resultData) { return resultData || null },

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import { uploadReference, analyzeReference, validateReferenceAsset } from './referenceRemix.mjs'
-import { promptForRemix } from './creativeGenerator.mjs'
+import { promptForRemix, reuseGeneratorScene } from './creativeGenerator.mjs'
 import { getDb, getFxRate, setFxRate } from '../db/repository.mjs'
 import { reviewQueue, reviewCreative, approveManualPlan, analysisSummary, runDetails } from './operator.mjs'
 import { assembleProductionRun, completeExternalRun, videoTool, runVideoTool } from './assembly.mjs'
@@ -21,7 +21,7 @@ export async function operatorRoute(req, res, url, send) {
     if (req.method === 'POST' && route === 'references/analyze') { send(res,200,{ok:true,analysis:await analyzeReference(body)}); return true }
     if (req.method === 'POST' && route === 'references/validate') { send(res,200,{ok:true,...await validateReferenceAsset(body.assetId,body.kind)}); return true }
     if (req.method === 'POST' && /^generator\/\d+\/remix-prompt$/.test(route)) { send(res,200,{ok:true,...promptForRemix(Number(route.split('/')[1]),body.scene)}); return true }
-    const generator = /^generator\/(\d+)(?:\/(scenes|estimate|quote|start|result|assemble))?$/.exec(route)
+    const generator = /^generator\/(\d+)(?:\/(scenes|estimate|quote|start|result|assemble|reuse))?$/.exec(route)
     if (req.method === 'GET' && route === 'generator/options') data = await generatorOptions()
     else if (req.method === 'POST' && route === 'generator/creatives') data = createGeneratorCreative(body)
     else if (generator && req.method === 'GET' && !generator[2]) data = { workspace: generatorWorkspace(Number(generator[1])) }
@@ -32,6 +32,7 @@ export async function operatorRoute(req, res, url, send) {
       else if (action === 'quote') data = quoteGenerator(id, body)
       else if (action === 'start') data = await startGenerator(id, body)
       else if (action === 'result') data = { workspace: chooseGeneratorResult(id, body) }
+      else if (action === 'reuse') data = reuseGeneratorScene(id,body)
       else if (action === 'assemble') data = { workspace: await assembleGenerator(id, body) }
       else throw new Error('Unknown generator action.')
     }
