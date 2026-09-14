@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    open: true
+    open: false,
+    proxy: Object.fromEntries(['/api', '/health', '/media', '/mock-video-output.mp4'].map((route) => [route, 'http://127.0.0.1:8787']))
   }
 })

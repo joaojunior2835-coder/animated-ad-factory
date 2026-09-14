@@ -10,7 +10,8 @@
 // reads the Studio's session list in order to link one.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiBase } from '../lib/ai/apiClient.js'
+import { apiBase, saveMediaToLocal } from '../lib/ai/apiClient.js'
+import { OperatorSettings, ReviewQueue, ManualProductionPlan, RunOperator, AnalysisPanel } from './OperatorWorkspace.jsx'
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -1327,9 +1328,10 @@ function NewCreativeForm({ iterationId, onCancel, onCreated }) {
 // Metric snapshot form
 // ---------------------------------------------------------------------------
 
-const RAW_METRIC_FIELDS = ['views', 'likes', 'comments', 'shares', 'profile_visits', 'link_clicks', 'atcs', 'purchases']
+const RAW_METRIC_FIELDS = ['views', 'impressions', 'likes', 'comments', 'shares', 'saves', 'profile_visits', 'link_clicks', 'atcs', 'purchases', 'spend_minor', 'revenue_minor']
 
 function AddMetricForm({ publicationId, onAdded, onCancel }) {
+  const [saving, setSaving] = useState(false)
   const [capturedAt, setCapturedAt] = useState(nowLocalInput())
   const [source, setSource] = useState('manual')
   const [expName, setExpName] = useState('views')
@@ -1339,6 +1341,8 @@ function AddMetricForm({ publicationId, onAdded, onCancel }) {
   const [error, setError] = useState('')
 
   const submit = async () => {
+    if (saving) return
+    setSaving(true)
     setError('')
     try {
       const rawMetrics = {}
@@ -1354,7 +1358,7 @@ function AddMetricForm({ publicationId, onAdded, onCancel }) {
       onAdded()
     } catch (e) {
       setError(e.message)
-    }
+    } finally { setSaving(false) }
   }
 
   return (
@@ -1381,7 +1385,7 @@ function AddMetricForm({ publicationId, onAdded, onCancel }) {
         </Field>
       </div>
       <div className="hint small" style={{ margin: '8px 0' }}>
-        Raw metrics
+        Latest cumulative raw metrics. Blank = missing; enter 0 for zero. Spend/revenue use EUR cents. Add a newer snapshot to update metrics.
       </div>
       <div className="fields">
         {RAW_METRIC_FIELDS.map((k) => (
@@ -1399,7 +1403,7 @@ function AddMetricForm({ publicationId, onAdded, onCancel }) {
         <textarea className="ms-input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
       <div className="row" style={{ gap: '8px', marginTop: '8px' }}>
-        <button className="primary small" data-testid="metric-submit" onClick={submit}>
+        <button className="primary small" data-testid="metric-submit" disabled={saving} onClick={submit}>
           Add Snapshot
         </button>
         <button className="ghost small" onClick={onCancel}>
@@ -1450,7 +1454,7 @@ function ProductionDispatchPanel({ iterationId }) {
     setStarting(true)
     setError('')
     try {
-      await api('POST', `/api/iterations/${iterationId}/production/start`, { productionRunIds: selected })
+      await api('POST', `/api/iterations/${iterationId}/production/start`, { productionRunIds: selected, confirmed: true })
       setPreflight(null)
       setSelected([])
       await loadStatus()
@@ -1489,6 +1493,8 @@ function ProductionDispatchPanel({ iterationId }) {
 // ---------------------------------------------------------------------------
 
 function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
+  const [publishing, setPublishing] = useState(false)
+  const importing = useRef(false)
   const [creative, setCreative] = useState(null)
   const [runs, setRuns] = useState([])
   const [publications, setPublications] = useState([])
@@ -1547,24 +1553,36 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
     }
   }
 
-  // Register a path under local-media/ as an Asset, then make it the run's final
-  // asset. Deliberately minimal — a manual-entry convenience, not an upload UI.
-  const registerFinalAsset = async (runId) => {
-    const rel = (assetPath[runId] || '').trim()
-    if (!rel) return
+  // Upload locally (or reuse a library path), then validate the manual final.
+  const registerFinalAsset = async (runId, selectedFile = null) => {
+    if (importing.current) return
+    importing.current = true
     try {
+      let rel = (assetPath[runId] || '').trim()
+      if (selectedFile) {
+        const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(selectedFile) })
+        const saved = await saveMediaToLocal({ data_url: dataUrl, file_name: selectedFile.name, project_id: `creative-${creativeId}` })
+        if (!saved.success) throw new Error(saved.error || 'Local upload failed.')
+        rel = decodeURIComponent(new URL(saved.local_url, window.location.origin).pathname.replace(/^\/media\//, ''))
+      }
+      if (!rel) return
       const reg = await api('POST', '/api/assets/register-external', { relativePath: rel, mimeType: 'video/mp4', source: 'uploaded' })
-      await api('POST', `/api/production-runs/${runId}/final-asset`, { assetId: reg.item.id })
+      const run = runs.find((item) => item.id === runId)
+      if (run.production_method === 'manual_external') await api('POST', `/api/operator/runs/${runId}/external-final`, { assetId: reg.item.id })
+      else await api('POST', `/api/production-runs/${runId}/final-asset`, { assetId: reg.item.id })
       setAssetPath((m) => ({ ...m, [runId]: '' }))
       await load()
     } catch (e) {
       setError(e.message)
     }
+    finally { importing.current = false }
   }
 
-  const runsWithAsset = runs.filter((r) => r.final_asset_id)
+  const runsWithAsset = runs.filter((r) => r.final_asset_id && r.status === 'complete' && r.id === creative?.active_production_run_id && creative?.approval_status === 'approved')
 
   const submitPublication = async () => {
+    if (publishing) return
+    setPublishing(true)
     try {
       let accountId = pubForm.accountId
       if (!accountId && pubForm.newHandle.trim()) {
@@ -1586,7 +1604,7 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
       await load()
     } catch (e) {
       setError(e.message)
-    }
+    } finally { setPublishing(false) }
   }
 
   if (!creative) return <section className="panel ms-panel">{error ? <ErrorNote error={error} onRetry={load} /> : <p>Loading…</p>}</section>
@@ -1618,6 +1636,7 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
         </div>
       ) : null}
 
+      <ManualProductionPlan creativeId={creativeId} onCreated={load} />
       <h3 style={{ marginTop: '18px' }}>Production Runs</h3>
       <button className="primary small" data-testid="add-run" onClick={addRun}>
         + New Production Run
@@ -1653,6 +1672,8 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
                   </button>
                 </div>
               ) : null}
+              <RunOperator runId={r.id} iterationId={creative.iteration_id} creativeId={creativeId} onChange={load} />
+              {r.production_method === 'manual_external' && ['planned', 'executing'].includes(r.status) && <label className="field">Import finished video (local / free)<input type="file" accept="video/mp4,video/quicktime,video/webm" onChange={(e) => { if (e.target.files?.[0]) registerFinalAsset(r.id, e.target.files[0]); e.target.value = '' }} /></label>}
             </div>
           </div>
         ))}
@@ -1672,7 +1693,7 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
       </button>
       {runsWithAsset.length === 0 ? (
         <span className="hint small" style={{ marginLeft: '8px' }}>
-          Set a final asset on a run first.
+          Complete and approve a final video first. Approved means ready to publish; record the post after publishing manually.
         </span>
       ) : null}
 
@@ -1718,7 +1739,7 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
             </Field>
           </div>
           <div className="row" style={{ gap: '8px', marginTop: '8px' }}>
-            <button className="primary small" data-testid="pub-submit" onClick={submitPublication}>
+            <button className="primary small" data-testid="pub-submit" disabled={publishing} onClick={submitPublication}>
               Create Publication
             </button>
             <button className="ghost small" onClick={() => setShowPubForm(false)}>
@@ -1728,6 +1749,7 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
         </div>
       ) : null}
 
+      <AnalysisPanel creativeId={creativeId} />
       <div className="ms-session-list" style={{ marginTop: '10px' }}>
         {publications.length === 0 ? <p className="hint small">No publications yet.</p> : null}
         {publications.map((p) => (
@@ -1902,6 +1924,7 @@ function ProductTestDetail({ productTestId, onBack, onOpenCreative, onOpenStudio
       ) : null}
 
       {iterations.length === 0 && !showIterationForm && !showAiWizard ? <p className="hint small">No iterations yet.</p> : null}
+      <AnalysisPanel productTestId={productTestId} />
 
       {iterations.map((it) => (
         <div className="subpanel" key={it.id} style={{ marginTop: '12px' }} data-testid={`iteration-${it.id}`}>
@@ -2115,6 +2138,7 @@ export default function ProductTests({ onOpenStudioSession }) {
       />
     )
   }
+  if (view.name === 'review') return <><button className="ghost" onClick={() => setView({ name: 'home' })}>Back to Product Tests</button><ReviewQueue onOpen={(id, testId) => setView({ name: 'creative', id, testId })} /></>
   if (view.name === 'test') {
     return (
       <ProductTestDetail
@@ -2132,6 +2156,7 @@ export default function ProductTests({ onOpenStudioSession }) {
     return <CreativeDetail creativeId={view.id} onBack={() => setView({ name: 'test', id: view.testId })} onOpenStudio={onOpenStudioSession} />
   }
   return (
+    <><div className="row" style={{ gap: 12, marginBottom: 12 }}><button className="primary" onClick={() => setView({ name: 'review' })}>Review Queue</button><span>Product Tests → production → assembly → review → publication → analysis</span></div><OperatorSettings />
     <ProductTestsHome
       tests={tests}
       loading={loading}
@@ -2140,5 +2165,6 @@ export default function ProductTests({ onOpenStudioSession }) {
       onNew={() => setView({ name: 'new' })}
       onOpen={(id) => setView({ name: 'test', id })}
     />
+    </>
   )
 }

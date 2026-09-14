@@ -45,13 +45,15 @@ import { generateResearchDraft, generateStrategyDraft, validateResearchDraft } f
 import { generateBatchProductionPlan, priceProductionPlan } from './lib/productionPlanner.mjs'
 import { preflightProduction, startProduction, productionStatus, materializeJobsForProductionRun, currentRates } from './lib/productionExecution.mjs'
 import { reconcileInFlightJobs, startExecutionPoller } from './lib/dispatcher.mjs'
+import { operatorRoute } from './lib/operatorRoutes.mjs'
+import { requirePublishable, saveMetrics } from './lib/operator.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
 const PUBLIC_ROOT = path.resolve(__dirname, '..', 'public')
 const MOCK_VIDEO_PATH = path.resolve(PUBLIC_ROOT, 'mock-video-output.mp4')
 // Local media library root (gitignored). Files live ONLY on this machine.
-const MEDIA_ROOT = path.resolve(__dirname, '..', 'local-media')
+const MEDIA_ROOT = path.resolve(process.env.FACTORY_MEDIA_ROOT || path.join(__dirname, '..', 'local-media'))
 const PORT = Number(process.env.PORT) || 8787
 
 // Minimal .env.local loader. Values stay in process.env only.
@@ -733,6 +735,7 @@ const server = http.createServer(async (req, res) => {
       )
     }
 
+    if (await operatorRoute(req, res, url, send)) return
     if (req.method === 'POST' && url.pathname === '/api/product-tests') {
       return readJsonBody(req, res, (body) =>
         guard(() => {
@@ -880,7 +883,10 @@ const server = http.createServer(async (req, res) => {
     if ((m = ptMatch('/api/creatives/:id/publications')) && req.method === 'POST') {
       const creativeId = idNum(m[0])
       return readJsonBody(req, res, (body) =>
-        guard(() => ok({ item: ptRepo.createPublicationForCreative({ creativeId, ...body }) }))
+        guard(() => {
+          requirePublishable(creativeId, Number(body.productionRunId))
+          return ok({ item: ptRepo.createPublicationForCreative({ ...body, creativeId }) })
+        })
       )
     }
     if ((m = ptMatch('/api/creatives/:id/publications')) && req.method === 'GET') {
@@ -890,7 +896,7 @@ const server = http.createServer(async (req, res) => {
     if ((m = ptMatch('/api/publications/:id/metrics')) && req.method === 'POST') {
       const publicationId = idNum(m[0])
       return readJsonBody(req, res, (body) =>
-        guard(() => ok({ item: ptRepo.addMetricSnapshot({ publicationId, ...body }) }))
+        guard(() => ok({ item: saveMetrics(publicationId, body) }))
       )
     }
     if ((m = ptMatch('/api/publications/:id/metrics')) && req.method === 'GET') {
@@ -994,6 +1000,7 @@ const server = http.createServer(async (req, res) => {
       const iterationId = idNum(m[0])
       return readJsonBody(req, res, async (body) => {
         try {
+          if (body.confirmed !== true) return fail(400, 'confirmed:true is required before production can spend money.')
           return ok(await startProduction(iterationId, body.productionRunIds || []))
         } catch (e) {
           return fail(500, `Production start failed: ${e && e.message ? e.message : 'unknown error'}`)

@@ -39,6 +39,8 @@ import { getBudgetSummary } from './db/repository.mjs'
 import { fetchProductPageText } from './lib/safeFetch.mjs'
 import { generateResearchDraft, generateStrategyDraft, validateResearchDraft } from './lib/organicStrategy.mjs'
 import { preflightProduction, startProduction } from './lib/productionExecution.mjs'
+import { assembleProductionRun } from './lib/assembly.mjs'
+import { reviewQueue, reviewCreative, analysisSummary } from './lib/operator.mjs'
 import { runPollinations } from './providers/pollinationsProvider.mjs'
 import { createMockVideoJob, getMockVideoJob } from './providers/mockVideoProvider.mjs'
 import * as falProvider from './providers/falProvider.mjs'
@@ -433,6 +435,25 @@ server.registerTool(
 // ---------------------------------------------------------------------------
 // MARKETING STUDIO TOOLS
 // ---------------------------------------------------------------------------
+
+server.registerTool('assemble_production_run', {
+  description: 'Assemble completed local video Assets in scene order. Local/free, idempotent; never generates or retries paid jobs.',
+  inputSchema: { productionRunId: z.number().int().positive() },
+}, withErrors(async ({ productionRunId }) => text(await assembleProductionRun(productionRunId))))
+
+server.registerTool('get_review_queue', {
+  description: 'Latest completed final video per creative, with review state and lineage. Read only.', inputSchema: {},
+}, withErrors(async () => text(reviewQueue())))
+
+server.registerTool('review_creative', {
+  description: 'Record an operator review of a completed final video. Revision does not generate or spend. Approval makes this run publication-ready.',
+  inputSchema: { creativeId: z.number().int().positive(), productionRunId: z.number().int().positive(), decision: z.enum(['approved', 'rejected', 'regenerating']), note: z.string().max(4000).optional() },
+}, withErrors(async (args) => text(reviewCreative(args))))
+
+server.registerTool('get_analysis_summary', {
+  description: 'Deterministic analysis using the latest cumulative metric snapshot per publication. Includes explicit sufficiency rules and missing data.',
+  inputSchema: { productTestId: z.number().int().positive().optional(), iterationId: z.number().int().positive().optional(), creativeId: z.number().int().positive().optional() },
+}, withErrors(async (args) => text(analysisSummary(args))))
 
 server.registerTool(
   'list_studio_sessions',

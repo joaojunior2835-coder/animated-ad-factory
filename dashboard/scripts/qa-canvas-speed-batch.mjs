@@ -89,7 +89,7 @@ async function startQaBackend() {
     throw new Error(`Port ${QA_PORT} is already in use. qa:canvas needs an exclusive keyless backend on ${QA_PORT}. Stop whatever is using it and retry.`)
   }
   const proc = spawn(process.execPath, [SERVER_ENTRY], {
-    env: { ...process.env, PORT: String(QA_PORT), FACTORY_DB_PATH: QA_DB_PATH, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
+    env: { ...process.env, PORT: String(QA_PORT), FACTORY_DB_PATH: QA_DB_PATH, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '', FAL_API_KEY: '' },
     stdio: 'ignore'
   })
   let health = null
@@ -108,7 +108,7 @@ async function startQaBackend() {
   }
   // Guard: this backend MUST be keyless so qa never triggers paid provider calls.
   const cfg = health.providers_configured || {}
-  if (cfg.openai || cfg.openrouter || cfg.groq || cfg.pollinations || cfg.replicate || cfg.anthropic || cfg.gemini) {
+  if (cfg.openai || cfg.openrouter || cfg.groq || cfg.pollinations || cfg.replicate || cfg.anthropic || cfg.gemini || cfg.fal) {
     try {
       proc.kill()
     } catch {

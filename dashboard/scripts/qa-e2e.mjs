@@ -82,7 +82,7 @@ async function waitPortFree(url) {
 async function startKeylessBackend() {
   if (!(await waitPortFree(QA_API + '/health'))) throw new Error(`Port ${QA_PORT} already in use — qa:e2e needs an exclusive keyless backend there.`)
   const proc = spawn(process.execPath, [SERVER_ENTRY], {
-    env: { ...process.env, PORT: String(QA_PORT), FACTORY_DB_PATH: QA_DB_PATH, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '' },
+    env: { ...process.env, PORT: String(QA_PORT), FACTORY_DB_PATH: QA_DB_PATH, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', GROQ_API_KEY: '', POLLINATIONS_API_KEY: '', REPLICATE_API_TOKEN: '', ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '', FAL_API_KEY: '' },
     stdio: 'ignore'
   })
   let health = null
@@ -103,7 +103,7 @@ async function startKeylessBackend() {
     throw new Error('Keyless backend did not become healthy.')
   }
   const cfg = health.providers_configured || {}
-  if (cfg.openai || cfg.openrouter || cfg.groq || cfg.pollinations || cfg.replicate || cfg.anthropic || cfg.gemini) {
+  if (cfg.openai || cfg.openrouter || cfg.groq || cfg.pollinations || cfg.replicate || cfg.anthropic || cfg.gemini || cfg.fal) {
     try { proc.kill() } catch { /* ignore */ }
     throw new Error('Backend is NOT keyless — aborting to avoid paid calls.')
   }

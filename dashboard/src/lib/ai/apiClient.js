@@ -17,7 +17,8 @@ function resolveBase() {
     /* ignore */
   }
   const env = (typeof import.meta !== 'undefined' && import.meta.env) || {}
-  return (env.VITE_API_BASE_URL || env.VITE_LOCAL_API_BASE || 'http://127.0.0.1:8787').replace(/\/$/, '')
+  const remoteBrowser = typeof window !== 'undefined' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+  return (env.VITE_API_BASE_URL || env.VITE_LOCAL_API_BASE || (remoteBrowser ? '' : 'http://127.0.0.1:8787')).replace(/\/$/, '')
 }
 
 export function apiBase() {
