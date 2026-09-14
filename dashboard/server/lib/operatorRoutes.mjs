@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { getDb, getFxRate, setFxRate } from '../db/repository.mjs'
 import { reviewQueue, reviewCreative, approveManualPlan, analysisSummary, runDetails } from './operator.mjs'
 import { assembleProductionRun, completeExternalRun, videoTool, runVideoTool } from './assembly.mjs'
+import { generatorOptions, createGeneratorCreative, generatorWorkspace, saveGeneratorScenes, estimateGenerator, quoteGenerator, startGenerator, chooseGeneratorResult, assembleGenerator } from './creativeGenerator.mjs'
 
 export async function operatorRoute(req, res, url, send) {
   if (!url.pathname.startsWith('/api/operator/')) return false
@@ -14,7 +15,21 @@ export async function operatorRoute(req, res, url, send) {
     }
     let data
     const route = url.pathname.slice('/api/operator/'.length)
-    if (req.method === 'GET' && route === 'review') data = { items: reviewQueue() }
+    const generator = /^generator\/(\d+)(?:\/(scenes|estimate|quote|start|result|assemble))?$/.exec(route)
+    if (req.method === 'GET' && route === 'generator/options') data = await generatorOptions()
+    else if (req.method === 'POST' && route === 'generator/creatives') data = createGeneratorCreative(body)
+    else if (generator && req.method === 'GET' && !generator[2]) data = { workspace: generatorWorkspace(Number(generator[1])) }
+    else if (generator && req.method === 'POST') {
+      const id = Number(generator[1]), action = generator[2]
+      if (action === 'scenes') data = { workspace: saveGeneratorScenes(id, body) }
+      else if (action === 'estimate') data = estimateGenerator(id, body.sceneIds)
+      else if (action === 'quote') data = quoteGenerator(id, body)
+      else if (action === 'start') data = await startGenerator(id, body)
+      else if (action === 'result') data = { workspace: chooseGeneratorResult(id, body) }
+      else if (action === 'assemble') data = { workspace: await assembleGenerator(id, body) }
+      else throw new Error('Unknown generator action.')
+    }
+    else if (req.method === 'GET' && route === 'review') data = { items: reviewQueue() }
     else if (req.method === 'POST' && route === 'review') data = { item: reviewCreative(body) }
     else if (req.method === 'POST' && route === 'plan') data = { item: approveManualPlan(body) }
     else if (req.method === 'GET' && route === 'analysis') data = analysisSummary(Object.fromEntries(url.searchParams))

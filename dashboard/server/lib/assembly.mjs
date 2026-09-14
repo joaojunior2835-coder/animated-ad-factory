@@ -54,6 +54,19 @@ export async function inspectVideo(file, executable = null) {
 export function assemblyInputs(runId) {
   const run = getProductionRunExecution(runId)
   if (!run || !run.spec_frozen_at || run.status === 'superseded') throw new Error('Assembly requires an existing frozen production run.')
+  const sources = run.specSnapshot?.execution?.assemblySources
+  if (run.specSnapshot?.planning?.fineMethod === 'local_assembly' && Array.isArray(sources)) {
+    if (!sources.length || run.jobs.length) throw new Error('Invalid local assembly selection.')
+    return { run, clips: sources.map((source) => {
+      const linked = getDb().prepare("SELECT a.* FROM asset a JOIN asset_link al ON al.asset_id=a.id WHERE a.id=? AND al.production_run_id=? AND al.role='assembly_input'").get(source.assetId, runId)
+      if (!linked || linked.mime_type !== 'video/mp4') throw new Error('Assembly source is not a linked local video.')
+      if (source.sourceRunId) {
+        const original = getProductionRunExecution(source.sourceRunId)
+        if (!original || original.creative_id !== run.creative_id || original.status !== 'complete' || original.final_asset_id !== linked.id) throw new Error('Assembly source lineage is invalid.')
+      }
+      return { assetId: linked.id, sourceRunId: source.sourceRunId, relativePath: linked.relative_path, file: localAssetPath(linked.relative_path) }
+    }) }
+  }
   if (!run.jobs.length || run.jobs.some((job) => job.status !== 'complete')) throw new Error('All generation jobs must complete before assembly.')
   const clips = run.jobs.filter((job) => job.capability === 'generate_video').sort((a, b) => (a.inputParams.sequence || a.id) - (b.inputParams.sequence || b.id))
   if (!clips.length) throw new Error('No completed video clips to assemble.')

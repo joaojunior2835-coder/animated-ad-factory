@@ -15,7 +15,7 @@ export function reviewQueue() {
     (SELECT sum(base_currency_amount_minor) FROM cost WHERE production_run_id=pr.id) AS cost_minor,
     (SELECT note FROM review_event WHERE production_run_id=pr.id ORDER BY id DESC LIMIT 1) AS review_note
     FROM creative c JOIN iteration i ON i.id=c.iteration_id JOIN product_test pt ON pt.id=i.product_test_id
-    JOIN product p ON p.id=pt.product_id JOIN production_run pr ON pr.id=(SELECT MAX(r.id) FROM production_run r WHERE r.creative_id=c.id AND r.status='complete' AND r.final_asset_id IS NOT NULL)
+    JOIN product p ON p.id=pt.product_id JOIN production_run pr ON pr.id=(SELECT MAX(r.id) FROM production_run r WHERE r.creative_id=c.id AND r.status='complete' AND r.final_asset_id IS NOT NULL AND COALESCE(json_extract(r.spec_snapshot,'$.planning.productionNotes'),'') != 'creative_generator_scene')
     JOIN asset a ON a.id=pr.final_asset_id WHERE pr.status='complete' ORDER BY pr.created_at DESC,pr.id DESC`).all().map((row) => ({ ...row, planning: parse(row.spec_snapshot).planning || {}, spec_snapshot: undefined }))
 }
 

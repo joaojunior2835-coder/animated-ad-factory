@@ -32,6 +32,7 @@ import JsonPreview from './components/JsonPreview.jsx'
 import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
 import ProductTests from './components/ProductTests.jsx'
+import CreativeGenerator from './components/CreativeGenerator.jsx'
 import { emptyStudio, normalizeStudio, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary, inferStudioFromQuickPrompt, formatById } from './lib/marketingStudioModel.js'
 // Session persistence lives in the backend database as of Phase 4. The model's
 // loadSessions/saveSession localStorage helpers are deliberately NOT imported
@@ -55,6 +56,7 @@ import { IMAGE_API_PROVIDERS, TEXT_API_PROVIDERS, VIDEO_API_PROVIDERS, runVideoG
 const REPLICATE_VIDEO_MODEL_LABEL = 'LTX-Video'
 
 const SPECIAL_NAV = [
+  { key: 'create_ad', label: 'Create Ad' },
   { key: 'methods', label: 'Ad Methods' },
   { key: 'brand', label: 'Brand Library' },
   { key: 'intake', label: 'Product / Offer Brief' },
@@ -97,7 +99,7 @@ export default function App() {
   const [productLibrary, setProductLibrary] = useState(() => loadProductLibrary())
   const [activeStudioSessionId, setActiveStudioSessionId] = useState(null)
   const [studioWizardStep, setStudioWizardStep] = useState(0)
-  const [active, setActive] = useState(() => { try { return sessionStorage.getItem(`operator-active:${apiBase()}`) === 'true' ? 'product_tests' : 'brand' } catch { return 'brand' } })
+  const [active, setActive] = useState(() => { try { return sessionStorage.getItem(`operator-active:${apiBase()}`) === 'true' ? 'product_tests' : 'create_ad' } catch { return 'create_ad' } })
   useEffect(() => { try { sessionStorage.setItem(`operator-active:${apiBase()}`, String(active === 'product_tests')) } catch {} }, [active])
   const [backupExists, setBackupExists] = useState(() => hasBackup())
   const [canvasPreviews, setCanvasPreviews] = useState({})
@@ -1116,6 +1118,7 @@ export default function App() {
         </>
       )
     }
+    if (active === 'create_ad') return <CreativeGenerator studio={activeStudio} onReview={() => { try { sessionStorage.setItem(`operator-view:${apiBase()}`, JSON.stringify({ name: 'review' })) } catch {} setActive('product_tests') }} onProductTests={() => setActive('product_tests')} />
     if (active === 'product_tests') {
       return (
         <ProductTests
@@ -1128,7 +1131,7 @@ export default function App() {
     }
     if (active === 'marketing_studio') {
       return (
-        <MarketingStudio
+        <><div className="subpanel"><button className="primary" onClick={() => setActive('create_ad')}>Create ad from these scenes</button><p className="hint small">Generate and preview videos in Create Ad. Select a Creative, then import this session’s editable scenes.</p></div><MarketingStudio
           sessions={studioSessions}
           activeSessionId={activeStudioSessionId}
           studio={activeStudio}
@@ -1156,7 +1159,7 @@ export default function App() {
           onSaveProductToLibrary={(product) => updateProductLibrary((lib) => saveProductToLibrary(lib, product))}
           onDeleteProductFromLibrary={(id) => updateProductLibrary((lib) => deleteProductFromLibrary(lib, id))}
           onImportSession={importStudioSession}
-        />
+        /></>
       )
     }
     if (active === 'handoff') {
@@ -1349,14 +1352,14 @@ export default function App() {
     // Product Tests owns its own data and loads it from the backend, so App has
     // no count to report here. Explicit false rather than falling through to the
     // project[item.key] lookup, which would silently mean the same thing.
-    if (item.key === 'product_tests') return false
+    if (item.key === 'product_tests' || item.key === 'create_ad') return false
     if (item.kind === 'clips') return project.clips.length > 0
     if (item.kind === 'export') return false
     return (project[item.key] || '').trim().length > 0
   }
 
   return (
-    <div className={active === 'product_tests' ? 'app operator-active' : 'app'}>
+    <div className={['product_tests', 'create_ad'].includes(active) ? 'app operator-active' : 'app'}>
       <header className="topbar">
         <h1>Animated Ad Factory</h1>
         <span className="tag">Visual Production Layer</span>
@@ -1367,8 +1370,8 @@ export default function App() {
             ? 'Local API: checking…'
             : !b.connected
               ? 'Local backend offline — run npm run dev:server or npm run dev:all from dashboard/.'
-              : active === 'product_tests' ? `Backend online · fal ${yn(b.fal)}` : `Backend online · Groq ${yn(b.groq)} · Pollinations ${yn(b.pollinations)}`
-          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : (active === 'product_tests' ? b.fal : b.groq || b.pollinations) ? 'api-badge ok' : 'api-badge warn'
+              : ['product_tests', 'create_ad'].includes(active) ? `Backend online · fal ${yn(b.fal)}` : `Backend online · Groq ${yn(b.groq)} · Pollinations ${yn(b.pollinations)}`
+          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : (['product_tests', 'create_ad'].includes(active) ? b.fal : b.groq || b.pollinations) ? 'api-badge ok' : 'api-badge warn'
           return (
             <span className="api-badge-wrap" data-testid="runtime-status">
               <span className={cls} title={b.url ? `Backend: ${b.url} (status from /health; no keys exposed)` : 'Local backend status from /health (no keys exposed)'}>
@@ -1399,7 +1402,7 @@ export default function App() {
 
         <main className="main">{renderMain()}</main>
 
-        {active === 'product_tests' ? null : active === 'marketing_studio' ? (
+        {['product_tests', 'create_ad'].includes(active) ? null : active === 'marketing_studio' ? (
           // The project JSON / export readiness panel is about the MAIN project —
           // it has nothing to do with studio sessions and reads as false alarms
           // here ("export blocked", issue counts). Show a neutral studio aside.

@@ -14,7 +14,7 @@ const display = (value, suffix = '', unavailable = 'missing data') => value == n
 const stateLabel = (state) => state === 'regenerating' ? 'Needs revision' : state
 function ErrorLine({ error }) { return error ? <p className="note bad" role="alert">{error}</p> : null }
 
-export function VideoPreview({ asset }) {
+export function VideoPreview({ asset, compact = false }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [asset?.relative_path])
   if (!asset?.relative_path) return null
@@ -24,7 +24,7 @@ export function VideoPreview({ asset }) {
     {failed && <ErrorLine error="Local video is missing or cannot be played. Check the file before review/publication." />}
     <p className="hint small">{asset.width ? `${asset.width}×${asset.height} · ` : ''}{asset.duration_seconds ? `${asset.duration_seconds.toFixed(2)} s · ` : ''}{asset.file_size ? `${Math.round(asset.file_size / 1024)} KB` : ''}</p>
     <a href={url} target="_blank" rel="noreferrer" style={{ color: '#92bdff' }}>Open / download video</a>
-    <p className="hint small" style={{ overflowWrap: 'anywhere' }}>{url}</p>
+    {!compact && <p className="hint small" style={{ overflowWrap: 'anywhere' }}>{url}</p>}
   </div>
 }
 

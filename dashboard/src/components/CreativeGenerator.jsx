@@ -1,0 +1,167 @@
+import { useEffect, useRef, useState } from 'react'
+import { apiBase, saveMediaToLocal } from '../lib/ai/apiClient.js'
+import { inferStudioFromQuickPrompt, generateSceneOutline, generateOmniPrompts } from '../lib/marketingStudioModel.js'
+import { VideoPreview, OperatorSettings } from './OperatorWorkspace.jsx'
+import './CreativeGenerator.css'
+
+const money = n => n == null ? 'Unavailable' : `€${(n / 100).toFixed(2)}`
+async function request(path, body) {
+  const r = await fetch(apiBase() + path, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+  const value = await r.json(); if (!r.ok || value.ok === false) throw new Error(value.error || 'Request failed.'); return value
+}
+const api = (path, body) => request('/api/operator/generator/' + path, body)
+const mediaUrl = a => apiBase() + (a.relative_path === 'mock-video-output.mp4' ? '/' : '/media/') + a.relative_path.split('/').map(encodeURIComponent).join('/')
+const blank = () => ({ name: 'Product scene', prompt: '', provider: 'mock', mode: 'text-to-video', seconds: 5, resolution: '480p', aspectRatio: '9:16', generateAudio: false, startAssetId: null })
+const draft = s => ({ id: s.id, name: s.name, prompt: s.prompt, provider: s.provider, mode: s.mode, seconds: s.seconds, resolution: s.resolution, aspectRatio: s.aspectRatio, generateAudio: s.generateAudio, startAssetId: s.startAssetId })
+const unavailable = e => /FX/i.test(e) ? 'FX rate unavailable. Enter a verified rate in Operator settings.' : /BUDGET|budget/i.test(e) ? 'Insufficient budget. Check the iteration budget in Product Tests.' : /PROVIDER_NOT|not_configured/i.test(e) ? 'Provider not configured. Check Provider status below.' : e
+
+export default function CreativeGenerator({ studio, onReview, onProductTests }) {
+  const [options, setOptions] = useState(null), [work, setWork] = useState(null), [scenes, setScenes] = useState([])
+  const [productId, setProductId] = useState(''), [creativeId, setCreativeId] = useState(''), [title, setTitle] = useState(''), [productName, setProductName] = useState(''), [brief, setBrief] = useState('')
+  const [error, setError] = useState(''), [busy, setBusy] = useState(false), [dirty, setDirty] = useState(false), [quote, setQuote] = useState(null), [estimate, setEstimate] = useState(null)
+  const lock = useRef(false), current = useRef(null), selection = useRef('')
+  const modal = useRef(null)
+  useEffect(() => {
+    if (!quote) return
+    const onKey = e => {
+      if (e.key === 'Escape' && !lock.current) setQuote(null)
+      if (e.key === 'Tab') {
+        const buttons = modal.current?.querySelectorAll('button:not(:disabled)')
+        if (!buttons?.length) return
+        const first=buttons[0], last=buttons[buttons.length-1]
+        if (e.shiftKey && document.activeElement===first) { e.preventDefault(); last.focus() }
+        else if (!e.shiftKey && document.activeElement===last) { e.preventDefault(); first.focus() }
+      }
+    }
+    document.addEventListener('keydown',onKey); return () => document.removeEventListener('keydown',onKey)
+  }, [quote])
+  const accept = w => { current.current = w; setWork(w); setScenes(w.scenes.map(draft)); setDirty(false) }
+  const refreshOptions = async () => { const o = await api('options'); setOptions(o); return o }
+  const mediaSignature = work?.scenes.map(s => s.media?.id || '').join(',')
+  useEffect(() => { if (mediaSignature) refreshOptions().catch(e => setError(e.message)) }, [mediaSignature])
+  useEffect(() => { let alive = true; refreshOptions().then(o => {
+    if (!alive) return
+    let saved = {}; try { saved = JSON.parse(localStorage.getItem(`generator-selection:${apiBase()}`) || '{}') } catch {}
+    if (o.productTests.some(p => String(p.id) === saved.productId)) { setProductId(saved.productId); setCreativeId(saved.creativeId || '') }
+    else if (o.productTests.length) setProductId(String(o.productTests[0].id))
+  }).catch(e => setError(e.message)); return () => { alive = false } }, [])
+  useEffect(() => {
+    selection.current = creativeId; current.current = null; setWork(null); setScenes([]); setDirty(false); setQuote(null); setError(''); setEstimate(null)
+    try { if (options) localStorage.setItem(`generator-selection:${apiBase()}`, JSON.stringify({ productId, creativeId })) } catch {}
+    if (!creativeId) return
+    const load = async () => { try { const r = await api(creativeId); if (selection.current === creativeId) accept(r.workspace) } catch(e) { setError(e.message) } }
+    load()
+  }, [creativeId, productId])
+  useEffect(() => {
+    if (!creativeId || dirty) return
+    let alive = true
+    const timer = setInterval(async () => { if (lock.current) return; try { const r = await api(creativeId); if (alive && !lock.current && selection.current === creativeId) accept(r.workspace) } catch(e) { if (alive) setError(e.message) } }, 2500)
+    return () => { alive = false; clearInterval(timer) }
+  }, [creativeId, dirty])
+  const act = async fn => {
+    if (lock.current) return
+    lock.current = true; setBusy(true); setError('')
+    try { await fn() } catch(e) { setError(unavailable(e.message)); setQuote(null) } finally { lock.current = false; setBusy(false) }
+  }
+  const save = async () => {
+    if (!dirty) return current.current
+    const { workspace } = await api(`${creativeId}/scenes`, { revision: current.current.revision, scenes })
+    accept(workspace); return workspace
+  }
+  useEffect(() => {
+    if (!dirty || busy || !work || error) return
+    const timer = setTimeout(() => act(save), 1000)
+    return () => clearTimeout(timer)
+  }, [dirty, scenes, busy, error])
+  useEffect(() => {
+    if (!work?.scenes.length || dirty) { setEstimate(null); return }
+    let alive = true
+    api(`${creativeId}/estimate`, { sceneIds: work.scenes.map(s => s.id) }).then(r => { if (alive) setEstimate(r) }).catch(e => { if (alive) setError(e.message) })
+    return () => { alive = false }
+  }, [work?.revision, creativeId, dirty])
+  const edit = next => { setScenes(next); setDirty(true); setQuote(null); setError('') }
+  const change = (index, field, value) => edit(scenes.map((s,i) => i === index ? { ...s, [field]: value } : s))
+  const move = (index, delta) => { const next = [...scenes]; [next[index], next[index+delta]] = [next[index+delta], next[index]]; edit(next) }
+  const propose = source => {
+    const prepared = source || inferStudioFromQuickPrompt(brief || [options.productTests.find(p => String(p.id) === productId)?.name, work.creative.angle, work.creative.concept_summary].filter(Boolean).join(', '), 'en')
+    const outline = prepared.scenes?.length ? prepared.scenes : generateSceneOutline(prepared)
+    const prompts = prepared.prompts?.length ? prepared.prompts : generateOmniPrompts(prepared, outline)
+    const additions = prompts.map((p,i) => ({ ...blank(), name: outline[i]?.purpose || `Scene ${i+1}`, prompt: p.promptText || outline[i]?.visualDescription || '', seconds: Math.max(4,Math.min(15,Number(p.duration)||5)) }))
+    if (!additions.length) throw new Error('No scene proposal is available. Add scenes manually.')
+    edit([...scenes, ...additions].slice(0,12))
+  }
+  const askGenerate = indexes => act(async () => {
+    const w = await save()
+    const response = await api(`${creativeId}/quote`, { revision: w.revision, sceneIds: indexes.map(i => w.scenes[i].id) })
+    accept(response.workspace); setQuote(response.quote)
+  })
+  const confirm = () => act(async () => {
+    const pending = quote; setQuote(null)
+    try {
+      const result = await api(`${creativeId}/start`, { confirmed: true, token: pending.token, revision: pending.revision })
+      const blocked = result.outcomes?.find(r => r.outcome !== 'started')
+      if (blocked) throw new Error(blocked.reason || 'Production could not start. Check scene status.')
+    } finally { const r = await api(creativeId); accept(r.workspace) }
+  })
+  const resultAction = (index, values) => act(async () => { const w = await save(); const r = await api(`${creativeId}/result`, { revision: w.revision, sceneId: w.scenes[index].id, ...values }); accept(r.workspace) })
+  const upload = (index, file) => act(async () => {
+    if (!file) return
+    if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 15*1024*1024) throw new Error('Choose a PNG, JPEG or WebP image under 15 MB.')
+    const data = await new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file) })
+    const saved = await saveMediaToLocal({ data_url: data, file_name: file.name, mime_type: file.type, category: 'asset', project_id: `creative-${creativeId}` })
+    if (!saved.success) throw new Error(saved.error || 'Image upload failed.')
+    const relativePath = decodeURIComponent(new URL(saved.local_url, window.location.href).pathname.replace(/^\/media\//,''))
+    const registered = await request('/api/assets/register-external', { relativePath, mimeType: file.type })
+    await refreshOptions(); change(index, 'startAssetId', registered.item.id)
+  })
+  const ready = scenes.map((s,i) => ({s,i, live:work?.scenes.find(v => v.id === s.id)})).filter(({s,live}) => s.prompt.trim() && !['Queued','Generating','Reconciliation required','Complete'].includes(live?.status)).map(v => v.i)
+  const approved = work?.scenes.filter(s => s.approved).length || 0
+  const finalCurrent = work?.final && JSON.stringify(work.final.sources) === JSON.stringify(work.scenes.filter(s => s.approved).map(s => ({sceneId:s.id,assetId:s.media.id,sourceRunId:s.runId||null})))
+  const download = asset => act(async () => { const r = await fetch(mediaUrl(asset)); if (!r.ok) throw new Error('Local video is unavailable.'); const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href=url; a.download='final-ad.mp4'; a.click(); setTimeout(() => URL.revokeObjectURL(url),10000) })
+  return <section className="generator" data-testid="creative-generator">
+    <header className="cg-header"><div><span className="cg-eyebrow">FROM IDEA TO FINISHED AD</span><h2>Create Ad</h2><p>Plan your scenes, generate, approve, and assemble — all here.</p></div><button className="ghost" onClick={onProductTests}>Product setup</button></header>
+    {error && <div role="alert" className="note bad">{error} <button className="ghost small" disabled={busy} onClick={() => act(async () => { if (dirty && !window.confirm('Reload saved scenes and discard unsaved edits?')) return; await refreshOptions(); if(creativeId) accept((await api(creativeId)).workspace) })}>Reload saved state</button></div>}
+    {!options ? <p>Loading your workspace…</p> : <>
+      <div className="cg-selectors subpanel"><label className="field">Product Test<select aria-label="Product Test" value={productId} disabled={busy || dirty} onChange={e => { setProductId(e.target.value); setCreativeId('') }}><option value="">Choose a product</option>{options.productTests.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <label className="field">Creative<select aria-label="Creative" value={creativeId} disabled={busy || dirty} onChange={e => setCreativeId(e.target.value)}><option value="">Choose or create a Creative</option>{options.creatives.filter(c => String(c.product_test_id) === productId).map(c => <option key={c.id} value={c.id}>{c.angle}</option>)}</select></label>
+        <details><summary>New Product Test</summary><label className="field">Product name<input value={productName} onChange={e => setProductName(e.target.value)} /></label><button className="ghost" disabled={busy || !productName.trim()} onClick={() => act(async () => { const r=await request('/api/product-tests',{newProduct:{name:productName.trim()},market:'FR',language:'en',currency:'EUR'}); await refreshOptions(); setProductId(String(r.item.id)); setCreativeId(''); setProductName('') })}>Create Product Test</button></details>
+        <div><label className="field">New Creative title / angle<input aria-label="New Creative title" placeholder="A simple product demonstration" value={title} onChange={e => setTitle(e.target.value)} /></label><button className="ghost" disabled={busy || dirty || !productId || !title.trim()} onClick={() => act(async () => { const r=await api('creatives',{productTestId:Number(productId),angle:title}); await refreshOptions(); setCreativeId(String(r.creativeId)); setTitle('') })}>Create Creative</button></div>
+      </div>
+      {work && <>
+        <div className="cg-summary"><h3>{work.creative.angle}</h3><p>{work.creative.concept_summary || work.creative.hook_text}</p><div className="cg-stats"><span>{scenes.length} scenes</span><span>{work.scenes.filter(s=>s.status==='Complete').length} complete</span><span>{approved} / {scenes.length} approved</span><span>Estimate: {money(estimate?.totalMinor)}</span><span>Recorded: {money(work.recordedMinor)}</span><span>Iteration budget: {money(work.budget.budgetCeilingMinor)}</span></div><small>Recorded costs may use catalog estimates, not verified provider invoices.</small></div>
+        <div className="subpanel"><label className="field">One-line brief (optional)<input value={brief} onChange={e => setBrief(e.target.value)} placeholder="A cinematic ad showing why this product is useful" /></label><div className="cg-actions"><button className="ghost" disabled={busy || scenes.length>=12} onClick={() => { try { propose() } catch(e){setError(e.message)} }}>Generate Scenes From Creative</button>{studio && <button className="ghost" disabled={busy || scenes.length>=12} onClick={() => { try { propose(studio) } catch(e){setError(e.message)} }}>Import Marketing Studio scenes</button>}<small>Editable local proposals. No AI credits used.</small></div></div>
+        <div className="cg-actions cg-toolbar"><button className="primary" disabled={busy || !ready.length} onClick={() => askGenerate(ready)}>Generate all ready scenes</button><button className="ghost" disabled={busy || scenes.length>=12} onClick={() => edit([...scenes,blank()])}>Add scene</button><button className="ghost" disabled={busy || !dirty} onClick={() => act(save)}>Save scenes</button><span role="status">{busy ? 'Working…' : dirty ? 'Saving edits…' : 'Saved locally'}</span></div>
+        <div className="cg-scenes">{scenes.map((s,i) => {
+          const live=work.scenes.find(v=>v.id===s.id), held=live?.status==='Reconciliation required', running=['Generating','Queued'].includes(live?.status), locked=busy||held||running
+          const price=estimate?.rows.find(r=>r.sceneId===s.id), start=options.media.find(a=>a.id===s.startAssetId)
+          return <article className="cg-scene" key={s.id||`new-${i}`} data-testid={`generator-scene-${i+1}`}>
+            <div className="cg-scene-heading"><h3>Scene {i+1}</h3><span className={`cg-status ${held?'held':live?.approved?'approved':''}`} role="status">{live?.approved?'Approved':live?.status||'Ready'}</span><div className="cg-actions"><button className="ghost small" aria-label={`Move scene ${i+1} up`} disabled={busy||i===0} onClick={()=>move(i,-1)}>↑</button><button className="ghost small" aria-label={`Move scene ${i+1} down`} disabled={busy||i===scenes.length-1} onClick={()=>move(i,1)}>↓</button><button className="ghost small" disabled={busy||scenes.length>=12} onClick={()=>edit([...scenes,{...draft(s),id:undefined}])}>Duplicate</button><button className="ghost small" disabled={busy||!!live?.runId||!!live?.selectedAssetId} onClick={()=>edit(scenes.filter((_,n)=>n!==i))}>Delete</button></div></div>
+            <div className="cg-scene-body"><div>
+              <label className="field">Scene name / purpose<input aria-label={`Scene ${i+1} name`} disabled={locked} value={s.name} onChange={e=>change(i,'name',e.target.value)} /></label>
+              <label className="field">Generation prompt<textarea aria-label={`Scene ${i+1} prompt`} disabled={locked} value={s.prompt} onChange={e=>change(i,'prompt',e.target.value)} rows={4}/></label>
+              <div className="cg-controls"><label className="field">Generation type<select aria-label={`Scene ${i+1} generation type`} disabled={locked} value={s.mode} onChange={e=>change(i,'mode',e.target.value)}><option value="text-to-video">Text to video</option><option value="image-to-video">Image to video</option></select></label>
+                <label className="field">Model<select aria-label={`Scene ${i+1} model`} disabled={locked} value={s.provider} onChange={e=>change(i,'provider',e.target.value)}>{!options.models.some(m=>m.id===s.provider)&&<option value={s.provider}>Unavailable — configure provider</option>}{options.models.map(m=><option key={m.id} value={m.id}>{m.label} · {m.providerLabel}</option>)}</select></label>
+                <label className="field">Duration (seconds)<select aria-label={`Scene ${i+1} duration`} disabled={locked} value={s.seconds} onChange={e=>change(i,'seconds',Number(e.target.value))}>{Array.from({length:12},(_,n)=>n+4).map(n=><option key={n}>{n}</option>)}</select></label>
+                <label className="field">Resolution<select disabled={locked} value={s.resolution} onChange={e=>change(i,'resolution',e.target.value)}><option>480p</option><option>720p</option></select></label>
+                <label className="field">Aspect ratio<select disabled={locked} value={s.aspectRatio} onChange={e=>change(i,'aspectRatio',e.target.value)}><option>9:16</option><option>16:9</option><option>1:1</option></select></label>
+                <label className="cg-check"><input type="checkbox" disabled={locked} checked={s.generateAudio} onChange={e=>change(i,'generateAudio',e.target.checked)}/>Generate audio</label></div>
+              {s.mode==='image-to-video'&&<div className="subpanel"><label className="field">Upload start image<input type="file" accept="image/png,image/jpeg,image/webp" disabled={locked} onChange={e=>upload(i,e.target.files[0])}/></label><label className="field">Choose start frame from Media Library<select aria-label={`Scene ${i+1} start frame`} disabled={locked} value={s.startAssetId||''} onChange={e=>change(i,'startAssetId',Number(e.target.value)||null)}><option value="">Choose a local image</option>{options.media.filter(a=>a.mime_type.startsWith('image/')).map(a=><option key={a.id} value={a.id}>{a.relative_path.split('/').pop()}</option>)}</select></label>{start&&<img className="cg-start-frame" src={mediaUrl(start)} alt={`Scene ${i+1} start frame`}/>}<small>{options.imageUnavailableReason}</small></div>}
+              <p>Estimated cost: <strong>{dirty?'Save to estimate':money(price?.minor)}</strong>{price?.error&&<span className="note bad"> {price.error}</span>}</p>
+              {held?<div className="note bad" role="alert">Billing status uncertain — do not retry automatically. The existing request requires manual reconciliation. No replacement generation is available here.</div>:<div className="cg-actions"><button className="primary" disabled={locked||!s.prompt.trim()||(s.mode==='image-to-video'&&!s.startAssetId)} onClick={()=>askGenerate([i])}>{live?.media?'Regenerate scene':'Generate scene'}</button>{live?.media&&<><button className="ghost" disabled={locked||dirty||!live.current||live.approved} onClick={()=>resultAction(i,{approved:true})}>Approve scene</button><button className="ghost" disabled={locked||dirty||!live.approved} onClick={()=>resultAction(i,{approved:false})}>Needs regeneration</button></>}</div>}
+              {live?.status==='Failed'&&<p className="note bad" role="alert">Generation failed. Check the details before requesting a new, separately confirmed generation.</p>}
+              {live?.media&&!live.current&&<p className="note warn">Settings changed. The preview is the previous generation. Regenerate and approve the new result.</p>}
+              <details><summary>Use existing video / generation history</summary><label className="field">Scene video from Media Library<select disabled={locked||dirty} value="" onChange={e=>e.target.value&&resultAction(i,{assetId:Number(e.target.value)})}><option value="">Choose a local video (no generation)</option>{options.media.filter(a=>a.mime_type==='video/mp4').map(a=><option key={a.id} value={a.id}>{a.relative_path.split('/').pop()}</option>)}</select></label><p>{live?.history?.length||0} previous version(s) retained.</p>{live?.details&&<pre>{JSON.stringify({attempts:live.details.attempts,costs:live.details.costs},null,2)}</pre>}</details>
+            </div><div className="cg-preview">{live?.media?<VideoPreview asset={live.media} compact/>:<div className="cg-placeholder">{running?'Generation is running. You can leave this page and return.':'Your generated scene will appear here.'}</div>}</div></div>
+          </article>
+        })}</div>
+        {!scenes.length&&<div className="cg-empty">Add a scene or generate an editable proposal to begin.</div>}
+        <section className="cg-final subpanel"><div className="cg-actions"><h3>Final Ad</h3><button className="primary" disabled={busy||dirty||!approved||!options.ffmpeg} onClick={()=>act(async()=>{const w=await save(); const r=await api(`${creativeId}/assemble`,{revision:w.revision});accept(r.workspace);await refreshOptions()})}>{busy?'Working…':'Assemble final ad'}</button><span>{approved} approved scene(s) · visible order · local / free</span></div>
+          <p>Only approved scenes are included. Assembly outputs a vertical 720×1280 MP4.</p>
+          {work.final?.finalAsset&&<>{!finalCurrent&&<p className="note warn">Scene selection or order changed. This is the previous final ad; assemble again for the current selection.</p>}<VideoPreview asset={work.final.finalAsset} compact/><div className="cg-actions"><button className="ghost" disabled={busy} onClick={()=>download(work.final.finalAsset)}>Download final MP4</button><button className="ghost" onClick={onReview}>Send to review</button></div><p>Review state: {work.creative.approval_status}</p></>}
+        </section>
+      </>}
+      <details className="subpanel"><summary>Provider status & settings</summary><p>fal.ai: {options.falConfigured?'Configured ✓':'Unavailable — FAL_API_KEY must exist in dashboard/.env.local'}</p><p>Seedance 2.0 Fast: {options.falConfigured?'Available ✓':'Unavailable'}</p><p>Image generation: unavailable. {options.imageUnavailableReason}</p><p>FFmpeg: {options.ffmpeg?'Available ✓':'Unavailable — configure the installed executable below'}</p><p>USD → EUR: {options.fx?'Available ✓':'Unavailable — enter a verified rate below'}</p><OperatorSettings/><button className="ghost" disabled={busy} onClick={()=>act(refreshOptions)}>Refresh provider status</button></details>
+    </>}
+    {quote&&<div className="cg-modal-backdrop"><section className="cg-modal" ref={modal} role="dialog" aria-modal="true" aria-label="Confirm scene generation"><h3>Generate {quote.sceneIds.length} scene(s) for approximately {money(quote.totalMinor)}?</h3><p>Scenes: {quote.sceneIds.length}</p><p>Estimated total: <strong>{money(quote.totalMinor)}</strong></p><p>Models: {[...new Set(work.scenes.filter(s=>quote.sceneIds.includes(s.id)).map(s=>options.models.find(m=>m.id===s.provider)?.label))].join(', ')}</p><p>Resolution: {[...new Set(work.scenes.filter(s=>quote.sceneIds.includes(s.id)).map(s=>s.resolution))].join(', ')}</p><p>Expected maximum new reservation: {money(quote.totalMinor)}. Remaining iteration ceiling: {money(quote.preflight.budgetCeilingMinor-quote.preflight.currentSettledSpendMinor-quote.preflight.activeReservedMinor)}.</p><p>This is a catalog estimate, not a guaranteed provider invoice. Each paid Job still passes atomic budget reservation. A regeneration is a new paid request.</p><div className="cg-actions"><button autoFocus className="ghost" disabled={busy} onClick={()=>setQuote(null)}>Cancel</button><button className="primary" disabled={busy} onClick={confirm}>Confirm generation</button></div></section></div>}
+  </section>
+}
