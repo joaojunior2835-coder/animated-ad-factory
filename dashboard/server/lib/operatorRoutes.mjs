@@ -1,4 +1,6 @@
 import fs from 'node:fs'
+import { uploadReference, analyzeReference, validateReferenceAsset } from './referenceRemix.mjs'
+import { promptForRemix } from './creativeGenerator.mjs'
 import { getDb, getFxRate, setFxRate } from '../db/repository.mjs'
 import { reviewQueue, reviewCreative, approveManualPlan, analysisSummary, runDetails } from './operator.mjs'
 import { assembleProductionRun, completeExternalRun, videoTool, runVideoTool } from './assembly.mjs'
@@ -7,6 +9,7 @@ import { generatorOptions, createGeneratorCreative, generatorWorkspace, saveGene
 export async function operatorRoute(req, res, url, send) {
   if (!url.pathname.startsWith('/api/operator/')) return false
   try {
+    if (req.method === 'POST' && url.pathname === '/api/operator/references/upload') { send(res,200,{ok:true,...await uploadReference(req,url)}); return true }
     let body = {}
     if (req.method === 'POST') {
       let bytes = 0, text = ''
@@ -15,6 +18,9 @@ export async function operatorRoute(req, res, url, send) {
     }
     let data
     const route = url.pathname.slice('/api/operator/'.length)
+    if (req.method === 'POST' && route === 'references/analyze') { send(res,200,{ok:true,analysis:await analyzeReference(body)}); return true }
+    if (req.method === 'POST' && route === 'references/validate') { send(res,200,{ok:true,...await validateReferenceAsset(body.assetId,body.kind)}); return true }
+    if (req.method === 'POST' && /^generator\/\d+\/remix-prompt$/.test(route)) { send(res,200,{ok:true,...promptForRemix(Number(route.split('/')[1]),body.scene)}); return true }
     const generator = /^generator\/(\d+)(?:\/(scenes|estimate|quote|start|result|assemble))?$/.exec(route)
     if (req.method === 'GET' && route === 'generator/options') data = await generatorOptions()
     else if (req.method === 'POST' && route === 'generator/creatives') data = createGeneratorCreative(body)

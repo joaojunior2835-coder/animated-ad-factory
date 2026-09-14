@@ -12,7 +12,7 @@ import {
   setProductionRunStatus,
 } from '../db/repository.mjs'
 import { providerConfigured, providerModelIssue } from './providerAdapters.mjs'
-import { getConfiguredRates, estimateComponentCost } from './rateCatalog.mjs'
+import { getConfiguredRates, estimateComponentCost, estimateVideoJobCost } from './rateCatalog.mjs'
 import { dispatchProductionRun } from './dispatcher.mjs'
 
 const BASE_CURRENCY = 'EUR'
@@ -68,7 +68,7 @@ function videoRateKey(model, resolution = '480p') {
 function componentCost(capability, provider, model, quantity, options = {}) {
   if (provider === 'mock') return { minor: 0, currency: BASE_CURRENCY, paid: false, known: true }
   const key = capability === 'generate_video' ? videoRateKey(model, options.resolution) : provider
-  const priced = estimateComponentCost(capability === 'generate_video' ? 'video' : 'image', key, quantity)
+  const priced = capability === 'generate_video' ? estimateVideoJobCost(model,{...options,seconds:quantity}) : estimateComponentCost('image',key,quantity)
   if (priced.unknown) return { known: false, reason: priced.reason, paid: false }
   return { minor: priced.costMinor, currency: priced.currency, paid: priced.costMinor > 0, known: true }
 }
@@ -108,13 +108,14 @@ export function materializeJobsForProductionRun(productionRunId) {
       const aspectRatio = clip.aspect_ratio || clip.aspectRatio || (isSeedance ? '9:16' : '16:9')
       const startFrame = clip.start_frame || clip.startFrame || clip.image || null
       const needsStartFrame = Boolean(startFrame || clip.needs_start_frame || clip.needsStartFrame || /image|frame|start/i.test(String(clip.purpose || '')))
-      const cost = componentCost('generate_video', videoProvider, videoModel, seconds, { resolution })
+      const cost = componentCost('generate_video', videoProvider, videoModel, seconds, { ...clip, resolution })
       const videoJobId = createJob({ productionRunId, capability: 'generate_video', provider: videoProvider, inputParams: {
         model: videoModel, sequence: i + 1, seconds, duration: seconds,
         prompt: clip.prompt || clip.purpose || '', purpose: clip.purpose || '',
         aspect_ratio: aspectRatio, resolution,
         generate_audio: clip.generate_audio ?? clip.generateAudio ?? (isSeedance ? true : undefined),
         start_frame: startFrame, needs_start_frame: needsStartFrame,
+        ...(clip.generation_mode === 'reference_to_video' ? {generation_mode:clip.generation_mode,reference_video_ids:clip.reference_video_ids,reference_image_ids:clip.reference_image_ids,reference_audio_ids:clip.reference_audio_ids} : {}),
         estimated_cost_minor: cost.known ? cost.minor : 0, estimated_currency: cost.currency || null,
       } })
       jobs.push({ id: videoJobId, capability: 'generate_video', sequence: i + 1 })
@@ -164,8 +165,8 @@ function preflightOne(runId) {
   let estimatedPaidMinor = 0
   let currentFxRate = null
   let fxUpdatedAt = null
-  const addCost = (capability, provider, model, qty) => {
-    const cost = componentCost(capability, provider, model, qty)
+  const addCost = (capability, provider, model, qty, options = {}) => {
+    const cost = componentCost(capability, provider, model, qty, options)
     if (!cost.known) return { reason: cost.reason }
     if (cost.paid) {
       if (cost.currency !== BASE_CURRENCY) {
@@ -187,7 +188,7 @@ function preflightOne(runId) {
   for (const clip of gp.videoClips) {
     const provider = providerForPlan(snapshot, 'generate_video')
     const model = resolvedModel(snapshot, 'generate_video', provider)
-    const issue = addCost('generate_video', provider, videoRateKey(model, clip.resolution), Number(clip.seconds) || (model === 'seedance-2.0-fast' ? 5 : 0))
+    const issue = addCost('generate_video', provider, model, Number(clip.seconds) || (model === 'seedance-2.0-fast' ? 5 : 0),clip)
     if (issue) return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: issue.reason, currentFxRate, fxUpdatedAt }
   }
   const originalEstimate = snapshot?.planning?.estimatedCost

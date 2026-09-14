@@ -24,7 +24,7 @@ import {
   setProductionRunStatus,
 } from '../db/repository.mjs'
 import { getProviderAdapter, classifyProviderError, providerModelIssue } from './providerAdapters.mjs'
-import { estimateComponentCost, getConfiguredRates } from './rateCatalog.mjs'
+import { estimateComponentCost, getConfiguredRates, estimateVideoJobCost } from './rateCatalog.mjs'
 import { getFxRate } from '../db/repository.mjs'
 
 const BASE_CURRENCY = 'EUR'
@@ -66,7 +66,7 @@ function costForJob(job) {
     ? `${model}-${params.resolution === '720p' ? '720p' : '480p'}`
     : model
   const priced = job.capability === 'generate_video'
-    ? estimateComponentCost('video', videoModelKey === 'mock-video' ? 'mock' : videoModelKey, params.seconds || params.duration || 0)
+    ? estimateVideoJobCost(model, params)
     : job.capability === 'generate_image'
       ? estimateComponentCost('image', provider, 1)
       : { unknown: true, reason: `unpriceable_capability:${job.capability}` }

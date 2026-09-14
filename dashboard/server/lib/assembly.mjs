@@ -48,7 +48,7 @@ export async function inspectVideo(file, executable = null) {
   const duration = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(result.stderr)
   const dimensions = /Video:[^\r\n]*?\b(\d{2,5})x(\d{2,5})\b/.exec(result.stderr)
   if (result.code !== 0 || !duration || !dimensions) throw new Error('Video is missing, invalid, or cannot be decoded by FFmpeg.')
-  return { duration: Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]), width: Number(dimensions[1]), height: Number(dimensions[2]), audio: /Audio:/.test(result.stderr), videoCodec: /Video:\s*(\w+)/.exec(result.stderr)?.[1], audioCodec: /Audio:\s*(\w+)/.exec(result.stderr)?.[1] || null, decoded: true }
+  return { duration: Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]), width: Number(dimensions[1]), height: Number(dimensions[2]), audio: /Audio:/.test(result.stderr), videoCodec: /Video:\s*(\w+)/.exec(result.stderr)?.[1], audioCodec: /Audio:\s*(\w+)/.exec(result.stderr)?.[1] || null, frameRate: Number(/Video:[^\r\n]*?([\d.]+) fps/.exec(result.stderr)?.[1]) || null, decoded: true }
 }
 
 export function assemblyInputs(runId) {

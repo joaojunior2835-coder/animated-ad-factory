@@ -12,12 +12,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createFalClient } from '@fal-ai/client'
+import { referenceInputs } from '../lib/referenceRemix.mjs'
+import { inspectVideo } from '../lib/assembly.mjs'
 
 const FLUX_SCHNELL_MODEL = 'fal-ai/flux/schnell'
 const WAN_I2V_MODEL = 'fal-ai/wan-i2v'
 export const FAL_SEEDANCE_ENDPOINTS = Object.freeze({
   t2v: 'bytedance/seedance-2.0/fast/text-to-video',
   i2v: 'bytedance/seedance-2.0/fast/image-to-video',
+  r2v: 'bytedance/seedance-2.0/fast/reference-to-video',
 })
 export const FAL_SEEDANCE_RATES_USD_PER_SECOND = Object.freeze({ '480p': 0.1076, '720p': 0.2419 })
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
@@ -137,7 +140,7 @@ function seedanceExternalId(mode, requestId) {
 }
 
 function parseSeedanceExternalId(value) {
-  const match = /^fal-seedance:(t2v|i2v):(.+)$/.exec(String(value || ''))
+  const match = /^fal-seedance:(t2v|i2v|r2v):(.+)$/.exec(String(value || ''))
   if (!match) throw new Error('Unknown fal Seedance request id.')
   return { mode: match[1], endpoint: FAL_SEEDANCE_ENDPOINTS[match[1]], requestId: decodeURIComponent(match[2]) }
 }
@@ -201,7 +204,7 @@ async function seedanceImageUrl(client, value, mediaRoot) {
 }
 
 /** Durable M5 Seedance submission. Unlike the direct MCP helpers below, this deliberately does not wait for completion. */
-export async function createFalSeedanceVideoJob({ prompt, start_frame, image, resolution = '480p', duration = 5, aspect_ratio, aspectRatio, generate_audio, generateAudio, media_root, confirmed } = {}) {
+export async function createFalSeedanceVideoJob({ prompt, start_frame, image, resolution = '480p', duration = 5, aspect_ratio, aspectRatio, generate_audio, generateAudio, media_root, confirmed, generation_mode, reference_video_ids, reference_image_ids, reference_audio_ids } = {}) {
   const invalid = (message) => Object.assign(new Error(message), { failure_classification: 'non_retryable' })
   if (confirmed !== true) throw invalid('confirmation_required')
   const client = configuredClient()
@@ -214,7 +217,7 @@ export async function createFalSeedanceVideoJob({ prompt, start_frame, image, re
   if (typeof (generate_audio ?? generateAudio ?? true) !== 'boolean') throw invalid('Seedance generate_audio must be a boolean.')
 
   const frame = start_frame || image
-  const mode = frame ? 'i2v' : 't2v'
+  const mode = generation_mode === 'reference_to_video' ? 'r2v' : frame ? 'i2v' : 't2v'
   const input = {
     prompt: cleanPrompt,
     resolution,
@@ -222,8 +225,24 @@ export async function createFalSeedanceVideoJob({ prompt, start_frame, image, re
     aspect_ratio: aspect_ratio || aspectRatio || '9:16',
     generate_audio: generate_audio ?? generateAudio ?? true,
   }
+  if (mode === 'r2v') {
+    try {
+      if (!['9:16','auto'].includes(input.aspect_ratio)) throw new Error('Reference aspect ratio must be 9:16 or auto.')
+      const references = referenceInputs({generation_mode,reference_video_ids,reference_image_ids,reference_audio_ids})
+      const upload = async a => {
+        const url = await client.storage.upload(new File([a.bytes], path.basename(a.file), {type:a.mime_type}))
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'https:' || !/(^|\.)fal\.media$/.test(parsed.hostname)) throw new Error('fal storage did not return a public fal.media URL.')
+        return url
+      }
+      input.video_urls = await Promise.all(references.videos.map(upload))
+      input.image_urls = await Promise.all(references.images.map(upload))
+      input.audio_urls = await Promise.all(references.audios.map(upload))
+      input.duration = String(seconds) // Reference endpoint uses string enum values.
+    } catch(cause) { throw invalid(safeFalResultDiagnostic(cause,'').message) }
+  }
   // Storage upload/validation cannot have submitted a generation yet.
-  if (frame) {
+  if (frame && mode !== 'r2v') {
     try { input.image_url = await seedanceImageUrl(client, frame, media_root || path.resolve(process.cwd(), 'local-media')) }
     catch (cause) { throw invalid(safeFalResultDiagnostic(cause, '').message) }
   }
@@ -259,6 +278,7 @@ export async function getFalSeedanceVideoJob(externalRequestId, { media_root } =
     if (!video) throw new Error('fal.ai returned no Seedance video in its response.')
     const downloaded = await downloadToBuffer(video.url)
     const saved = saveTemp(media_root || path.resolve(process.cwd(), 'local-media'), downloaded.buffer, downloaded.mime, 'fal-seedance-2-fast', VIDEO_MIME_EXTENSIONS, 'video/mp4')
+    if (request.mode === 'r2v') await inspectVideo(saved.filePath)
     return { status: 'COMPLETED', result: { local_url: saved.localUrl, mime_type: saved.mimeType, file_size: saved.fileSize, provider: 'fal', provider_id: 'fal', model: request.endpoint, request_id: request.requestId } }
   } catch (cause) {
     const diagnostic = safeFalResultDiagnostic(cause, request.requestId)

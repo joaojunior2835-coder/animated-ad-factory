@@ -2,7 +2,8 @@
 import { randomUUID } from 'node:crypto'
 import { getDb, getFxRate, getBudgetSummary, freezeProductionRunSpec, attachAssetLink, setProductionRunStatus } from '../db/repository.mjs'
 import * as pt from '../db/productTestRepository.mjs'
-import { getConfiguredRates, estimateComponentCost } from './rateCatalog.mjs'
+import { getConfiguredRates, estimateVideoJobCost } from './rateCatalog.mjs'
+import { normalizeRemix, remixParams, buildRemixPrompt, REFERENCE_ROLES, REMIX_MODES } from './referenceRemix.mjs'
 import { preflightProduction, startProduction } from './productionExecution.mjs'
 import { runDetails } from './operator.mjs'
 import { localAssetPath, assembleProductionRun, videoTool } from './assembly.mjs'
@@ -24,7 +25,7 @@ function write(id, value) {
   return value
 }
 function version(state, revision) { fail(state.revision === revision, 'This Creative changed in another window. Reload before continuing.') }
-const config = (s) => ({ name: s.name, prompt: s.prompt, provider: s.provider, mode: s.mode, seconds: s.seconds, resolution: s.resolution, aspectRatio: s.aspectRatio, generateAudio: s.generateAudio, startAssetId: s.startAssetId })
+const config = (s) => ({ name: s.name, prompt: s.prompt, provider: s.provider, mode: s.mode, seconds: s.seconds, resolution: s.resolution, aspectRatio: s.aspectRatio, generateAudio: s.generateAudio, startAssetId: s.startAssetId, ...(s.remix ? {remix:s.remix} : {}) })
 const signature = (s) => JSON.stringify(config(s))
 function asset(id, type) {
   const a = getDb().prepare('SELECT * FROM asset WHERE id=?').get(Number(id))
@@ -50,10 +51,10 @@ export async function generatorOptions() {
   const models = [{ id: 'mock', provider: 'mock', model: 'mock-video', label: 'Mock Video', providerLabel: 'Local · free placeholder' }]
   if (rates.video['seedance-2.0-fast-480p'].configured) models.unshift({ id: 'fal', provider: 'fal', model: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast', providerLabel: 'fal.ai' })
   let ffmpeg = false; try { ffmpeg = Boolean(await videoTool()) } catch {}
-  return { models, imageModels: [], imageUnavailableReason: 'Image generation is unavailable: fal images are not integrated with M5 accounting; Pollinations pricing is unverified. Upload or choose a local image instead.', falConfigured: rates.video['seedance-2.0-fast-480p'].configured, fx: getFxRate('USD', 'EUR'), ffmpeg,
+  return { referenceRoles:REFERENCE_ROLES, remixModes:REMIX_MODES, models, imageModels: [], imageUnavailableReason: 'Image generation is unavailable: fal images are not integrated with M5 accounting; Pollinations pricing is unverified. Upload or choose a local image instead.', falConfigured: rates.video['seedance-2.0-fast-480p'].configured, fx: getFxRate('USD', 'EUR'), ffmpeg,
     productTests: getDb().prepare('SELECT pt.id,p.name,pt.code FROM product_test pt JOIN product p ON p.id=pt.product_id ORDER BY pt.id DESC').all(),
     creatives: getDb().prepare('SELECT c.*,i.product_test_id FROM creative c JOIN iteration i ON i.id=c.iteration_id ORDER BY c.id DESC').all(),
-    media: getDb().prepare("SELECT * FROM asset WHERE mime_type IN ('image/png','image/jpeg','image/webp','video/mp4') ORDER BY id DESC").all().filter(a => { try { localAssetPath(a.relative_path); return true } catch { return false } }) }
+    media: getDb().prepare("SELECT * FROM asset WHERE mime_type IN ('image/png','image/jpeg','image/webp','video/mp4','video/quicktime','audio/mpeg','audio/wav','audio/x-wav') ORDER BY id DESC").all().filter(a => { try { localAssetPath(a.relative_path); return true } catch { return false } }) }
 }
 export function createGeneratorCreative({ productTestId, angle }) {
   fail(typeof angle === 'string' && angle.trim() && angle.length <= 300, 'Enter a Creative title / angle (up to 300 characters).')
@@ -69,14 +70,19 @@ export function generatorWorkspace(id) {
   const recordedMinor = getDb().prepare('SELECT COALESCE(SUM(base_currency_amount_minor),0) AS minor FROM cost WHERE creative_id=?').get(Number(id)).minor
   return { ...state, creative: c, recordedMinor, scenes: state.scenes.map(stateOf), budget: getBudgetSummary(c.iteration_id), final: state.final ? { ...state.final, ...runDetails(state.final.runId) } : null }
 }
+export function promptForRemix(id, scene) {
+  const c=creative(id), product=getDb().prepare('SELECT p.name FROM product p JOIN product_test pt ON pt.product_id=p.id JOIN iteration i ON i.product_test_id=pt.id WHERE i.id=?').get(c.iteration_id)
+  return buildRemixPrompt(scene,product?.name || 'your product',c)
+}
 function normalizeScene(raw, previous) {
   const text = (value, max) => { fail(typeof value === 'string' && value.length <= max, 'Scene text is too long.'); return value }
   const s = { id: previous?.id || randomUUID(), name: text(raw.name || 'Scene', 150), prompt: text(raw.prompt || '', 6000), provider: raw.provider, mode: raw.mode, seconds: Number(raw.seconds), resolution: raw.resolution, aspectRatio: raw.aspectRatio, generateAudio: raw.generateAudio, startAssetId: raw.startAssetId ? Number(raw.startAssetId) : null }
   fail(['mock', 'fal'].includes(s.provider), 'Unsupported video model.')
-  fail(['text-to-video', 'image-to-video'].includes(s.mode), 'Choose text-to-video or image-to-video.')
+  fail(['text-to-video', 'image-to-video', 'reference-to-video'].includes(s.mode), 'Choose a supported video mode.')
+  if (s.mode === 'reference-to-video') s.remix = normalizeRemix(raw.remix)
   fail(Number.isInteger(s.seconds) && s.seconds >= 4 && s.seconds <= 15, 'Duration must be 4–15 whole seconds.')
   fail(['480p', '720p'].includes(s.resolution), 'Choose 480p or 720p.')
-  fail(['9:16', '16:9', '1:1'].includes(s.aspectRatio), 'Choose a supported aspect ratio.')
+  fail((s.mode === 'reference-to-video' ? ['9:16','auto'] : ['9:16','16:9','1:1']).includes(s.aspectRatio), 'Choose a supported aspect ratio.')
   fail(typeof s.generateAudio === 'boolean', 'Choose whether to generate audio.')
   if (s.startAssetId) asset(s.startAssetId, 'image')
   return s
@@ -102,10 +108,11 @@ export function saveGeneratorScenes(id, { revision, scenes }) {
 export function estimateGenerator(id, sceneIds) {
   const state = read(id), c = creative(id), selected = selectedScenes(state, sceneIds)
   const rows = selected.map(s => {
-    const cost = estimateComponentCost('video', s.provider === 'fal' ? `seedance-2.0-fast-${s.resolution}` : 'mock', s.seconds)
+    let refs = {}; try { if (s.mode === 'reference-to-video') refs=remixParams(s) } catch(error) { return {sceneId:s.id,error:error.message} }
+    const cost = estimateVideoJobCost(s.provider === 'fal' ? 'seedance-2.0-fast' : 'mock', {...refs,seconds:s.seconds,resolution:s.resolution,aspect_ratio:s.aspectRatio})
     if (cost.unknown) return { sceneId: s.id, error: 'Provider not configured or model price unavailable.' }
     const fx = s.provider === 'mock' ? { rate: 1 } : getFxRate(cost.currency, 'EUR')
-    return fx ? { sceneId: s.id, minor: Math.round(cost.costMinor * fx.rate), sourceMinor: cost.costMinor, sourceCurrency: cost.currency } : { sceneId: s.id, error: 'FX rate unavailable.' }
+    return fx ? { sceneId: s.id, minor: Math.round(cost.costMinor * fx.rate), sourceMinor: cost.costMinor, sourceCurrency: cost.currency, inputSeconds:cost.inputSeconds, sourceUsd:cost.sourceUsd, pricingBasis:cost.pricingBasis, geometryBasis:cost.geometryBasis } : { sceneId: s.id, error: 'FX rate unavailable.' }
   })
   return { rows, totalMinor: rows.some(r => r.error) ? null : rows.reduce((sum,r) => sum+r.minor,0), budget: getBudgetSummary(c.iteration_id) }
 }
@@ -120,6 +127,7 @@ export function quoteGenerator(id, { revision, sceneIds }) {
     for (const s of selected) {
       editable(s); fail(s.prompt.trim(), 'Every scene needs a generation prompt.')
       if (s.mode === 'image-to-video') asset(s.startAssetId, 'image')
+      if (s.mode === 'reference-to-video') remixParams(s)
     }
     const estimate = estimateGenerator(id, sceneIds); fail(estimate.totalMinor !== null, estimate.rows.find(r => r.error)?.error)
     const runIds = selected.map(s => {
@@ -127,9 +135,10 @@ export function quoteGenerator(id, { revision, sceneIds }) {
       const start = s.mode === 'image-to-video' ? asset(s.startAssetId, 'image') : null
       const [runId] = pt.approveProductionPlan({ plans: [{ creativeId: Number(id), fineMethod: 'ai_generated_full', coarseProductionMethod: 'factory_generated', plannedProvider: s.provider, plannedModel: s.provider === 'fal' ? 'seedance-2.0-fast' : 'mock-video',
         notes: 'creative_generator_scene',
-        generationPlan: { imageGenerations: 0, voiceRequired: false, videoClips: [{ prompt: s.prompt.trim(), purpose: 'video scene', seconds: s.seconds, resolution: s.resolution, aspect_ratio: s.aspectRatio, generate_audio: s.generateAudio, ...(start ? { start_frame: '/media/' + start.relative_path } : {}) }] },
+        generationPlan: { imageGenerations: 0, voiceRequired: false, videoClips: [{ prompt: s.prompt.trim(), purpose: 'video scene', seconds: s.seconds, resolution: s.resolution, aspect_ratio: s.aspectRatio, generate_audio: s.generateAudio, ...(s.mode === 'reference-to-video' ? remixParams(s) : {}), ...(start ? { start_frame: '/media/' + start.relative_path } : {}) }] },
         estimatedCost: { minor: estimate.rows.find(r => r.sceneId === s.id).sourceMinor, currency: s.provider === 'fal' ? 'USD' : 'EUR' } }] })
       if (start) attachAssetLink(start.id, { productionRunId: runId }, 'start_frame')
+      if (s.remix) for (const aid of [s.remix.sourceAssetId,s.remix.preparedAssetId,...s.remix.images.map(a=>a.assetId),s.remix.audioAssetId].filter(Boolean)) attachAssetLink(aid,{productionRunId:runId},'remix_reference')
       s.pendingRunId = runId; s.pendingSignature = signature(s)
       return runId
     })
