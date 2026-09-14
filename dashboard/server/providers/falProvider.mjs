@@ -127,6 +127,34 @@ function parseSeedanceExternalId(value) {
   return { mode: match[1], endpoint: FAL_SEEDANCE_ENDPOINTS[match[1]], requestId: decodeURIComponent(match[2]) }
 }
 
+function safeFalResultDiagnostic(error, requestId) {
+  const key = apiKey()
+  const safeText = (value) => {
+    const text = String(value || '')
+    return key ? text.split(key).join('[REDACTED]') : text
+  }
+  const details = Array.isArray(error?.body?.detail) ? error.body.detail : []
+  return {
+    name: safeText(error?.name || 'Error'),
+    message: safeText(error?.message || 'fal.ai result retrieval failed.'),
+    status: Number.isFinite(Number(error?.status ?? error?.statusCode)) ? Number(error.status ?? error.statusCode) : null,
+    requestId: safeText(requestId),
+    body: {
+      detail: details.map((detail) => ({
+        loc: Array.isArray(detail?.loc) ? detail.loc.map((part) => typeof part === 'number' ? part : safeText(part)) : [],
+        msg: safeText(detail?.msg),
+        type: safeText(detail?.type),
+        ctx: {
+          extra_info: {
+            reason: safeText(detail?.ctx?.extra_info?.reason),
+            cause: safeText(detail?.ctx?.extra_info?.cause),
+          },
+        },
+      })),
+    },
+  }
+}
+
 function localMediaFile(value, mediaRoot) {
   const raw = String(value || '').trim()
   if (!raw.startsWith('/media/')) return null
@@ -191,7 +219,18 @@ export async function getFalSeedanceVideoJob(externalRequestId, { media_root } =
   const status = await client.queue.status(request.endpoint, { requestId: request.requestId })
   if (status?.status !== 'COMPLETED') return { status: status?.status || 'IN_QUEUE' }
 
-  const completed = await client.queue.result(request.endpoint, { requestId: request.requestId })
+  let completed
+  try {
+    completed = await client.queue.result(request.endpoint, { requestId: request.requestId })
+  } catch (cause) {
+    const diagnostic = safeFalResultDiagnostic(cause, request.requestId)
+    const error = new Error(`fal.ai result unavailable after COMPLETED: ${diagnostic.message}`)
+    error.failure_classification = 'ambiguous_billing'
+    error.manualReconciliation = true
+    error.providerStatus = 'COMPLETED'
+    error.safeProviderDiagnostic = diagnostic
+    throw error
+  }
   const video = videoFrom(completed?.data)
   if (!video) throw new Error('fal.ai returned no Seedance video in its response.')
   const downloaded = await downloadToBuffer(video.url)

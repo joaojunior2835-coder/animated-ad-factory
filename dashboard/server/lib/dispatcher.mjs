@@ -159,9 +159,18 @@ async function reconcileAttempt(attempt, { allowRetry = true } = {}) {
     updateExecutionAttempt(attempt.id, { providerStatus: checked.providerStatus, lastCheckedAt: nowIso() })
   } catch (error) {
     const classification = classifyProviderError(error, attempt.provider)
-    updateExecutionAttempt(attempt.id, { lastCheckedAt: nowIso(), failureClassification: classification, errorMessage: error.message })
-    if (error.requestUnknown) {
+    updateExecutionAttempt(attempt.id, {
+      lastCheckedAt: nowIso(),
+      failureClassification: classification,
+      errorMessage: error.message,
+      providerStatus: error.providerStatus,
+      resultData: error.safeProviderDiagnostic ? { provider_error: error.safeProviderDiagnostic } : undefined,
+    })
+    if (error.requestUnknown || error.manualReconciliation) {
+      // Unresolved billing holds the existing reservation. Excluding this
+      // attempt from pending polling also prevents automatic settlement/retry.
       updateExecutionAttempt(attempt.id, { reconciliationStatus: 'reconciliation_required' })
+      if (error.manualReconciliation) updateJobRuntime(attempt.job_id, { errorMessage: `${classification}: ${error.message}` })
       return { status: 'reconciliation_required', jobId: attempt.job_id }
     }
     return handleFailure(attempt, classification, error.message, { allowRetry })

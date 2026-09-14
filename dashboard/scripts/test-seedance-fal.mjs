@@ -113,7 +113,7 @@ try {
     planning: {
       plannedProvider: 'fal', plannedModel: 'seedance-2.0-fast',
       estimatedGenerationCounts: { images: 0, videoClips: 1 },
-      generationPlan: { imageGenerations: 0, videoClips: [{ prompt: 'materialized fal clip', purpose: 'hero', seconds: 5, resolution: '480p', aspect_ratio: '9:16', generate_audio: true, start_frame: '/media/frame.png' }], voiceRequired: false },
+      generationPlan: { imageGenerations: 0, videoClips: [{ prompt: 'materialized fal clip', purpose: 'hero', seconds: 5, resolution: '480p', aspect_ratio: '9:16', generate_audio: false }], voiceRequired: false },
       requiredAssets: [],
     }, execution: null,
   })
@@ -121,8 +121,8 @@ try {
   const job = repo.listJobsForProductionRun(runId)[0]
   assert.equal(job.provider, 'fal')
   assert.deepEqual({ seconds: job.inputParams.seconds, resolution: job.inputParams.resolution, aspect_ratio: job.inputParams.aspect_ratio }, { seconds: 5, resolution: '480p', aspect_ratio: '9:16' })
+  assert.equal(job.inputParams.generate_audio, false)
   assert.equal(job.inputParams.estimated_cost_minor, 54)
-  repo.updateJobRuntime(job.id, { status: 'cancelled', completedAt: new Date().toISOString() })
 
   const dependencyCreativeId = pt.createCreativeForIteration({ iterationId, angle: 'dependency', format: 'short', defaultProductionMethod: 'factory_generated' })
   const dependencyRunId = pt.createProductionRunForCreative({ creativeId: dependencyCreativeId, productionMethod: 'factory_generated' })
@@ -172,6 +172,88 @@ try {
   await dispatcher.reconcileInFlightJobs()
   assert.equal(repo.getJob(retryJobId).status, 'complete')
   assert.equal(retrySubmits, 2, 'fal retry must remain bounded')
+  falProvider.setFalClientForTests(fakeFal)
+
+  const ambiguousRunId = runId
+  const ambiguousJobId = job.id
+  const validationError = Object.assign(new Error(`Unprocessable Entity ${process.env.FAL_API_KEY}`), {
+    name: 'ValidationError', status: 422, requestId: 'request-ambiguous',
+    headers: { authorization: `Bearer ${process.env.FAL_API_KEY}` },
+    body: { detail: [{
+      input: { api_key: process.env.FAL_API_KEY },
+      loc: ['body', 'generated_video'], msg: 'Output audio has sensitive content. Potential copyright violation.', type: 'content_policy_violation',
+      ctx: { extra_info: { reason: 'partner_validation_failed', cause: 'copyright' } },
+    }] },
+  })
+  let ambiguousSubmits = 0
+  let ambiguousPolls = 0
+  const ambiguousFal = {
+    ...fakeFal,
+    queue: {
+      async submit(endpoint, options) {
+        ambiguousSubmits += 1
+        submitted.push({ endpoint, options })
+        return { request_id: 'request-ambiguous', status: 'IN_QUEUE' }
+      },
+      async status() { ambiguousPolls += 1; return { status: 'COMPLETED', request_id: 'request-ambiguous' } },
+      async result() { throw validationError },
+    },
+  }
+  falProvider.setFalClientForTests(ambiguousFal)
+  repo.setProductionRunStatus(ambiguousRunId, 'executing')
+  const capturedProviderLogs = []
+  const originalConsoleLog = console.log
+  const originalConsoleError = console.error
+  console.log = (...args) => capturedProviderLogs.push(args)
+  console.error = (...args) => capturedProviderLogs.push(args)
+  try {
+    await dispatcher.dispatchProductionRun(ambiguousRunId)
+    await dispatcher.reconcileInFlightJobs()
+    await dispatcher.reconcileInFlightJobs()
+  } finally {
+    console.log = originalConsoleLog
+    console.error = originalConsoleError
+  }
+  assert.equal(submitted.at(-1).options.input.generate_audio, false)
+  const ambiguousJob = repo.getJob(ambiguousJobId)
+  const ambiguousAttemptId = repo.getDb().prepare('SELECT id FROM job_execution_attempt WHERE job_id = ? AND dispatch_attempt = 1').get(ambiguousJobId).id
+  const ambiguousAttempt = repo.getExecutionAttempt(ambiguousAttemptId)
+  const ambiguousReservation = repo.getDb().prepare('SELECT * FROM budget_reservation WHERE job_id = ?').get(ambiguousJobId)
+  assert.equal(ambiguousSubmits, 1, 'completed-result ambiguity must not submit again')
+  assert.equal(ambiguousPolls, 1, 'manual reconciliation must not be automatically polled again')
+  assert.equal(ambiguousJob.retry_count, 0, 'completed-result ambiguity must not retry')
+  assert.equal(ambiguousJob.status, 'generating')
+  assert.equal(ambiguousReservation.status, 'active', 'ambiguous billing must hold the reservation')
+  assert.equal(repo.getDb().prepare('SELECT COUNT(*) AS n FROM cost WHERE job_id = ?').get(ambiguousJobId).n, 0)
+  assert.equal(ambiguousAttempt.external_request_id, 'fal-seedance:t2v:request-ambiguous')
+  assert.equal(ambiguousAttempt.reconciliation_status, 'reconciliation_required')
+  assert.equal(ambiguousAttempt.provider_status, 'COMPLETED')
+  assert.equal(ambiguousAttempt.failure_classification, 'ambiguous_billing')
+  assert.equal(repo.getDb().prepare('SELECT COUNT(*) AS n FROM job_execution_attempt WHERE job_id = ?').get(ambiguousJobId).n, 1)
+  assert.equal(ambiguousAttempt.resultData.provider_error.status, 422)
+  assert.equal(ambiguousAttempt.resultData.provider_error.requestId, 'request-ambiguous')
+  assert.equal(ambiguousAttempt.resultData.provider_error.message, 'Unprocessable Entity [REDACTED]')
+  assert.deepEqual(ambiguousAttempt.resultData.provider_error.body.detail[0], {
+    loc: ['body', 'generated_video'], msg: 'Output audio has sensitive content. Potential copyright violation.', type: 'content_policy_violation',
+    ctx: { extra_info: { reason: 'partner_validation_failed', cause: 'copyright' } },
+  })
+  assert.ok(!JSON.stringify({ ambiguousJob, ambiguousAttempt, ambiguousReservation }).includes(process.env.FAL_API_KEY))
+  assert.ok(!JSON.stringify(capturedProviderLogs).includes(process.env.FAL_API_KEY))
+
+  const rejectedCreativeId = pt.createCreativeForIteration({ iterationId, angle: 'known pre-submit failure', format: 'short', defaultProductionMethod: 'factory_generated' })
+  const rejectedRunId = pt.createProductionRunForCreative({ creativeId: rejectedCreativeId, productionMethod: 'factory_generated' })
+  const rejectedJobId = repo.createJob({ productionRunId: rejectedRunId, capability: 'generate_video', provider: 'fal', inputParams: {
+    model: 'seedance-2.0-fast', prompt: 'known pre-submit failure', seconds: 5, resolution: '480p', aspect_ratio: '9:16', generate_audio: false,
+    estimated_cost_minor: 54, estimated_currency: 'USD',
+  } })
+  falProvider.setFalClientForTests({ ...fakeFal, queue: { ...fakeFal.queue, async submit() {
+    throw Object.assign(new Error('request rejected before provider acceptance'), { failure_classification: 'non_retryable' })
+  } } })
+  repo.setProductionRunStatus(rejectedRunId, 'executing')
+  await dispatcher.dispatchProductionRun(rejectedRunId)
+  assert.equal(repo.getJob(rejectedJobId).status, 'failed')
+  assert.equal(repo.getDb().prepare('SELECT status FROM budget_reservation WHERE job_id = ?').get(rejectedJobId).status, 'released')
+  assert.equal(repo.getDb().prepare('SELECT COUNT(*) AS n FROM cost WHERE job_id = ?').get(rejectedJobId).n, 0)
   falProvider.setFalClientForTests(fakeFal)
 
   const submitBeforeConfirmationCheck = submitted.length
