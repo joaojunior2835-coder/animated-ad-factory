@@ -982,6 +982,12 @@ function PlanCard({ plan, availability, onUpdate, onReprice }) {
         <Field label="Rationale" hint="from the AI proposal">
           <textarea className="ms-input" rows={2} value={plan.draft.rationale} readOnly />
         </Field>
+        <Field label="Planned provider">
+          <select data-testid={`planned-provider-${plan.creativeId}`} value={local.plannedProvider} onChange={(e) => setField('plannedProvider', e.target.value)}>
+            <option value="mock">Mock (free, local-only)</option>
+            <option value="replicate">Replicate (paid)</option>
+          </select>
+        </Field>
         <Field label="Planned video model">
           <select data-testid={`planned-model-${plan.creativeId}`} value={local.plannedModel} onChange={(e) => setField('plannedModel', e.target.value)}>
             {VIDEO_MODEL_OPTIONS.map((o) => (
@@ -1375,6 +1381,80 @@ function AddMetricForm({ publicationId, onAdded, onCancel }) {
         <button className="ghost small" onClick={onCancel}>
           Cancel
         </button>
+      </div>
+    </div>
+  )
+}
+
+function ProductionDispatchPanel({ iterationId }) {
+  const [statuses, setStatuses] = useState([])
+  const [preflight, setPreflight] = useState(null)
+  const [selected, setSelected] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadStatus = async () => {
+    try {
+      const r = await api('GET', `/api/iterations/${iterationId}/production/status`)
+      setStatuses(r.items || [])
+      setError('')
+    } catch (e) { setError(e.message) }
+  }
+
+  useEffect(() => {
+    loadStatus()
+    const timer = setInterval(loadStatus, 3000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iterationId])
+
+  const runPreflight = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const r = await api('POST', `/api/iterations/${iterationId}/production/preflight`, { productionRunIds: 'all_eligible' })
+      setPreflight(r.preflight)
+      setSelected((r.preflight.runs || []).filter((run) => run.state === 'READY').map((run) => run.runId))
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  const start = async () => {
+    if (!selected.length) return
+    if (!window.confirm(`Start ${selected.length} ready production run${selected.length === 1 ? '' : 's'}? This dispatches generation jobs and may spend the approved per-job budget.`)) return
+    setStarting(true)
+    setError('')
+    try {
+      await api('POST', `/api/iterations/${iterationId}/production/start`, { productionRunIds: selected })
+      setPreflight(null)
+      setSelected([])
+      await loadStatus()
+    } catch (e) { setError(e.message) }
+    finally { setStarting(false) }
+  }
+
+  const toggle = (id) => setSelected((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
+
+  return (
+    <div className="subpanel" data-testid="production-dispatch-panel" style={{ marginTop: '12px' }}>
+      <div className="row between"><b>🚀 Batch Production Dispatch</b><button className="ghost small" data-testid="production-preflight" disabled={loading} onClick={runPreflight}>{loading ? 'Checking…' : 'Preflight'}</button></div>
+      {error ? <ErrorNote error={error} onRetry={loadStatus} /> : null}
+      {preflight ? (
+        <div className="note" data-testid="production-preflight-summary" style={{ marginTop: '10px' }}>
+          <b>Preflight summary</b>
+          <div className="ms-badge-row" style={{ marginTop: '6px' }}>
+            <span className="ms-badge">ready: {preflight.readyCount}</span><span className="ms-badge">blocked: {preflight.blockedCount}</span><span className="ms-badge">manual external: {preflight.manualExternalCount}</span><span className="ms-badge">settled: €{((preflight.currentSettledSpendMinor || 0) / 100).toFixed(2)}</span><span className="ms-badge">reserved: €{((preflight.activeReservedMinor || 0) / 100).toFixed(2)}</span><span className="ms-badge">new estimate: €{((preflight.newEstimatedPaidSpendMinor || 0) / 100).toFixed(2)}</span><span className="ms-badge">ceiling: €{((preflight.budgetCeilingMinor || 0) / 100).toFixed(2)}</span>
+          </div>
+          <div className="hint small" style={{ marginTop: '6px' }}>Current FX: {preflight.currentFxRate ? `${preflight.currentFxRate} (${preflight.fxUpdatedAt || 'updated time unavailable'})` : 'not required / not configured'}</div>
+          {(preflight.runs || []).filter((run) => run.state !== 'READY').map((run) => <div key={run.runId} className="hint small" style={{ marginTop: '4px' }} data-testid={`preflight-run-${run.runId}`}>Run {run.runId}: <b>{run.state}</b> — {run.reason || '—'}</div>)}
+          <div className="row" style={{ gap: '8px', marginTop: '8px' }}><button className="primary small" data-testid="start-selected-production" disabled={starting || selected.length === 0} onClick={start}>{starting ? 'Starting…' : `Start selected (${selected.length})`}</button><button className="ghost small" onClick={() => setPreflight(null)}>Close summary</button></div>
+          <div style={{ marginTop: '8px' }}>{(preflight.runs || []).filter((run) => run.state === 'READY').map((run) => <label key={run.runId} className="row" style={{ gap: '6px', marginTop: '4px' }}><input type="checkbox" checked={selected.includes(run.runId)} onChange={() => toggle(run.runId)} /><span>Run {run.runId} — ready</span></label>)}</div>
+        </div>
+      ) : null}
+      <div className="ms-session-list" style={{ marginTop: '10px' }}>
+        {statuses.length === 0 ? <p className="hint small">No ProductionRuns yet. Approve a production plan first.</p> : null}
+        {statuses.map((run) => <div className="ms-session-row-item" key={run.id} data-testid={`production-status-${run.id}`}><div className="ms-session-info"><b>{run.creative_code} · attempt {run.attempt_number}</b><div className="ms-badge-row"><span className="ms-badge">{run.derivedState}</span><span className="ms-badge">jobs {run.complete_job_count || 0}/{run.job_count || 0}</span>{run.failed_job_count ? <span className="ms-badge ms-badge-warn">failed: {run.failed_job_count}</span> : null}</div></div></div>)}
       </div>
     </div>
   )
@@ -1878,6 +1958,8 @@ function ProductTestDetail({ productTestId, onBack, onOpenCreative, onOpenStudio
                   }}
                 />
               ) : null}
+
+              <ProductionDispatchPanel iterationId={it.id} />
 
               {plannedRuns && planningIteration === null ? (
                 <div className="subpanel" data-testid="planned-runs-summary" style={{ marginTop: '10px' }}>

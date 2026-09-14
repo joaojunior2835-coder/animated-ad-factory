@@ -55,6 +55,49 @@ export function closeDb() {
 
 const NOW = "datetime('now')"
 
+const FX_BASE_CURRENCY = 'EUR'
+
+function fxKey(fromCurrency, toCurrency) {
+  return `fx_rate_${String(fromCurrency || '').trim().toUpperCase()}_${String(toCurrency || '').trim().toUpperCase()}`
+}
+
+/**
+ * FX rates mean units of `toCurrency` received for 1 unit of `fromCurrency`.
+ * For example, 0.92 means $1.00 USD = €0.92 EUR; never invert this value.
+ * Rates are deliberately not seeded: missing FX must block paid dispatch.
+ */
+export function setFxRate({ fromCurrency, toCurrency = FX_BASE_CURRENCY, rate, source }) {
+  const from = String(fromCurrency || '').trim().toUpperCase()
+  const to = String(toCurrency || '').trim().toUpperCase()
+  const numericRate = Number(rate)
+  if (!/^[A-Z]{3}$/.test(from) || !/^[A-Z]{3}$/.test(to)) throw new Error('setFxRate: currencies must be three-letter ISO codes')
+  if (!Number.isFinite(numericRate) || numericRate <= 0) throw new Error('setFxRate: rate must be a positive finite number')
+  const payload = JSON.stringify({ rate: numericRate, updatedAt: new Date().toISOString(), source: String(source || 'manual') })
+  getDb().prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ${NOW}) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = ${NOW}`).run(fxKey(from, to), payload)
+  return { fromCurrency: from, toCurrency: to, rate: numericRate, source: String(source || 'manual') }
+}
+
+/** Return null when the pair is not configured or the stored value is invalid. */
+export function getFxRate(fromCurrency, toCurrency = FX_BASE_CURRENCY) {
+  const row = getDb().prepare('SELECT value FROM app_settings WHERE key = ?').get(fxKey(fromCurrency, toCurrency))
+  if (!row) return null
+  let payload
+  try {
+    payload = JSON.parse(row.value)
+  } catch {
+    return null
+  }
+  const rate = Number(payload && payload.rate)
+  if (!Number.isFinite(rate) || rate <= 0) return null
+  return {
+    fromCurrency: String(fromCurrency || '').trim().toUpperCase(),
+    toCurrency: String(toCurrency || '').trim().toUpperCase(),
+    rate,
+    updatedAt: payload.updatedAt || null,
+    source: payload.source || null,
+  }
+}
+
 function requireRow(row, message) {
   if (!row) throw new Error(message)
   return row
@@ -169,6 +212,158 @@ export function createJob({ productionRunId, capability, provider, inputParams }
       .prepare('INSERT INTO job (production_run_id, capability, provider, input_params) VALUES (?, ?, ?, ?)')
       .run(productionRunId, capability, provider, JSON.stringify(inputParams)).lastInsertRowid
   )
+}
+
+export function listJobsForProductionRun(productionRunId) {
+  return getDb().prepare('SELECT * FROM job WHERE production_run_id = ? ORDER BY id ASC').all(productionRunId).map(parseJobRow)
+}
+
+export function getJob(jobId) {
+  const row = getDb().prepare('SELECT * FROM job WHERE id = ?').get(jobId)
+  return row ? parseJobRow(row) : null
+}
+
+function parseJobRow(row) {
+  let inputParams = {}
+  try { inputParams = JSON.parse(row.input_params || '{}') } catch { inputParams = {} }
+  return { ...row, inputParams }
+}
+
+export function getProductionRunExecution(productionRunId) {
+  const run = getDb().prepare('SELECT * FROM production_run WHERE id = ?').get(productionRunId)
+  if (!run) return null
+  let specSnapshot = null
+  try { specSnapshot = run.spec_snapshot ? JSON.parse(run.spec_snapshot) : null } catch { specSnapshot = null }
+  return { ...run, specSnapshot, jobs: listJobsForProductionRun(productionRunId) }
+}
+
+export function setProductionRunStatus(productionRunId, status, completed = false) {
+  const sets = ['status = ?']
+  const values = [status]
+  if (completed) sets.push(`completed_at = ${NOW}`)
+  getDb().prepare(`UPDATE production_run SET ${sets.join(', ')} WHERE id = ?`).run(...values, productionRunId)
+  return getProductionRunExecution(productionRunId)
+}
+
+// Job's own lifecycle columns only (status/retry/error/timestamps — all M0).
+// external_request_id/provider_status/last_checked_at do NOT exist on job —
+// an earlier draft wrote them here, but they duplicated job_execution_attempt
+// (0003) and were never read by any query, so they were dropped before 0004
+// was ever applied. job_execution_attempt stays the single source of truth
+// for provider-facing execution state; see updateExecutionAttempt for that.
+export function updateJobRuntime(jobId, patch = {}) {
+  const allowed = {
+    status: 'status', errorMessage: 'error_message', startedAt: 'started_at', completedAt: 'completed_at',
+    retryCount: 'retry_count'
+  }
+  const sets = []
+  const values = []
+  for (const [key, column] of Object.entries(allowed)) {
+    if (patch[key] !== undefined) { sets.push(`${column} = ?`); values.push(patch[key]) }
+  }
+  if (!sets.length) return getJob(jobId)
+  getDb().prepare(`UPDATE job SET ${sets.join(', ')} WHERE id = ?`).run(...values, jobId)
+  return getJob(jobId)
+}
+
+export function createJobDependency({ jobId, dependsOnJobId, dependencyType = 'completion' }) {
+  return Number(getDb().prepare(`INSERT OR IGNORE INTO job_dependency (job_id, depends_on_job_id, dependency_type) VALUES (?, ?, ?)`).run(jobId, dependsOnJobId, dependencyType).lastInsertRowid)
+}
+
+export function listJobDependencies(jobId) {
+  return getDb().prepare('SELECT * FROM job_dependency WHERE job_id = ? ORDER BY id').all(jobId)
+}
+
+export function listEligibleJobs(productionRunId) {
+  return getDb().prepare(`
+    SELECT j.* FROM job j
+    WHERE j.production_run_id = ? AND j.status = 'planned'
+      AND NOT EXISTS (
+        SELECT 1 FROM job_dependency d
+        JOIN job dep ON dep.id = d.depends_on_job_id
+        WHERE d.job_id = j.id AND dep.status <> 'complete'
+      )
+    ORDER BY j.id ASC
+  `).all(productionRunId).map(parseJobRow)
+}
+
+export function createExecutionAttempt({ jobId, dispatchAttempt, externalRequestId, providerStatus = null, resultData = null }) {
+  const db = getDb()
+  const id = db.prepare(`INSERT INTO job_execution_attempt
+    (job_id, dispatch_attempt, external_request_id, provider_status, result_data)
+    VALUES (?, ?, ?, ?, ?)`)
+    .run(jobId, dispatchAttempt, externalRequestId, providerStatus, resultData == null ? null : JSON.stringify(resultData)).lastInsertRowid
+  return db.prepare('SELECT * FROM job_execution_attempt WHERE id = ?').get(id)
+}
+
+export function getExecutionAttempt(id) {
+  const row = getDb().prepare('SELECT * FROM job_execution_attempt WHERE id = ?').get(id)
+  if (!row) return null
+  let resultData = null
+  try { resultData = row.result_data ? JSON.parse(row.result_data) : null } catch { resultData = null }
+  return { ...row, resultData }
+}
+
+export function listPendingExecutionAttempts() {
+  // a.* already carries the attempt's own external_request_id — the
+  // authoritative one (job has no such column). Nothing here re-selects it
+  // from job.
+  return getDb().prepare(`SELECT a.*, j.production_run_id, j.capability, j.provider, j.status AS job_status,
+      j.input_params, j.retry_count
+      FROM job_execution_attempt a JOIN job j ON j.id = a.job_id
+      WHERE a.reconciliation_status = 'pending' ORDER BY a.id`).all().map((row) => {
+    let inputParams = {}
+    let resultData = null
+    try { inputParams = JSON.parse(row.input_params || '{}') } catch {}
+    try { resultData = row.result_data ? JSON.parse(row.result_data) : null } catch {}
+    return { ...row, inputParams, resultData }
+  })
+}
+
+export function updateExecutionAttempt(id, patch = {}) {
+  const allowed = { providerStatus: 'provider_status', lastCheckedAt: 'last_checked_at', reconciliationStatus: 'reconciliation_status', resultData: 'result_data', failureClassification: 'failure_classification', errorMessage: 'error_message' }
+  const sets = []
+  const values = []
+  for (const [key, column] of Object.entries(allowed)) {
+    if (patch[key] !== undefined) { sets.push(`${column} = ?`); values.push(key === 'resultData' && patch[key] != null ? JSON.stringify(patch[key]) : patch[key]) }
+  }
+  if (!sets.length) return getExecutionAttempt(id)
+  getDb().prepare(`UPDATE job_execution_attempt SET ${sets.join(', ')} WHERE id = ?`).run(...values, id)
+  return getExecutionAttempt(id)
+}
+
+export function completeFreeJob({ jobId, success, errorMessage = null }) {
+  const status = success ? 'complete' : 'failed'
+  getDb().prepare(`UPDATE job SET status = ?, error_message = ?, completed_at = ${NOW} WHERE id = ?`).run(status, errorMessage, jobId)
+  return getJob(jobId)
+}
+
+export function getBudgetSummary(iterationId) {
+  const db = getDb()
+  const settled = Number(db.prepare('SELECT COALESCE(SUM(base_currency_amount_minor),0) AS n FROM cost WHERE iteration_id = ?').get(iterationId).n || 0)
+  const reserved = Number(db.prepare("SELECT COALESCE(SUM(base_currency_amount_minor),0) AS n FROM budget_reservation WHERE iteration_id = ? AND status = 'active'").get(iterationId).n || 0)
+  const policy = db.prepare('SELECT execution_policy_snapshot FROM iteration WHERE id = ?').get(iterationId)
+  let p = {}
+  try { p = policy ? JSON.parse(policy.execution_policy_snapshot) : {} } catch {}
+  return { currentSettledSpendMinor: settled, activeReservedMinor: reserved, budgetTargetMinor: p.budgetTargetMinor ?? null, budgetCeilingMinor: p.budgetCeilingMinor ?? null, currency: p.currency || 'EUR' }
+}
+
+export function listProductionRunStatusesForIteration(iterationId) {
+  return getDb().prepare(`SELECT pr.*, c.creative_code,
+      (SELECT COUNT(*) FROM job j WHERE j.production_run_id = pr.id) AS job_count,
+      (SELECT COUNT(*) FROM job j WHERE j.production_run_id = pr.id AND j.status = 'complete') AS complete_job_count,
+      (SELECT COUNT(*) FROM job j WHERE j.production_run_id = pr.id AND j.status = 'failed') AS failed_job_count,
+      (SELECT COUNT(*) FROM job j WHERE j.production_run_id = pr.id AND j.status = 'generating') AS generating_job_count,
+      (SELECT COUNT(*) FROM job j WHERE j.production_run_id = pr.id AND j.status = 'failed' AND j.error_message = 'BUDGET_BLOCKED') AS budget_blocked_count,
+      (SELECT COUNT(*) FROM job j WHERE j.production_run_id = pr.id AND j.status = 'failed' AND j.error_message = 'FX_RATE_MISSING') AS fx_blocked_count,
+      (SELECT COUNT(*) FROM job j WHERE j.production_run_id = pr.id AND j.error_message LIKE 'ambiguous_billing:%') AS needs_review_job_count,
+      (SELECT COUNT(*) FROM job_execution_attempt a JOIN job j2 ON j2.id = a.job_id WHERE j2.production_run_id = pr.id AND a.reconciliation_status = 'reconciliation_required') AS reconciliation_required_count
+      FROM production_run pr JOIN creative c ON c.id = pr.creative_id
+      WHERE c.iteration_id = ? ORDER BY c.id, pr.attempt_number`).all(iterationId)
+}
+
+export function getJobAssetLink(jobId) {
+  return getDb().prepare('SELECT a.* FROM asset_link al JOIN asset a ON a.id = al.asset_id WHERE al.job_id = ? AND al.role = \'job_output\' ORDER BY al.id DESC LIMIT 1').get(jobId) || null
 }
 
 export function createAccount({ platform, handle, market = null, language = null }) {

@@ -146,8 +146,27 @@ export async function createReplicateVideoJob({ prompt, start_frame, aspect_rati
 }
 
 export async function getReplicateVideoJob(jobId) {
-  const job = jobs.get(String(jobId || ''))
-  if (!job) return { status: 'error', error: 'Replicate video job not found.' }
+  const requestedId = String(jobId || '')
+  let job = jobs.get(requestedId)
+  if (!job) {
+    const match = /^replicate-video-(.+)$/.exec(requestedId)
+    if (!match) return { status: 'error', error: 'Replicate video job not found.' }
+    // The external id is durable by design: a fresh server can recover the
+    // prediction from Replicate without relying on this process-local Map.
+    job = {
+      jobId: requestedId,
+      predictionId: match[1],
+      replicateModel: DEFAULT_REPLICATE_VIDEO_MODEL,
+      model: resolveReplicateVideoModel(DEFAULT_REPLICATE_VIDEO_MODEL).fullName,
+      modelLabel: resolveReplicateVideoModel(DEFAULT_REPLICATE_VIDEO_MODEL).label,
+      prompt: '',
+      duration: 0,
+      status: 'generating',
+      createdAt: Date.now(),
+      mediaRoot: path.resolve(process.cwd(), 'local-media')
+    }
+    jobs.set(requestedId, job)
+  }
   if (job.status === 'done') return { status: 'done', result: job.result }
   if (job.status === 'error') return { status: 'error', error: job.error }
   if (job.status === 'saving') return { status: 'generating' }

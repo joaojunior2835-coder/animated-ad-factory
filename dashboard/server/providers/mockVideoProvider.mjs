@@ -4,11 +4,25 @@
 import { randomUUID } from 'node:crypto'
 
 const jobs = new Map()
+const transientOnceFailures = new Set()
 const MIN_DELAY_MS = 8_000
 const MAX_DELAY_MS = 20_000
 const PLACEHOLDER_URL = '/mock-video-output.mp4'
 const PLACEHOLDER_FILE = 'mock-video-output.mp4'
 const VALID_ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1', '4:3'])
+
+function configuredDelayMs() {
+  const value = Number(process.env.MOCK_VIDEO_DELAY_MS)
+  if (Number.isFinite(value) && value >= 0) return value
+  return Math.floor(MIN_DELAY_MS + Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS + 1))
+}
+
+export function shouldFailTransientOnce(key) {
+  const id = String(key || '')
+  if (transientOnceFailures.has(id)) return false
+  transientOnceFailures.add(id)
+  return true
+}
 
 function resultFor(job) {
   return {
@@ -34,9 +48,12 @@ function resultFor(job) {
 }
 
 export function createMockVideoJob({ prompt, start_frame, aspect_ratio, duration, file_size } = {}) {
-  const jobId = `mock-video-${randomUUID()}`
   const createdAt = Date.now()
-  const delayMs = Math.floor(MIN_DELAY_MS + Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS + 1))
+  const delayMs = configuredDelayMs()
+  const readyAt = createdAt + delayMs
+  // The timestamps are part of the opaque request id so a fresh backend
+  // process can reconcile a Mock request without redispatching it.
+  const jobId = `mock-video-${createdAt}-${readyAt}-${randomUUID()}`
   const job = {
     jobId,
     status: 'generating',
@@ -46,7 +63,7 @@ export function createMockVideoJob({ prompt, start_frame, aspect_ratio, duration
     duration: Number.isFinite(Number(duration)) && Number(duration) > 0 ? Number(duration) : 5,
     fileSize: Number.isFinite(Number(file_size)) ? Number(file_size) : 0,
     createdAt,
-    readyAt: createdAt + delayMs
+    readyAt
   }
   jobs.set(jobId, job)
 
@@ -62,10 +79,24 @@ export function createMockVideoJob({ prompt, start_frame, aspect_ratio, duration
 }
 
 export function getMockVideoJob(jobId) {
-  const job = jobs.get(String(jobId || ''))
-  if (!job) return { status: 'error', error: 'Mock video job not found.' }
-
-  // Also finish lazily so polling remains deterministic if timers were delayed.
+  let job = jobs.get(String(jobId || ''))
+  if (!job) {
+    const match = /^mock-video-(\d+)-(\d+)-/.exec(String(jobId || ''))
+    if (!match) return { status: 'error', error: 'Mock video job not found.' }
+    const createdAt = Number(match[1])
+    const readyAt = Number(match[2])
+    if (!Number.isFinite(createdAt) || !Number.isFinite(readyAt)) return { status: 'error', error: 'Mock video job not found.' }
+    job = {
+      jobId: String(jobId),
+      status: Date.now() >= readyAt ? 'done' : 'generating',
+      prompt: '',
+      fileSize: 0,
+      createdAt,
+      readyAt,
+    }
+    if (job.status === 'done') job.result = resultFor(job)
+    jobs.set(job.jobId, job)
+  }
   if (job.status === 'generating' && Date.now() >= job.readyAt) {
     job.status = 'done'
     job.result = resultFor(job)

@@ -33,7 +33,9 @@ import {
   checkDbConnectivity,
   createProduct,
   getOrCreateAsset,
-  setProductionRunFinalAsset
+  setProductionRunFinalAsset,
+  setFxRate,
+  getFxRate
 } from './db/repository.mjs'
 import { backupState, inspectBackup, restoreFromBackup, listBackups } from './db/backup.mjs'
 import * as ptRepo from './db/productTestRepository.mjs'
@@ -41,6 +43,8 @@ import { seedDefaultTestPolicy } from './db/productTestRepository.mjs'
 import { fetchProductPageText } from './lib/safeFetch.mjs'
 import { generateResearchDraft, generateStrategyDraft, validateResearchDraft } from './lib/organicStrategy.mjs'
 import { generateBatchProductionPlan, priceProductionPlan } from './lib/productionPlanner.mjs'
+import { preflightProduction, startProduction, productionStatus, materializeJobsForProductionRun, currentRates } from './lib/productionExecution.mjs'
+import { reconcileInFlightJobs, startExecutionPoller } from './lib/dispatcher.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -977,7 +981,47 @@ const server = http.createServer(async (req, res) => {
       )
     }
 
-    // ---- M4: Production planning ----
+    if ((m = ptMatch('/api/iterations/:id/production/preflight')) && req.method === 'POST') {
+      const iterationId = idNum(m[0])
+      return readJsonBody(req, res, (body) =>
+        guard(() => ok({ preflight: preflightProduction(iterationId, body.productionRunIds || []) }))
+      )
+    }
+
+    if ((m = ptMatch('/api/iterations/:id/production/start')) && req.method === 'POST') {
+      const iterationId = idNum(m[0])
+      return readJsonBody(req, res, async (body) => {
+        try {
+          return ok(await startProduction(iterationId, body.productionRunIds || []))
+        } catch (e) {
+          return fail(500, `Production start failed: ${e && e.message ? e.message : 'unknown error'}`)
+        }
+      })
+    }
+
+    if ((m = ptMatch('/api/iterations/:id/production/status')) && req.method === 'GET') {
+      return guard(() => ok({ items: productionStatus(idNum(m[0])) }))
+    }
+
+    if ((m = ptMatch('/api/production-runs/:id/materialize')) && req.method === 'POST') {
+      return guard(() => ok({ item: materializeJobsForProductionRun(idNum(m[0])) }))
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/production/rates') {
+      return guard(() => ok({ rates: currentRates() }))
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/fx-rates') {
+      return readJsonBody(req, res, (body) => guard(() => ok({ item: setFxRate(body) })))
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/fx-rates') {
+      const from = url.searchParams.get('from') || ''
+      const to = url.searchParams.get('to') || 'EUR'
+      return guard(() => ok({ item: getFxRate(from, to) }))
+    }
+
+
     // Planning is not spending: /generate writes nothing; /approve creates
     // ProductionRuns in status 'planned' only — zero Jobs, zero
     // BudgetReservations, zero Cost rows.
@@ -1028,6 +1072,14 @@ try {
   // Policy defaults are data, not schema. Idempotent: never overwrites an
   // existing row, so a policy the user edits later survives restarts.
   seedDefaultTestPolicy()
+  // Reconcile persisted attempts before accepting work, then keep checking
+  // pending async provider requests without ever redispatching them.
+  reconcileInFlightJobs()
+    .then(() => startExecutionPoller())
+    .catch((error) => {
+      console.error('[dispatcher] startup reconciliation failed:', error && error.message ? error.message : error)
+      startExecutionPoller()
+    })
 } catch {
   // runMigrations already logged the specific failure.
   console.error('[api] refusing to start: database migrations failed.')

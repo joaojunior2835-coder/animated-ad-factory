@@ -777,6 +777,14 @@ export function approveProductionPlan({ plans }) {
               images: gp.imageGenerations || 0,
               videoClips: (gp.videoClips || []).length,
             },
+            // Preserve the approved deterministic plan so M5 can materialize
+            // Jobs without asking an AI provider or re-deciding execution.
+            generationPlan: {
+              imageGenerations: Number(gp.imageGenerations) || 0,
+              videoClips: Array.isArray(gp.videoClips) ? gp.videoClips : [],
+              voiceRequired: gp.voiceRequired === true,
+              characterConsistencyNeeded: gp.characterConsistencyNeeded === true,
+            },
             estimatedVideoSeconds,
             estimatedCost: plan.estimatedCost || null,
             productionNotes: plan.notes || null,
