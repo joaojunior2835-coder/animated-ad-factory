@@ -320,7 +320,7 @@ export async function dispatchProductionRun(productionRunId) {
   while (true) {
     const jobs = listEligibleJobs(productionRunId)
     if (!jobs.length) break
-    const paid = jobs.filter((job) => Number(job.inputParams && job.inputParams.estimated_cost_minor || 0) > 0 || ['replicate'].includes(job.provider))
+    const paid = jobs.filter((job) => Number(job.inputParams && job.inputParams.estimated_cost_minor || 0) > 0 || ['replicate', 'fal'].includes(job.provider))
     const free = jobs.filter((job) => !paid.includes(job))
     const paidLimit = settingNumber('production_paid_concurrency', DEFAULT_PAID_CONCURRENCY)
     const freeLimit = settingNumber('production_free_concurrency', DEFAULT_FREE_CONCURRENCY)

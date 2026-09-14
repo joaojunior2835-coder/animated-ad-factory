@@ -935,7 +935,7 @@ function PlanCard({ plan, availability, onUpdate, onReprice }) {
   const [local, setLocal] = useState({
     fineMethod: plan.draft.fineMethod,
     generationPlan: plan.draft.generationPlan,
-    plannedProvider: plan.plannedProvider || 'replicate',
+    plannedProvider: plan.plannedModel === 'seedance-2.0-fast' ? 'fal' : (plan.plannedProvider || 'replicate'),
     plannedModel: plan.plannedModel || 'wan-720p',
     coarseProductionMethod: plan.coarseProductionMethod || 'factory_generated',
     notes: plan.notes || '',
@@ -949,6 +949,7 @@ function PlanCard({ plan, availability, onUpdate, onReprice }) {
 
   const setField = (field, value) => {
     const next = { ...local, [field]: value }
+    if (field === 'plannedModel' && value === 'seedance-2.0-fast') next.plannedProvider = 'fal'
     setLocal(next)
     if (field === 'fineMethod' || field === 'generationPlan') {
       const nextDraft = { ...plan.draft, fineMethod: next.fineMethod, generationPlan: next.generationPlan }
@@ -1001,6 +1002,7 @@ function PlanCard({ plan, availability, onUpdate, onReprice }) {
         <Field label="Planned provider">
           <select data-testid={`planned-provider-${plan.creativeId}`} value={local.plannedProvider} onChange={(e) => setField('plannedProvider', e.target.value)}>
             <option value="mock">Mock (free, local-only)</option>
+            <option value="fal">fal.ai (paid)</option>
             <option value="replicate">Replicate (paid)</option>
           </select>
         </Field>

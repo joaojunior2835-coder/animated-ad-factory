@@ -4,6 +4,7 @@
 // unconfigured. Nothing in this file invents a price.
 
 import { REPLICATE_VIDEO_MODELS, estimateVideoCost } from '../providers/replicateVideoProvider.mjs'
+import { FAL_SEEDANCE_RATES_USD_PER_SECOND } from '../providers/falProvider.mjs'
 
 const isConfigured = (envName) => Boolean(process.env[envName] && String(process.env[envName]).trim())
 
@@ -11,7 +12,7 @@ const isConfigured = (envName) => Boolean(process.env[envName] && String(process
  * Every capability this system can currently execute, with its real
  * configured rate (or an explicit absence of one).
  *
- * Currency note: Replicate bills in USD; costPerSecondMinor here is USD
+ * Currency note: Replicate and fal.ai bill in USD; costPerSecondMinor here is USD
  * cents, tagged with currency: 'USD'. Pollinations and mock are both $0, so
  * their currency is irrelevant (tagged 'ANY'). Nothing downstream converts
  * USD to a ProductTest's own currency (typically EUR) — there is no fx-rate
@@ -23,14 +24,10 @@ const isConfigured = (envName) => Boolean(process.env[envName] && String(process
  * decision once cross-currency planning actually matters.
  */
 export function getConfiguredRates() {
-  // Video rates come straight from estimateVideoCost(1, key) — the SAME
-  // function Replicate's own dispatch path uses to quote a price — never a
-  // hand-copied constant, so a future change to REPLICATE_VIDEO_MODELS is
-  // reflected here automatically.
+  // Replicate rates remain sourced from its provider implementation. Seedance
+  // rates are sourced from falProvider's documented per-second constants.
   const ltxPerSecond = estimateVideoCost(1, 'ltx')
   const wanPerSecond = estimateVideoCost(1, 'wan-720p')
-  const seedance480PerSecond = estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '480p' })
-  const seedance720PerSecond = estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '720p' })
 
   return {
     image: {
@@ -56,18 +53,16 @@ export function getConfiguredRates() {
         label: REPLICATE_VIDEO_MODELS['wan-720p'].label,
       },
       'seedance-2.0-fast-480p': {
-        costPerSecondMinor: Math.round(seedance480PerSecond.costPerSecond * 100),
-        costPerSecondWithVideoInputMinor: Math.round(estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '480p', hasVideoInput: true }).costPerSecond * 100),
+        costPerSecondMinor: FAL_SEEDANCE_RATES_USD_PER_SECOND['480p'] * 100,
         currency: 'USD',
-        configured: isConfigured('REPLICATE_API_TOKEN'),
+        configured: isConfigured('FAL_API_KEY'),
         quality: 'fast',
         label: 'Seedance 2.0 Fast · 480p',
       },
       'seedance-2.0-fast-720p': {
-        costPerSecondMinor: Math.round(seedance720PerSecond.costPerSecond * 100),
-        costPerSecondWithVideoInputMinor: Math.round(estimateVideoCost(1, 'seedance-2.0-fast', { resolution: '720p', hasVideoInput: true }).costPerSecond * 100),
+        costPerSecondMinor: FAL_SEEDANCE_RATES_USD_PER_SECOND['720p'] * 100,
         currency: 'USD',
-        configured: isConfigured('REPLICATE_API_TOKEN'),
+        configured: isConfigured('FAL_API_KEY'),
         quality: 'fast-hd',
         label: 'Seedance 2.0 Fast · 720p',
       },

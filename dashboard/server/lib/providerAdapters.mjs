@@ -6,6 +6,7 @@ import { createMockVideoJob, getMockVideoJob, shouldFailTransientOnce } from '..
 import { createReplicateVideoJob, getReplicateVideoJob } from '../providers/replicateVideoProvider.mjs'
 import { runPollinations } from '../providers/pollinationsProvider.mjs'
 import { runGroq } from '../providers/groqProvider.mjs'
+import { createFalSeedanceVideoJob, getFalSeedanceVideoJob } from '../providers/falProvider.mjs'
 
 function statusFromLegacy(value) {
   const status = String(value || '').toLowerCase()
@@ -91,6 +92,29 @@ function adapterForReplicate() {
   }
 }
 
+function adapterForFal() {
+  return {
+    provider: 'fal',
+    async dispatch(params = {}) {
+      try {
+        const response = await createFalSeedanceVideoJob({ ...params, media_root: path.resolve(process.cwd(), 'local-media'), confirmed: true })
+        return { externalRequestId: response.jobId, initialStatus: statusFromLegacy(response.status) }
+      } catch (error) {
+        if (error && error.failure_classification) throw error
+        const status = Number(error && (error.status || error.statusCode))
+        throw classified(error && error.message, status === 429 || status >= 500 ? 'transient_retryable' : 'ambiguous_billing')
+      }
+    },
+    async checkStatus(externalRequestId) {
+      const response = await getFalSeedanceVideoJob(externalRequestId, { media_root: path.resolve(process.cwd(), 'local-media') })
+      return { status: statusFromLegacy(response.status), resultData: response.result, providerStatus: response.status }
+    },
+    extractResult(resultData) { return resultData || null },
+    isRetryable(error) { return (error && error.failure_classification) === 'transient_retryable' },
+    getActualCost() { return null },
+  }
+}
+
 function adapterForPollinations() {
   return {
     provider: 'pollinations',
@@ -143,6 +167,7 @@ export function getProviderAdapter(provider) {
   const id = String(provider || '').trim().toLowerCase()
   if (id === 'mock') return adapterForMock()
   if (id === 'replicate') return adapterForReplicate()
+  if (id === 'fal') return adapterForFal()
   if (id === 'pollinations') return adapterForPollinations()
   if (id === 'groq') return adapterForGroq()
   throw classified(`No production adapter for provider "${id || '(none)'}".`, 'non_retryable')
@@ -153,7 +178,7 @@ export function classifyProviderError(error, provider) {
   const message = String(error && (error.message || error.error) || '').toLowerCase()
   if (/timeout|timed out|network|fetch failed|rate limit|429|\b5\d\d\b/.test(message)) return 'transient_retryable'
   if (/charged|billing|unknown|not found|request id/.test(message)) return 'ambiguous_billing'
-  if (provider === 'replicate') return 'ambiguous_billing'
+  if (provider === 'replicate' || provider === 'fal') return 'ambiguous_billing'
   return 'non_retryable'
 }
 
@@ -161,6 +186,7 @@ export const providerConfigured = (provider) => {
   const id = String(provider || '').toLowerCase()
   if (id === 'mock') return true
   if (id === 'replicate') return Boolean(String(process.env.REPLICATE_API_TOKEN || '').trim())
+  if (id === 'fal') return Boolean(String(process.env.FAL_API_KEY || '').trim())
   if (id === 'pollinations') return Boolean(String(process.env.POLLINATIONS_API_KEY || '').trim())
   if (id === 'groq') return Boolean(String(process.env.GROQ_API_KEY || '').trim())
   return false

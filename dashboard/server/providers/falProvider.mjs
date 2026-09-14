@@ -15,6 +15,11 @@ import { fal } from '@fal-ai/client'
 
 const FLUX_SCHNELL_MODEL = 'fal-ai/flux/schnell'
 const WAN_I2V_MODEL = 'fal-ai/wan-i2v'
+export const FAL_SEEDANCE_ENDPOINTS = Object.freeze({
+  t2v: 'bytedance/seedance-2.0/fast/text-to-video',
+  i2v: 'bytedance/seedance-2.0/fast/image-to-video',
+})
+export const FAL_SEEDANCE_RATES_USD_PER_SECOND = Object.freeze({ '480p': 0.1076, '720p': 0.2419 })
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
 
 // Same aspect-ratio -> size mapping as pollinationsProvider, so a prompt asks
@@ -45,10 +50,16 @@ function apiKey() {
 
 /** Every real fal.subscribe() call goes through this so the key is configured fresh each time — never cached across a key rotation without a restart, matching every other provider in this app. */
 function configuredClient() {
+  if (falClientOverride) return falClientOverride
   const key = apiKey()
   if (!key) return null
   fal.config({ credentials: key })
   return fal
+}
+
+let falClientOverride = null
+export function setFalClientForTests(value) {
+  falClientOverride = value || null
 }
 
 function imageSize(aspectRatio, width, height) {
@@ -104,6 +115,99 @@ function videoFrom(data) {
     if (c && typeof c.url === 'string' && c.url) return c
   }
   return null
+}
+
+function seedanceExternalId(mode, requestId) {
+  return `fal-seedance:${mode}:${encodeURIComponent(String(requestId))}`
+}
+
+function parseSeedanceExternalId(value) {
+  const match = /^fal-seedance:(t2v|i2v):(.+)$/.exec(String(value || ''))
+  if (!match) throw new Error('Unknown fal Seedance request id.')
+  return { mode: match[1], endpoint: FAL_SEEDANCE_ENDPOINTS[match[1]], requestId: decodeURIComponent(match[2]) }
+}
+
+function localMediaFile(value, mediaRoot) {
+  const raw = String(value || '').trim()
+  if (!raw.startsWith('/media/')) return null
+  const root = path.resolve(mediaRoot)
+  const filePath = path.resolve(root, decodeURIComponent(raw.slice('/media/'.length)))
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep
+  if (!filePath.startsWith(prefix)) throw new Error('Refused to read outside local media.')
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error('Seedance start frame was not found in local media.')
+  return filePath
+}
+
+function imageMime(filePath) {
+  const extension = path.extname(filePath).toLowerCase()
+  return extension === '.jpg' || extension === '.jpeg' ? 'image/jpeg'
+    : extension === '.webp' ? 'image/webp'
+      : extension === '.gif' ? 'image/gif' : 'image/png'
+}
+
+async function seedanceImageUrl(client, value, mediaRoot) {
+  const localFile = localMediaFile(value, mediaRoot)
+  if (localFile) {
+    const bytes = fs.readFileSync(localFile)
+    return client.storage.upload(new Blob([bytes], { type: imageMime(localFile) }))
+  }
+  const parsed = new URL(String(value || '').trim())
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Seedance start frame must be a local media path or an HTTP(S) URL.')
+  if (['localhost', '127.0.0.1', '::1'].includes(parsed.hostname.toLowerCase())) throw new Error('Localhost URLs cannot be sent to fal.ai.')
+  return parsed.toString()
+}
+
+/** Durable M5 Seedance submission. Unlike the direct MCP helpers below, this deliberately does not wait for completion. */
+export async function createFalSeedanceVideoJob({ prompt, start_frame, image, resolution = '480p', duration = 5, aspect_ratio, aspectRatio, generate_audio, generateAudio, media_root, confirmed } = {}) {
+  if (confirmed !== true) throw new Error('confirmation_required')
+  const client = configuredClient()
+  if (!client) throw new Error('FAL_API_KEY_NOT_CONFIGURED')
+  const cleanPrompt = String(prompt || '').trim()
+  if (!cleanPrompt) throw new Error('Seedance video prompt is required.')
+  const seconds = Number(duration)
+  if (!Number.isFinite(seconds) || seconds < 4 || seconds > 15) throw new Error('Seedance duration must be between 4 and 15 seconds.')
+  if (!['480p', '720p'].includes(resolution)) throw new Error('Seedance resolution must be 480p or 720p.')
+
+  const frame = start_frame || image
+  const mode = frame ? 'i2v' : 't2v'
+  const input = {
+    prompt: cleanPrompt,
+    resolution,
+    duration: seconds,
+    aspect_ratio: aspect_ratio || aspectRatio || '9:16',
+    generate_audio: generate_audio ?? generateAudio ?? true,
+  }
+  if (frame) input.image_url = await seedanceImageUrl(client, frame, media_root || path.resolve(process.cwd(), 'local-media'))
+  const submitted = await client.queue.submit(FAL_SEEDANCE_ENDPOINTS[mode], { input })
+  if (!submitted?.request_id) throw new Error('fal.ai did not return a Seedance request id.')
+  return { jobId: seedanceExternalId(mode, submitted.request_id), status: submitted.status || 'IN_QUEUE' }
+}
+
+/** Restart-safe M5 status/result lookup using only the durable external request id. */
+export async function getFalSeedanceVideoJob(externalRequestId, { media_root } = {}) {
+  const client = configuredClient()
+  if (!client) throw new Error('FAL_API_KEY_NOT_CONFIGURED')
+  const request = parseSeedanceExternalId(externalRequestId)
+  const status = await client.queue.status(request.endpoint, { requestId: request.requestId })
+  if (status?.status !== 'COMPLETED') return { status: status?.status || 'IN_QUEUE' }
+
+  const completed = await client.queue.result(request.endpoint, { requestId: request.requestId })
+  const video = videoFrom(completed?.data)
+  if (!video) throw new Error('fal.ai returned no Seedance video in its response.')
+  const downloaded = await downloadToBuffer(video.url)
+  const saved = saveTemp(media_root || path.resolve(process.cwd(), 'local-media'), downloaded.buffer, downloaded.mime, 'fal-seedance-2-fast', VIDEO_MIME_EXTENSIONS, 'video/mp4')
+  return {
+    status: 'COMPLETED',
+    result: {
+      local_url: saved.localUrl,
+      mime_type: saved.mimeType,
+      file_size: saved.fileSize,
+      provider: 'fal',
+      provider_id: 'fal',
+      model: request.endpoint,
+      request_id: request.requestId,
+    },
+  }
 }
 
 /**

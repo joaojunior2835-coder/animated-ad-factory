@@ -295,8 +295,8 @@ export function priceProductionPlan(draft, availabilityDeclarations, knownInvent
     const seedance720 = estimateComponentCost('video', 'seedance-2.0-fast-720p', clip.seconds || 5)
     componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds, provider: recommendedModel, role: 'recommended', ...recommended })
     componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds, provider: cheapModel, role: 'cheap_fallback', ...cheap })
-    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds || 5, provider: 'replicate', model: 'seedance-2.0-fast', resolution: '480p', role: 'seedance_480p', ...seedance480 })
-    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds || 5, provider: 'replicate', model: 'seedance-2.0-fast', resolution: '720p', role: 'seedance_720p', ...seedance720 })
+    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds || 5, provider: 'fal', model: 'seedance-2.0-fast', resolution: '480p', role: 'seedance_480p', ...seedance480 })
+    componentBreakdown.push({ component: 'video', clipIndex, purpose: clip.purpose, seconds: clip.seconds || 5, provider: 'fal', model: 'seedance-2.0-fast', resolution: '720p', role: 'seedance_720p', ...seedance720 })
     if (recommended.unknown) {
       recommendedVideoUnknown = true
       unknownCostComponents.push({ component: `video:${clip.purpose}`, provider: recommendedModel, reason: recommended.reason })
