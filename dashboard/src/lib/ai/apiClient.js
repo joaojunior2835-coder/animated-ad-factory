@@ -8,6 +8,10 @@
 //  3) the default local backend.
 // No API key is ever involved — this is just a localhost URL.
 function resolveBase() {
+  // A tunnel browser must use its own origin and Vite's loopback proxy, even
+  // when this profile/build still carries a local QA/development override.
+  const remoteBrowser = typeof window !== 'undefined' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+  if (remoteBrowser) return ''
   try {
     if (typeof localStorage !== 'undefined') {
       const o = localStorage.getItem('API_BASE_URL')
@@ -17,7 +21,6 @@ function resolveBase() {
     /* ignore */
   }
   const env = (typeof import.meta !== 'undefined' && import.meta.env) || {}
-  const remoteBrowser = typeof window !== 'undefined' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
   return (env.VITE_API_BASE_URL || env.VITE_LOCAL_API_BASE || (remoteBrowser ? '' : 'http://127.0.0.1:8787')).replace(/\/$/, '')
 }
 

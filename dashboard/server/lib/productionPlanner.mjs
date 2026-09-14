@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runGroq } from '../providers/groqProvider.mjs'
-import { getDb } from '../db/repository.mjs'
+import { getDb, getFxRate } from '../db/repository.mjs'
 import { getCreativeWithLineage, getIterationWithLineage, listCreativesForIteration } from '../db/productTestRepository.mjs'
 import { getConfiguredRates, estimateComponentCost } from './rateCatalog.mjs'
 
@@ -356,6 +356,14 @@ function classifyBudgetStatus(totalMinor, budgetTargetMinor, budgetCeilingMinor)
   return 'WITHIN_TARGET'
 }
 
+export function planningBudgetPreview(totalSourceMinor, policy = {}, unknown = false) {
+  const budgetCurrency = policy.currency || 'EUR'
+  const fx = budgetCurrency === 'USD' ? { rate: 1 } : getFxRate('USD', budgetCurrency)
+  const totalBudgetMinor = fx ? Math.round(totalSourceMinor * fx.rate) : null
+  return { budgetCurrency, fxRate: fx?.rate ?? null, totalBudgetMinor,
+    status: unknown ? 'UNKNOWN_COST' : !fx ? 'FX_RATE_MISSING' : classifyBudgetStatus(totalBudgetMinor, policy.budgetTargetMinor, policy.budgetCeilingMinor) }
+}
+
 /**
  * Generate + price a plan for every Creative in an Iteration. One Groq call
  * per Creative; a failure on one Creative is recorded against it and does
@@ -364,9 +372,8 @@ function classifyBudgetStatus(totalMinor, budgetTargetMinor, budgetCeilingMinor)
  *
  * Budget comparison uses the Iteration's own execution_policy_snapshot —
  * the already-locked source of truth — never a new budget field. See
- * rateCatalog.mjs's currency note: this compares a USD cost estimate against
- * a EUR-denominated ceiling at face value, an explicitly-flagged
- * simplification for this milestone.
+ * Convert the source USD estimate with the same persisted FX lookup as M5.
+ * This is a preview; execution still performs its own atomic budget checks.
  */
 export async function generateBatchProductionPlan(iterationId, availabilityByCreativeId = {}) {
   const iteration = getIterationWithLineage(iterationId)
@@ -393,14 +400,14 @@ export async function generateBatchProductionPlan(iterationId, availabilityByCre
   let anyUnknown = false
   const methodCounts = {}
   for (const p of plans) {
-    if (!p.ok) continue
+    if (!p.ok) { anyUnknown = true; continue }
     if (p.recommendedCost.unknown) anyUnknown = true
     totalRecommendedMinor += p.recommendedCost.minor
     const method = p.draft && p.draft.fineMethod
     if (method) methodCounts[method] = (methodCounts[method] || 0) + 1
   }
 
-  const status = classifyBudgetStatus(totalRecommendedMinor, budgetTargetMinor, budgetCeilingMinor)
+  const budget = planningBudgetPreview(totalRecommendedMinor, policy, anyUnknown)
 
   return {
     plans,
@@ -409,10 +416,9 @@ export async function generateBatchProductionPlan(iterationId, availabilityByCre
       methodCounts,
       budgetTargetMinor,
       budgetCeilingMinor,
-      budgetCurrency: policy.currency || null,
+      ...budget,
       currencyNote:
-        'totalRecommendedCost is in USD (Replicate\'s real billing currency); budgetTargetMinor/budgetCeilingMinor are in the Iteration policy\'s own currency (typically EUR). Compared at face value for this milestone — no fx conversion is wired for planning-stage estimates.',
-      status,
+        'Source estimates are USD; budgets use the Iteration currency. Affordability uses the stored FX rate. Missing FX or incomplete estimates cannot prove affordability. M5 checks the current budget again before dispatch.',
     },
   }
 }

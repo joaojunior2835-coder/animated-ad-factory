@@ -15,12 +15,15 @@ const stateLabel = (state) => state === 'regenerating' ? 'Needs revision' : stat
 function ErrorLine({ error }) { return error ? <p className="note bad" role="alert">{error}</p> : null }
 
 export function VideoPreview({ asset }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [asset?.relative_path])
   if (!asset?.relative_path) return null
   const url = mediaUrl(asset)
   return <div>
-    <video controls preload="metadata" src={url} style={{ width: '100%', maxWidth: 280, maxHeight: 420 }} />
+    <video controls preload="metadata" src={url} onError={() => setFailed(true)} style={{ width: '100%', maxWidth: 280, maxHeight: 420 }} />
+    {failed && <ErrorLine error="Local video is missing or cannot be played. Check the file before review/publication." />}
     <p className="hint small">{asset.width ? `${asset.width}×${asset.height} · ` : ''}{asset.duration_seconds ? `${asset.duration_seconds.toFixed(2)} s · ` : ''}{asset.file_size ? `${Math.round(asset.file_size / 1024)} KB` : ''}</p>
-    <a href={url} target="_blank" rel="noreferrer" style={{ color: '#92bdff' }}>Open / download MP4</a>
+    <a href={url} target="_blank" rel="noreferrer" style={{ color: '#92bdff' }}>Open / download video</a>
     <p className="hint small" style={{ overflowWrap: 'anywhere' }}>{url}</p>
   </div>
 }
@@ -43,6 +46,7 @@ export function ManualProductionPlan({ creativeId, onCreated }) {
   const [open, setOpen] = useState(false), [provider, setProvider] = useState('mock')
   const newClip = () => ({ prompt: '', seconds: 5, resolution: '480p', generate_audio: true })
   const [clips, setClips] = useState([newClip()]), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  const creating = useRef(false)
   const change = (i, field, value) => setClips((items) => items.map((clip, index) => index === i ? { ...clip, [field]: value } : clip))
   return <div className="subpanel" data-testid="manual-production-plan">
     <button className="ghost" onClick={() => setOpen(!open)}>Configure video production</button>
@@ -56,7 +60,7 @@ export function ManualProductionPlan({ creativeId, onCreated }) {
       </div>)}
       <button className="ghost" disabled={clips.length >= 12} onClick={() => setClips([...clips, newClip()])}>Add scene</button>
       <p>Approving this plan creates a production run. Start generation separately after checking its budget.</p>
-      <button className="primary" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await op('plan', { creativeId, provider, clips }); setOpen(false); await onCreated() } catch (e) { setError(e.message) } finally { setBusy(false) } }}>Approve scene plan (no spend)</button>
+      <button className="primary" disabled={busy} onClick={async () => { if (creating.current) return; creating.current = true; setBusy(true); setError(''); try { await op('plan', { creativeId, provider, clips }); setOpen(false); await onCreated() } catch (e) { setError(e.message) } finally { creating.current = false; setBusy(false) } }}>Approve scene plan (no spend)</button>
     </>}
   </div>
 }
@@ -64,8 +68,9 @@ export function ManualProductionPlan({ creativeId, onCreated }) {
 export function RunOperator({ runId, iterationId, creativeId, onChange }) {
   const [data, setData] = useState(null), [error, setError] = useState(''), [note, setNote] = useState(''), [busy, setBusy] = useState(false)
   const mutex = useRef(false)
-  const load = async () => { const result = await op(`runs/${runId}`); setData(result); return result }
-  useEffect(() => { let active = true; const tick = () => op(`runs/${runId}`).then((r) => { if (active) setData(r) }).catch((e) => { if (active) setError(e.message) }); tick(); const timer = setInterval(tick, 3000); return () => { active = false; clearInterval(timer) } }, [runId])
+  const sequence = useRef(0)
+  const load = async () => { const current = ++sequence.current; try { const result = await op(`runs/${runId}`); if (current === sequence.current) { setData(result); setError('') } return result } catch (e) { if (current === sequence.current) setError(e.message); throw e } }
+  useEffect(() => { const tick = () => { if (!mutex.current) load().catch(() => {}) }; tick(); const timer = setInterval(tick, 3000); return () => { sequence.current++; clearInterval(timer) } }, [runId])
   const act = async (fn) => { if (mutex.current) return; mutex.current = true; setBusy(true); setError(''); try { await fn(); await load(); await onChange() } catch (e) { setError(e.message) } finally { mutex.current = false; setBusy(false) } }
   if (!data) return <ErrorLine error={error} />
   const held = data.attempts.some((a) => a.reconciliation_status === 'reconciliation_required')
@@ -106,10 +111,11 @@ export function ReviewQueue({ onOpen }) {
   </section>
 }
 
-export function AnalysisPanel({ productTestId, creativeId }) {
+export function AnalysisPanel({ productTestId, creativeId, revision }) {
   const [data, setData] = useState(null), [error, setError] = useState('')
-  const load = () => op(`analysis?${new URLSearchParams(productTestId ? { productTestId } : creativeId ? { creativeId } : {})}`).then(setData).catch((e) => setError(e.message))
-  useEffect(() => { load() }, [productTestId, creativeId])
+  const sequence = useRef(0)
+  const load = () => { const current = ++sequence.current; return op(`analysis?${new URLSearchParams(productTestId ? { productTestId } : creativeId ? { creativeId } : {})}`).then((result) => { if (current === sequence.current) { setData(result); setError('') } }).catch((e) => { if (current === sequence.current) setError(e.message) }) }
+  useEffect(() => { load(); return () => { sequence.current++ } }, [productTestId, creativeId, revision])
   const show = (a) => <><p>{a.distribution} · {a.recommendation}</p><p className="hint small">Engagement {display(a.engagementRate, '%', a.availability.engagementRate)} · CTR {display(a.ctr, '%', a.availability.ctr)} · Conversion {display(a.conversionRate, '%', a.availability.conversionRate)} · CPA {a.cpaMinor == null ? a.availability.cpaMinor : money(a.cpaMinor)} · ROAS {display(a.roas, '×', a.availability.roas)} · Cost/view {a.costPerViewMinor == null ? a.availability.costPerViewMinor : money(a.costPerViewMinor)}</p></>
   return <div className="subpanel" data-testid="analysis-panel"><div className="row between"><h3>Distribution & analysis</h3><button className="ghost" onClick={load}>Refresh analysis</button></div><ErrorLine error={error} />
     {data && <><p className="hint small">Rules: at least {data.rules.minimumViews} impressions (views if impressions are missing), then {data.rules.minimumClicks} link clicks for directional conversion judgment. “Promising” means at least one observed purchase after these thresholds, not statistical proof.</p><p className="hint small">{data.basis} Blank metrics are missing; explicit 0 is zero. Ratios with no denominator are not applicable.</p>

@@ -342,7 +342,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
     requestApiConfirm(async () => {
       const prompt = 'Reply with exactly: Local backend connected.'
       setApiTest({ loading: true, text: '', error: '' })
-      const res = await callPlaceholderLlmAction({ provider_id: providerId, action_type: 'generate_text', input_prompt: prompt })
+      const res = await callPlaceholderLlmAction({ confirmed: true, provider_id: providerId, action_type: 'generate_text', input_prompt: prompt })
       const ok = !!(res && res.success && res.output_text)
       if (ok) setApiTest({ loading: false, text: res.output_text, error: '' })
       else setApiTest({ loading: false, text: '', error: (res && (res.error || res.message)) || 'No response from backend.' })
@@ -492,7 +492,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
       if (actionType === 'generate_image') {
         requestApiConfirm(async () => {
           setGenResult({ ...base, provider_id: imageProviderId, mode: 'api', loading: true, result: normalizeMediaResult({ provider_id: imageProviderId, action_type: 'generate_image', mode: 'api', media_type: 'image', status: 'pending', prompt: promptText, scene_id: scene.id }) })
-          const res = await callPlaceholderLlmAction({ provider_id: imageProviderId, action_type: 'generate_image', input_prompt: promptText })
+          const res = await callPlaceholderLlmAction({ confirmed: true, provider_id: imageProviderId, action_type: 'generate_image', input_prompt: promptText })
           const data_url = imageProviderId === 'openai' ? (res.data_url || '') : ''
           const result = normalizeMediaResult({
             provider_id: imageProviderId, action_type: 'generate_image', mode: 'api', media_type: 'image', prompt: promptText,
@@ -536,7 +536,8 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
         return
       }
       // Text/JSON actions call the real local backend (/api/llm).
-      const res = await callPlaceholderLlmAction({ provider_id: textProviderId, action_type: actionType, input_prompt: promptText })
+      if (!window.confirm('This AI request uses provider credits. Continue?')) return
+      const res = await callPlaceholderLlmAction({ confirmed: true, provider_id: textProviderId, action_type: actionType, input_prompt: promptText })
       const result = normalizeMediaResult({
         provider_id: textProviderId, action_type: actionType, mode: 'api', prompt: promptText,
         output_text: res.output_text || '', raw_output: res.raw_text || '', model: res.model, request_id: res.request_id,
@@ -641,7 +642,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
       scene_id: scene ? scene.id : '',
       scene_number: scene ? scene.scene_number : ''
     })
-    const res = await callPlaceholderLlmAction({ provider_id: providerId, action_type, input_prompt: prompt })
+    const res = await callPlaceholderLlmAction({ confirmed: true, provider_id: providerId, action_type, input_prompt: prompt })
     const ok = !!(res && res.success)
     const model = (res && res.model) || selectedModel
     const request_id = res && res.request_id
@@ -710,7 +711,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
       setGenAllBusy(true)
       setPromptGenMsg(`Generating ${targets.length} scene prompt(s) via ${providerLabel(textProviderId)}…`)
       const promptText = buildEmptyPromptsImprovePrompt(project, targets)
-      const res = await callPlaceholderLlmAction({ provider_id: textProviderId, action_type: 'generate_json', input_prompt: promptText })
+      const res = await callPlaceholderLlmAction({ confirmed: true, provider_id: textProviderId, action_type: 'generate_json', input_prompt: promptText })
       const ok = !!(res && res.success)
       addLog({
         action_type: 'generate_json',
@@ -755,7 +756,7 @@ export default function CanvasWorkspace({ project, onCanvas, previews, onSetPrev
       setAdBriefBusy(true)
       setAdBriefMsg(`Generating ad brief via ${providerLabel(textProviderId)}…`)
       const promptText = buildAdBriefPrompt(project, adBriefInput)
-      const res = await callPlaceholderLlmAction({ provider_id: textProviderId, action_type: 'generate_json', input_prompt: promptText })
+      const res = await callPlaceholderLlmAction({ confirmed: true, provider_id: textProviderId, action_type: 'generate_json', input_prompt: promptText })
       const ok = !!(res && res.success)
       addLog({
         action_type: 'generate_json',

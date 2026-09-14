@@ -13,15 +13,9 @@ const isConfigured = (envName) => Boolean(process.env[envName] && String(process
  * configured rate (or an explicit absence of one).
  *
  * Currency note: Replicate and fal.ai bill in USD; costPerSecondMinor here is USD
- * cents, tagged with currency: 'USD'. Pollinations and mock are both $0, so
- * their currency is irrelevant (tagged 'ANY'). Nothing downstream converts
- * USD to a ProductTest's own currency (typically EUR) — there is no fx-rate
- * source wired for planning-stage estimates, unlike the Cost ledger's
- * fx_rate columns, which exist for real settled spend. priceProductionPlan
- * compares the USD estimate against the EUR-denominated policy ceiling at
- * face value (1 minor unit ~ 1 minor unit) as a clearly-flagged
- * simplification for THIS milestone, not a real exchange rate. Worth a real
- * decision once cross-currency planning actually matters.
+ * cents, tagged with currency: 'USD'. Only Mock is guaranteed free.
+ * Pollinations now uses Pollen credits; no verified rate/accounting is wired
+ * here, so it must remain unpriceable. Planning and M5 use persisted FX rates.
  */
 export function getConfiguredRates() {
   // Replicate rates remain sourced from its provider implementation. Seedance
@@ -32,8 +26,8 @@ export function getConfiguredRates() {
   return {
     image: {
       pollinations: {
-        costPerImageMinor: 0,
-        currency: 'ANY',
+        costPerImageMinor: null,
+        currency: 'USD',
         configured: isConfigured('POLLINATIONS_API_KEY'),
       },
     },
@@ -104,6 +98,7 @@ export function estimateComponentCost(capability, providerModel, quantity) {
   if (!Number.isFinite(qty) || qty < 0) return { unknown: true, reason: 'invalid_quantity' }
 
   if (capability === 'image') {
+    if (!Number.isFinite(entry.costPerImageMinor)) return { unknown: true, reason: `price_not_configured:${capability}/${providerModel}` }
     return { unknown: false, costMinor: Math.round(qty * entry.costPerImageMinor), currency: entry.currency }
   }
   if (capability === 'video') {

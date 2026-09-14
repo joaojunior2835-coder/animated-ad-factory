@@ -2129,3 +2129,19 @@ button.danger { color: var(--danger); border-color: var(--danger); }
   display: flex; border: 1px solid var(--border); border-radius: 14px;
   overflow: hidden; background: var(--panel-2);
 }
+
+/* Operator records are SQLite-backed, not the legacy Project JSON sidebar. */
+.operator-active .layout { grid-template-columns: 240px minmax(0, 1fr); }
+.operator-active .ms-session-info { min-width: 0; width: 100%; }
+.operator-active .row { flex-wrap: wrap; }
+.operator-active .ms-badge { overflow-wrap: anywhere; white-space: normal; }
+@media (max-width: 700px) {
+  .operator-active .topbar { flex-wrap: wrap; padding: 10px; }
+  .operator-active .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .operator-active .sidebar-left { display: flex; overflow-x: auto; padding: 6px; }
+  .operator-active .nav { flex: 0 0 auto; width: auto; margin: 0; }
+  .operator-active .main { padding: 10px; }
+  .operator-active .ms-panel { padding: 10px; }
+  .operator-active .ms-session-row-item { padding: 10px; min-width: 0; }
+  .operator-active input, .operator-active select, .operator-active textarea { min-width: 0; max-width: 100%; }
+}

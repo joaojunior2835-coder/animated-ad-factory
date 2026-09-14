@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'aaf-operator-'))
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'aaf operator spaces-'))
 process.env.FACTORY_DB_PATH = path.join(temp, 'factory.db')
 process.env.FACTORY_MEDIA_ROOT = path.join(temp, 'media')
 fs.mkdirSync(process.env.FACTORY_MEDIA_ROOT)
@@ -60,6 +60,7 @@ try {
     finalAsset = (await m6.assembleProductionRun(runId)).asset
     const meta = await m6.inspectVideo(m6.localAssetPath(finalAsset.relative_path))
     assert.equal(meta.width, 720); assert.equal(meta.height, 1280); assert.equal(meta.decoded, true)
+    assert.equal(meta.videoCodec, 'h264'); assert.equal(meta.audioCodec, 'aac')
     assert.ok(meta.duration >= 1.15 && meta.duration < 1.5); assert.equal(meta.audio, true)
     assert.equal(repo.getProductionRunExecution(runId).status, 'complete')
     assert.equal(repo.getProductionRunExecution(runId).final_asset_id, finalAsset.id)
@@ -78,6 +79,23 @@ try {
     assert.equal((await m6.assembleProductionRun(runId)).asset.id, finalAsset.id)
     assert.equal(repo.getDb().prepare('SELECT count(*) n FROM asset').get().n, before)
     assert.equal(repo.getDb().prepare("SELECT count(*) n FROM asset_link WHERE production_run_id=? AND role='final_video'").get(runId).n, 1)
+  })
+  await check('M6 cleanup retains only final MP4 and never removes source clips', () => {
+    const work = path.dirname(m6.localAssetPath(finalAsset.relative_path))
+    assert.deepEqual(fs.readdirSync(work), ['final.mp4'])
+    for (const name of ['red.mp4', 'blue.mp4']) assert.ok(fs.existsSync(path.join(m6.mediaRoot(), name)))
+  })
+  await check('M6 failed FFmpeg leaves no final Asset or scratch media', async () => {
+    const badRun = pt.createProductionRunForCreative({ creativeId, productionMethod: 'factory_generated' })
+    repo.freezeProductionRunSpec(badRun, { planning: {} })
+    fs.writeFileSync(path.join(m6.mediaRoot(), 'corrupt.mp4'), 'not a video')
+    const bad = repo.getOrCreateAsset({ contentHash: createHash('sha256').update('not a video').digest('hex'), relativePath: 'corrupt.mp4', mimeType: 'video/mp4', source: 'uploaded' })
+    const jobId = repo.createJob({ productionRunId: badRun, capability: 'generate_video', provider: 'mock', inputParams: {} })
+    repo.attachAssetLink(bad.id, { jobId }, 'job_output'); repo.updateJobRuntime(jobId, { status: 'complete' })
+    await assert.rejects(m6.assembleProductionRun(badRun), /invalid|decoded/)
+    assert.equal(repo.getProductionRunExecution(badRun).final_asset_id, null)
+    assert.deepEqual(fs.readdirSync(path.join(m6.mediaRoot(), 'assembly', String(badRun))), [])
+    assert.ok(fs.existsSync(path.join(m6.mediaRoot(), 'corrupt.mp4')))
   })
   await check('M6 active lock rejects concurrent assembly', async () => {
     const lock = path.join(m6.mediaRoot(), 'assembly', String(runId), 'assembly.lock')
@@ -109,8 +127,13 @@ try {
   await check('M6 imported manual video freezes normally and becomes reviewable', async () => {
     const manualCreative = pt.createCreativeForIteration({ iterationId, angle: 'manual', format: 'short', defaultProductionMethod: 'manual_external' })
     const manualRun = pt.createProductionRunForCreative({ creativeId: manualCreative, productionMethod: 'manual_external' })
-    await m6.completeExternalRun(manualRun, finalAsset.id)
+    const original = repo.getDb().prepare("SELECT id FROM asset WHERE relative_path='blue.mp4'").get()
+    assert.equal((await m6.inspectVideo(m6.localAssetPath('blue.mp4'))).videoCodec, 'mpeg4')
+    await m6.completeExternalRun(manualRun, original.id)
     const result = repo.getProductionRunExecution(manualRun)
+    const final = repo.getDb().prepare('SELECT relative_path FROM asset WHERE id=?').get(result.final_asset_id)
+    assert.equal((await m6.inspectVideo(m6.localAssetPath(final.relative_path))).videoCodec, 'h264')
+    assert.deepEqual(result.specSnapshot.execution.inputAssetIds, [original.id])
     assert.ok(result.spec_frozen_at); assert.equal(result.status, 'complete'); assert.equal(result.jobs.length, 0)
     op.reviewCreative({ creativeId: manualCreative, productionRunId: manualRun, decision: 'approved' })
     op.requirePublishable(manualCreative, manualRun)
@@ -119,6 +142,9 @@ try {
   for (const decision of ['approved', 'rejected', 'regenerating']) await check(`M7 ${decision} persists without job dispatch`, () => {
     const jobs = repo.getDb().prepare('SELECT count(*) n FROM job').get().n
     op.reviewCreative({ creativeId, productionRunId: runId, decision, note: `operator ${decision}` })
+    const reviews = pt.listReviewEventsForCreative(creativeId).length
+    op.reviewCreative({ creativeId, productionRunId: runId, decision, note: `operator ${decision}` })
+    assert.equal(pt.listReviewEventsForCreative(creativeId).length, reviews)
     reopen()
     assert.equal(op.reviewQueue().find((item) => item.runId === runId).approval_status, decision)
     assert.equal(repo.getDb().prepare('SELECT count(*) n FROM job').get().n, jobs)
@@ -130,7 +156,11 @@ try {
     op.reviewCreative({ creativeId, productionRunId: runId, decision: 'approved' })
     op.requirePublishable(creativeId, runId)
     const accountId = repo.createAccount({ platform: 'instagram', handle: 'local-fixture' })
-    publication = pt.createPublicationForCreative({ creativeId, productionRunId: runId, publishedAssetId: finalAsset.id, accountId, platform: 'instagram', surfaceType: 'reel', publishedAt: new Date().toISOString(), externalUrl: 'https://example.com/post' })
+    const body = { creativeId, productionRunId: runId, publishedAssetId: finalAsset.id, accountId, platform: 'instagram', surfaceType: 'reel', publishedAt: new Date().toISOString(), externalUrl: 'https://example.com/post' }
+    publication = op.savePublication(body)
+    assert.throws(() => op.savePublication({ ...body, platform: 'tiktok' }), /platform must match/)
+    assert.equal(op.savePublication(body).id, publication.id)
+    assert.equal(repo.getDb().prepare('SELECT count(*) n FROM publication').get().n, 1)
     assert.equal(publication.published_asset_id, finalAsset.id)
   })
   await check('M8 metrics persist and latest snapshot replaces, not adds', () => {
@@ -150,6 +180,25 @@ try {
     assert.equal(op.analyzeMetrics({ link_clicks: 0, impressions: 100 }).ctr, 0)
     assert.equal(op.analyzeMetrics({ views: 100 }).engagementRate, null)
     assert.throws(() => op.saveMetrics(publication.id, { capturedAt: '2026-09-14', rawMetrics: { views: -1 } }), /Invalid/)
+  })
+  await check('M8 repeated identical snapshot is idempotent; correction is append-only', () => {
+    const body = { capturedAt: '2026-09-15', source: 'manual', rawMetrics: { views: 0, impressions: 0 } }
+    const first = op.saveMetrics(publication.id, body)
+    assert.equal(op.saveMetrics(publication.id, body).id, first.id)
+    const corrected = op.saveMetrics(publication.id, { ...body, rawMetrics: { views: 10 } })
+    assert.notEqual(corrected.id, first.id)
+    assert.deepEqual(JSON.parse(repo.getDb().prepare('SELECT raw_metrics FROM metric_snapshot WHERE id=?').get(first.id).raw_metrics), body.rawMetrics)
+    const summary = op.analysisSummary({ productTestId: test.id })
+    assert.equal(summary.total.raw.views, 10); assert.equal(summary.total.ctr, null)
+  })
+  await check('M7 missing final media blocks publication and review, preserves IDs', () => {
+    const file = m6.localAssetPath(finalAsset.relative_path), hidden = file + '.missing'
+    fs.renameSync(file, hidden)
+    try {
+      assert.throws(() => op.requirePublishable(creativeId, runId))
+      assert.throws(() => op.reviewCreative({ creativeId, productionRunId: runId, decision: 'approved' }))
+      assert.equal(repo.getProductionRunExecution(runId).final_asset_id, finalAsset.id)
+    } finally { fs.renameSync(hidden, file) }
   })
   await check('M8 deterministic thresholds and recommendation', () => {
     assert.equal(op.analyzeMetrics({ views: 999, link_clicks: 20 }).distribution, 'insufficient distribution')

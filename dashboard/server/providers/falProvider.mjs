@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { fal } from '@fal-ai/client'
+import { createFalClient } from '@fal-ai/client'
 
 const FLUX_SCHNELL_MODEL = 'fal-ai/flux/schnell'
 const WAN_I2V_MODEL = 'fal-ai/wan-i2v'
@@ -53,8 +53,23 @@ function configuredClient() {
   if (falClientOverride) return falClientOverride
   const key = apiKey()
   if (!key) return null
-  fal.config({ credentials: key })
-  return fal
+  return createFalClient({ credentials: key, fetch: singleSubmissionFetch })
+}
+
+// queue.submit overrides config.retry in this SDK. Wrap failed mutations in a
+// plain Error (not ApiError/TypeError) so its retry loop cannot repeat a POST.
+// Read-only status/result requests retain the SDK's normal retry behavior.
+export async function singleSubmissionFetch(url, options = {}) {
+  if (String(options.method || 'GET').toUpperCase() === 'GET') return fetch(url, options)
+  try {
+    const response = await fetch(url, { ...options, redirect: 'error' })
+    if (response.ok) return response
+    const body = await response.json().catch(() => ({}))
+    throw Object.assign(new Error(`fal.ai rejected submission (HTTP ${response.status}).`), { status: response.status, body })
+  } catch (cause) {
+    const diagnostic = safeFalResultDiagnostic(cause, '')
+    throw Object.assign(new Error(diagnostic.message), { status: diagnostic.status, body: diagnostic.body })
+  }
 }
 
 let falClientOverride = null
@@ -187,14 +202,16 @@ async function seedanceImageUrl(client, value, mediaRoot) {
 
 /** Durable M5 Seedance submission. Unlike the direct MCP helpers below, this deliberately does not wait for completion. */
 export async function createFalSeedanceVideoJob({ prompt, start_frame, image, resolution = '480p', duration = 5, aspect_ratio, aspectRatio, generate_audio, generateAudio, media_root, confirmed } = {}) {
-  if (confirmed !== true) throw new Error('confirmation_required')
+  const invalid = (message) => Object.assign(new Error(message), { failure_classification: 'non_retryable' })
+  if (confirmed !== true) throw invalid('confirmation_required')
   const client = configuredClient()
-  if (!client) throw new Error('FAL_API_KEY_NOT_CONFIGURED')
+  if (!client) throw invalid('FAL_API_KEY_NOT_CONFIGURED')
   const cleanPrompt = String(prompt || '').trim()
-  if (!cleanPrompt) throw new Error('Seedance video prompt is required.')
+  if (!cleanPrompt) throw invalid('Seedance video prompt is required.')
   const seconds = Number(duration)
-  if (!Number.isFinite(seconds) || seconds < 4 || seconds > 15) throw new Error('Seedance duration must be between 4 and 15 seconds.')
-  if (!['480p', '720p'].includes(resolution)) throw new Error('Seedance resolution must be 480p or 720p.')
+  if (!Number.isInteger(seconds) || seconds < 4 || seconds > 15) throw invalid('Seedance duration must be an integer between 4 and 15 seconds.')
+  if (!['480p', '720p'].includes(resolution)) throw invalid('Seedance resolution must be 480p or 720p.')
+  if (typeof (generate_audio ?? generateAudio ?? true) !== 'boolean') throw invalid('Seedance generate_audio must be a boolean.')
 
   const frame = start_frame || image
   const mode = frame ? 'i2v' : 't2v'
@@ -205,9 +222,20 @@ export async function createFalSeedanceVideoJob({ prompt, start_frame, image, re
     aspect_ratio: aspect_ratio || aspectRatio || '9:16',
     generate_audio: generate_audio ?? generateAudio ?? true,
   }
-  if (frame) input.image_url = await seedanceImageUrl(client, frame, media_root || path.resolve(process.cwd(), 'local-media'))
-  const submitted = await client.queue.submit(FAL_SEEDANCE_ENDPOINTS[mode], { input })
-  if (!submitted?.request_id) throw new Error('fal.ai did not return a Seedance request id.')
+  // Storage upload/validation cannot have submitted a generation yet.
+  if (frame) {
+    try { input.image_url = await seedanceImageUrl(client, frame, media_root || path.resolve(process.cwd(), 'local-media')) }
+    catch (cause) { throw invalid(safeFalResultDiagnostic(cause, '').message) }
+  }
+  let submitted
+  try {
+    submitted = await client.queue.submit(FAL_SEEDANCE_ENDPOINTS[mode], { input })
+    if (!submitted?.request_id) throw new Error('fal.ai did not return a Seedance request id.')
+  } catch (cause) {
+    const diagnostic = safeFalResultDiagnostic(cause, '')
+    const rejected = cause.failure_classification === 'non_retryable' || [400, 401, 403, 404, 422].includes(diagnostic.status)
+    throw Object.assign(new Error(diagnostic.message), { failure_classification: rejected ? 'non_retryable' : 'ambiguous_billing', manualReconciliation: !rejected, safeProviderDiagnostic: diagnostic })
+  }
   return { jobId: seedanceExternalId(mode, submitted.request_id), status: submitted.status || 'IN_QUEUE' }
 }
 
@@ -216,12 +244,22 @@ export async function getFalSeedanceVideoJob(externalRequestId, { media_root } =
   const client = configuredClient()
   if (!client) throw new Error('FAL_API_KEY_NOT_CONFIGURED')
   const request = parseSeedanceExternalId(externalRequestId)
-  const status = await client.queue.status(request.endpoint, { requestId: request.requestId })
+  let status
+  try { status = await client.queue.status(request.endpoint, { requestId: request.requestId }) }
+  catch (cause) {
+    const diagnostic = safeFalResultDiagnostic(cause, request.requestId)
+    throw Object.assign(new Error(diagnostic.message), { failure_classification: 'ambiguous_billing', manualReconciliation: true, safeProviderDiagnostic: diagnostic })
+  }
   if (status?.status !== 'COMPLETED') return { status: status?.status || 'IN_QUEUE' }
 
   let completed
   try {
     completed = await client.queue.result(request.endpoint, { requestId: request.requestId })
+    const video = videoFrom(completed?.data)
+    if (!video) throw new Error('fal.ai returned no Seedance video in its response.')
+    const downloaded = await downloadToBuffer(video.url)
+    const saved = saveTemp(media_root || path.resolve(process.cwd(), 'local-media'), downloaded.buffer, downloaded.mime, 'fal-seedance-2-fast', VIDEO_MIME_EXTENSIONS, 'video/mp4')
+    return { status: 'COMPLETED', result: { local_url: saved.localUrl, mime_type: saved.mimeType, file_size: saved.fileSize, provider: 'fal', provider_id: 'fal', model: request.endpoint, request_id: request.requestId } }
   } catch (cause) {
     const diagnostic = safeFalResultDiagnostic(cause, request.requestId)
     const error = new Error(`fal.ai result unavailable after COMPLETED: ${diagnostic.message}`)
@@ -231,22 +269,6 @@ export async function getFalSeedanceVideoJob(externalRequestId, { media_root } =
     error.safeProviderDiagnostic = diagnostic
     throw error
   }
-  const video = videoFrom(completed?.data)
-  if (!video) throw new Error('fal.ai returned no Seedance video in its response.')
-  const downloaded = await downloadToBuffer(video.url)
-  const saved = saveTemp(media_root || path.resolve(process.cwd(), 'local-media'), downloaded.buffer, downloaded.mime, 'fal-seedance-2-fast', VIDEO_MIME_EXTENSIONS, 'video/mp4')
-  return {
-    status: 'COMPLETED',
-    result: {
-      local_url: saved.localUrl,
-      mime_type: saved.mimeType,
-      file_size: saved.fileSize,
-      provider: 'fal',
-      provider_id: 'fal',
-      model: request.endpoint,
-      request_id: request.requestId,
-    },
-  }
 }
 
 /**
@@ -255,6 +277,7 @@ export async function getFalSeedanceVideoJob(externalRequestId, { media_root } =
  */
 export async function generateImage({ prompt, width, height, aspectRatio, mediaRoot, confirmed } = {}) {
   if (confirmed !== true) return { ok: false, reason: 'confirmation_required' }
+  if (apiKey()) return { ok: false, reason: 'production_required' }
   const client = configuredClient()
   if (!client) return { ok: false, reason: 'FAL_API_KEY_NOT_CONFIGURED' }
 
@@ -301,6 +324,7 @@ export async function generateImage({ prompt, width, height, aspectRatio, mediaR
  */
 export async function generateVideo({ prompt, imageUrl, duration, aspectRatio, mediaRoot, confirmed } = {}) {
   if (confirmed !== true) return { ok: false, reason: 'confirmation_required' }
+  if (apiKey()) return { ok: false, reason: 'production_required' }
   const client = configuredClient()
   if (!client) return { ok: false, reason: 'FAL_API_KEY_NOT_CONFIGURED' }
 

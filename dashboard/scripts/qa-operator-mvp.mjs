@@ -19,6 +19,8 @@ for (const url of [api, mcpUrl]) { let live = false; try { live = (await fetch(u
 let backend, mcp, browser, client, page, passed = 0
 async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}`) }
 async function read(route) { const res = await fetch(api + route); const data = await res.json(); assert.equal(res.ok, true, JSON.stringify(data)); return data }
+async function post(route, body) { return fetch(api + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
+async function stop(proc) { if (!proc || proc.exitCode !== null) return; const exited = new Promise((resolve) => proc.once('exit', resolve)); proc.kill(); await exited }
 try {
   backend = spawn(process.execPath, ['server/index.mjs'], { env, windowsHide: true, stdio: 'ignore' })
   const health = await healthy(api)
@@ -30,7 +32,9 @@ try {
   await context.addInitScript((url) => localStorage.setItem('API_BASE_URL', url), api)
   page = await context.newPage()
   const errors = []
+  const writes = []
   page.on('pageerror', (error) => errors.push(error.message))
+  page.on('request', (request) => { if (request.method() === 'POST' && /\/(publications|metrics)$/.test(new URL(request.url()).pathname)) writes.push({ path: new URL(request.url()).pathname, body: request.postDataJSON() }) })
   page.on('dialog', (dialog) => dialog.accept())
   page.setDefaultTimeout(20000)
   await check('UI loads with no error overlay and healthy keyless backend/MCP', async () => {
@@ -71,7 +75,11 @@ try {
     for (const confirmed of [undefined, false, 'true']) {
       const response = await fetch(api + '/api/iterations/1/production/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productionRunIds: [1], confirmed }) })
       assert.equal(response.status, 400)
+      for (const route of ['/api/llm', '/api/product-tests/1/research/generate', '/api/product-tests/1/strategy/generate', '/api/iterations/1/production-plan/generate']) assert.equal((await post(route, { confirmed })).status, 400)
     }
+    assert.equal((await post('/api/video/generate', { provider: 'replicate', confirmed: true })).status, 400)
+    assert.equal((await post('/api/llm', { provider_id: 'openai', action_type: 'generate_image', confirmed: true })).status, 400)
+    assert.equal((await post('/api/iterations/999/production-plan/approve', { plans: [{ creativeId: 1 }] })).status, 400)
   })
   await check('Normal confirmed mock generation completes exactly two jobs', async () => {
     await page.getByRole('button', { name: 'Preflight & start generation' }).click()
@@ -81,7 +89,11 @@ try {
     assert.equal(r.reservations.length, 0); assert.equal(r.costs.length, 0)
   })
   await check('Assembly button produces playable downloadable local MP4', async () => {
+    const assemblyRequest = page.waitForRequest((r) => r.url().endsWith('/runs/1/assemble') && r.method() === 'POST')
     await page.getByRole('button', { name: 'Assemble Final Video (local / free)' }).click()
+    await assemblyRequest
+    await page.reload()
+    await page.getByTestId('creative-detail').waitFor()
     const run = page.getByTestId('operator-run-1')
     await run.getByRole('button', { name: 'Approve / Ready to publish' }).waitFor({ timeout: 90000 })
     const video = run.locator(':scope > div > video').last()
@@ -90,7 +102,36 @@ try {
     const r = await read('/api/operator/runs/1')
     assert.equal(r.finalAsset.width, 720); assert.equal(r.finalAsset.height, 1280)
     assert.equal((await fetch(api + '/media/' + r.finalAsset.relative_path)).status, 200)
+    const popup = context.waitForEvent('page')
+    await run.getByRole('link', { name: 'Open / download video' }).last().click()
+    const opened = await popup
+    await opened.waitForLoadState('domcontentloaded')
+    assert.equal(opened.url(), api + '/media/' + r.finalAsset.relative_path)
+    await opened.close()
     await page.screenshot({ path: 'qa-artifacts/operator-assembly.png', fullPage: true })
+  })
+  await check('Restart backend and repeat assembly preserves final Asset', async () => {
+    const before = await read('/api/operator/runs/1')
+    await stop(backend)
+    backend = spawn(process.execPath, ['server/index.mjs'], { env, windowsHide: true, stdio: 'ignore' })
+    await healthy(api)
+    const repeated = await (await post('/api/operator/runs/1/assemble', {})).json()
+    assert.equal(repeated.reused, true); assert.equal(repeated.asset.id, before.finalAsset.id)
+    await page.reload()
+    await page.getByRole('button', { name: 'Approve / Ready to publish' }).waitFor()
+  })
+  await check('Repeated review decisions persist across browser refresh without dispatch', async () => {
+    for (const [label, state] of [['Reject', 'rejected'], ['Needs revision', 'regenerating'], ['Approve / Ready to publish', 'approved']]) {
+      await page.getByRole('button', { name: label, exact: true }).click()
+      await page.getByRole('button', { name: label, exact: true }).isEnabled()
+      await page.getByTestId('creative-detail').locator('.ms-badge').getByText(state, { exact: true }).waitFor()
+      await page.getByRole('button', { name: label, exact: true }).click()
+      await page.reload()
+      await page.getByTestId('creative-detail').locator('.ms-badge').getByText(state, { exact: true }).waitFor()
+    }
+    const r = await read('/api/operator/runs/1')
+    assert.equal(r.attempts.length, 2); assert.equal(r.reservations.length, 0); assert.equal(r.costs.length, 0)
+    assert.equal((await read('/api/creatives/1/review-events')).items.length, 3)
   })
   await check('Approve final, record manual publication and metric snapshot', async () => {
     await page.getByRole('button', { name: 'Approve / Ready to publish' }).click()
@@ -102,9 +143,36 @@ try {
     for (const [key, value] of Object.entries({ views: 2000, impressions: 2000, link_clicks: 40, purchases: 2, spend_minor: 1000, revenue_minor: 3000, likes: 20, comments: 10, shares: 5, saves: 5 })) await page.getByTestId(`metric-${key}`).fill(String(value))
     await page.getByTestId('metric-submit').click()
     await page.getByTestId('pub-1-metric-count').getByText('1', { exact: false }).waitFor()
-    await page.getByRole('button', { name: 'Refresh analysis' }).click()
     await page.getByTestId('analysis-panel').getByText(/promising/).first().waitFor()
     await page.screenshot({ path: 'qa-artifacts/operator-analysis.png', fullPage: true })
+  })
+  await check('Repeated publication and metric POSTs are idempotent; malformed media stays safe', async () => {
+    assert.equal(writes.length, 2)
+    for (const { path: route, body } of writes) for (let repeat = 0; repeat < 2; repeat++) assert.equal((await post(route, body)).status, 200)
+    assert.equal((await read('/api/creatives/1/publications')).items.length, 1)
+    assert.equal((await read('/api/publications/1/metrics')).items.length, 1)
+    assert.equal((await fetch(api + '/media/%')).status, 400)
+    assert.equal((await fetch(api + '/media/missing-video.mp4')).status, 404)
+    await healthy(api)
+    const file = path.join(env.FACTORY_MEDIA_ROOT, (await read('/api/operator/runs/1')).finalAsset.relative_path)
+    fs.renameSync(file, file + '.missing')
+    try {
+      await page.reload()
+      await page.getByRole('alert').filter({ hasText: 'Local video is missing' }).waitFor()
+      assert.equal((await post(writes[0].path, writes[0].body)).status, 400)
+    } finally { fs.renameSync(file + '.missing', file) }
+    await page.reload()
+    await page.getByTestId('analysis-panel').getByText(/promising/).first().waitFor()
+  })
+  await check('Mobile operator controls fit and the video plays', async () => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+    const video = page.getByTestId('operator-run-1').locator(':scope > div > video').last()
+    await video.scrollIntoViewIfNeeded()
+    await video.evaluate(async (element) => { element.muted = true; await element.play() })
+    await page.waitForFunction(() => [...document.querySelectorAll('video')].some((v) => v.currentTime > 0.1 && !v.paused))
+    await page.screenshot({ path: 'qa-artifacts/operator-mobile.png' })
+    await page.setViewportSize({ width: 1440, height: 1000 })
   })
   await check('Review Queue shows approved final and preserves navigation', async () => {
     await page.getByRole('button', { name: /Back to iteration/ }).click()
@@ -120,6 +188,11 @@ try {
     const names = (await client.listTools()).tools.map((tool) => tool.name)
     for (const name of ['assemble_production_run', 'get_review_queue', 'review_creative', 'get_analysis_summary']) assert.ok(names.includes(name))
     const result = await client.callTool({ name: 'get_review_queue', arguments: {} })
+    for (const name of ['generate_image', 'generate_video']) {
+      const denied = await client.callTool({ name, arguments: { prompt: 'never generate', imageUrl: 'https://example.invalid/frame', confirmed: false } })
+      assert.equal(denied.isError, true); assert.match(denied.content[0].text, /confirmation_required/)
+    }
+    assert.equal((await client.callTool({ name: 'start_production', arguments: { iterationId: 1, productionRunIds: [1], confirmed: false } })).isError, true)
     assert.equal(JSON.parse(result.content[0].text)[0].approval_status, 'approved')
     const db = new Database(env.FACTORY_DB_PATH, { readonly: true })
     assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
@@ -145,6 +218,33 @@ try {
     assert.equal(r.run.status, 'complete'); assert.equal(r.run.jobs.length, 0)
     assert.ok(r.run.spec_frozen_at); assert.ok(r.finalAsset)
     assert.deepEqual(errors, [])
+  })
+  await check('Tunnel-origin browser ignores localhost override and uses relative API/media', async () => {
+    const remote = await browser.newContext()
+    const tunnel = 'http://operator-tunnel.test'
+    await remote.addInitScript(() => localStorage.setItem('API_BASE_URL', 'http://127.0.0.1:8787'))
+    await remote.route(tunnel + '/**', async (route) => {
+      const url = new URL(route.request().url())
+      const target = /^\/(api|health|media|mock-video-output)/.test(url.pathname) ? api : 'http://127.0.0.1:5173'
+      const response = await route.fetch({ url: target + url.pathname + url.search })
+      await route.fulfill({ response })
+    })
+    const tab = await remote.newPage(), remoteErrors = [], loopback = []
+    tab.on('pageerror', (error) => remoteErrors.push(error.message))
+    tab.on('request', (request) => { if (new URL(request.url()).hostname === '127.0.0.1') loopback.push(request.url()) })
+    await tab.goto(tunnel)
+    await tab.getByRole('button', { name: /Product Tests/ }).click()
+    await tab.getByRole('button', { name: 'Review Queue', exact: true }).click()
+    await tab.getByLabel('Review filter').selectOption('approved')
+    const video = tab.locator('video').first()
+    await video.evaluate(async (v) => { v.muted = true; await v.play() })
+    await tab.waitForFunction(() => [...document.querySelectorAll('video')].some(v => v.currentTime > 0.1 && !v.paused))
+    assert.deepEqual(loopback, []); assert.deepEqual(remoteErrors, [])
+    assert.equal(await tab.evaluate(async () => (await import('/src/lib/ai/apiClient.js')).apiBase()), '')
+    // Also exercise the actual Vite proxy read-only, without exposing a port.
+    assert.equal((await fetch('http://127.0.0.1:5173/health')).status, 200)
+    assert.equal((await fetch('http://127.0.0.1:5173/mock-video-output.mp4')).status, 200)
+    await remote.close()
   })
   console.log(`Operator browser QA: ${passed}/${passed} PASS; zero paid calls`)
 } catch (error) {

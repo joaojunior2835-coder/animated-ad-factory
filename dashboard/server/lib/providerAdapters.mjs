@@ -2,11 +2,14 @@
 // The legacy provider functions stay intact; this layer gives production
 // dispatch one stable contract and keeps raw provider status for reconciliation.
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createMockVideoJob, getMockVideoJob, shouldFailTransientOnce } from '../providers/mockVideoProvider.mjs'
 import { createReplicateVideoJob, getReplicateVideoJob } from '../providers/replicateVideoProvider.mjs'
 import { runPollinations } from '../providers/pollinationsProvider.mjs'
 import { runGroq } from '../providers/groqProvider.mjs'
 import { createFalSeedanceVideoJob, getFalSeedanceVideoJob } from '../providers/falProvider.mjs'
+
+const localMediaRoot = () => path.resolve(process.env.FACTORY_MEDIA_ROOT || path.join(path.dirname(fileURLToPath(import.meta.url)), '../../local-media'))
 
 function statusFromLegacy(value) {
   const status = String(value || '').toLowerCase()
@@ -20,6 +23,16 @@ function classified(message, classification = 'non_retryable', extra = {}) {
   error.failure_classification = classification
   Object.assign(error, extra)
   return error
+}
+
+// Prevent a cheap/free catalog model from being paired with a different paid
+// transport. fal's adapter always submits Seedance; it cannot execute Mock/LTX.
+export function providerModelIssue(capability, provider, model) {
+  if (provider === 'mock') return null
+  const valid = provider === 'fal' ? capability === 'generate_video' && model === 'seedance-2.0-fast'
+    : provider === 'replicate' ? capability === 'generate_video' && ['ltx', 'wan-720p'].includes(model)
+      : provider === 'pollinations' ? capability === 'generate_image' : false
+  return valid ? null : 'PROVIDER_MODEL_MISMATCH'
 }
 
 function adapterForMock() {
@@ -69,7 +82,7 @@ function adapterForReplicate() {
       } catch (error) {
         if (error && error.failure_classification) throw error
         const status = Number(error && (error.status || error.statusCode))
-        throw classified(error && error.message, status === 429 || status >= 500 ? 'transient_retryable' : 'ambiguous_billing')
+        throw classified(error && error.message, [400, 401, 403, 404, 422, 429].includes(status) ? 'non_retryable' : 'ambiguous_billing')
       }
     },
     async checkStatus(externalRequestId) {
@@ -97,7 +110,7 @@ function adapterForFal() {
     provider: 'fal',
     async dispatch(params = {}) {
       try {
-        const response = await createFalSeedanceVideoJob({ ...params, media_root: path.resolve(process.cwd(), 'local-media'), confirmed: true })
+        const response = await createFalSeedanceVideoJob({ ...params, media_root: localMediaRoot(), confirmed: true })
         return { externalRequestId: response.jobId, initialStatus: statusFromLegacy(response.status) }
       } catch (error) {
         if (error && error.failure_classification) throw error
@@ -106,7 +119,7 @@ function adapterForFal() {
       }
     },
     async checkStatus(externalRequestId) {
-      const response = await getFalSeedanceVideoJob(externalRequestId, { media_root: path.resolve(process.cwd(), 'local-media') })
+      const response = await getFalSeedanceVideoJob(externalRequestId, { media_root: localMediaRoot() })
       return { status: statusFromLegacy(response.status), resultData: response.result, providerStatus: response.status }
     },
     extractResult(resultData) { return resultData || null },
@@ -176,9 +189,9 @@ export function getProviderAdapter(provider) {
 export function classifyProviderError(error, provider) {
   if (error && ['transient_retryable', 'non_retryable', 'ambiguous_billing'].includes(error.failure_classification)) return error.failure_classification
   const message = String(error && (error.message || error.error) || '').toLowerCase()
+  if (provider === 'replicate' || provider === 'fal') return 'ambiguous_billing'
   if (/timeout|timed out|network|fetch failed|rate limit|429|\b5\d\d\b/.test(message)) return 'transient_retryable'
   if (/charged|billing|unknown|not found|request id/.test(message)) return 'ambiguous_billing'
-  if (provider === 'replicate' || provider === 'fal') return 'ambiguous_billing'
   return 'non_retryable'
 }
 

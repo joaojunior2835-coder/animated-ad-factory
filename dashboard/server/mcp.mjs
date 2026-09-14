@@ -52,7 +52,7 @@ import {
 } from '../src/lib/marketingStudioModel.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const MEDIA_ROOT = path.resolve(__dirname, '..', 'local-media')
+const MEDIA_ROOT = path.resolve(process.env.FACTORY_MEDIA_ROOT || path.join(__dirname, '..', 'local-media'))
 const BACKEND_URL = `http://127.0.0.1:${process.env.PORT || 8787}`
 const MCP_PORT = Number(process.env.MCP_PORT) || 8789
 
@@ -119,9 +119,8 @@ server.registerTool(
   {
     title: 'Generate image (fal.ai FLUX Schnell)',
     description:
-      'Generate an image using fal.ai FLUX Schnell and save it to the local media library. Returns a local URL ' +
-      '(/media/temp/...), never a remote fal.ai URL or raw image data. Requires FAL_API_KEY to be configured in ' +
-      '.env.local — if it is not, this returns a clear FAL_API_KEY_NOT_CONFIGURED error rather than failing silently.',
+      'Legacy direct fal.ai image generation is disabled (production_required). Paid media must use an approved, ' +
+      'supported M5 production plan and start_production with explicit confirmation and budget reservation.',
     inputSchema: {
       prompt: z.string().min(1).describe('The image prompt.'),
       aspectRatio: z.enum(['9:16', '16:9', '1:1', '4:3']).optional().describe('Defaults to 1:1 if omitted.'),
@@ -141,9 +140,8 @@ server.registerTool(
   {
     title: 'Generate video (fal.ai WAN 2.1 image-to-video)',
     description:
-      'Generate a video clip using fal.ai WAN 2.1 image-to-video. Requires a start frame image (a local ' +
-      '/media/... URL from this app, or a public http(s) URL). Returns a local URL when complete. This is a paid ' +
-      'call once FAL_API_KEY is configured — if it is not, this returns a clear FAL_API_KEY_NOT_CONFIGURED error.',
+      'Legacy direct fal.ai video generation is disabled (production_required). Use an approved Seedance M5 ' +
+      'production plan and start_production with explicit confirmation and budget reservation.',
     inputSchema: {
       prompt: z.string().min(1).describe('The video motion/scene prompt.'),
       imageUrl: z.string().min(1).describe('Start frame image — a local /media/... URL or a public http(s) URL.'),
@@ -165,9 +163,8 @@ server.registerTool(
   {
     title: 'Generate image (Pollinations)',
     description:
-      'Generate an image using Pollinations. Faster than fal.ai but lower quality. Requires POLLINATIONS_API_KEY ' +
-      'to be configured in .env.local (the service itself is free per image, but this app\'s Pollinations ' +
-      'integration still requires a key) — returns a clear error if it is not configured.',
+      'Pollinations generation is disabled: its credit-based pricing and M5 accounting are not configured. ' +
+      'This tool returns COST_UNKNOWN when a key is present; it never submits a generation.',
     inputSchema: {
       prompt: z.string().min(1).describe('The image prompt.'),
       aspectRatio: z.enum(['9:16', '16:9', '1:1', '4:3']).optional(),
@@ -314,9 +311,11 @@ server.registerTool(
     inputSchema: {
       productTestId: z.number().int().positive(),
       useSourcePage: z.boolean().optional().describe('If true, fetch the product\'s own page and use its content as source material.'),
+      confirmed: z.boolean().describe('Explicit permission to use AI provider credits.'),
     },
   },
-  withErrors(async ({ productTestId, useSourcePage }) => {
+  withErrors(async ({ productTestId, useSourcePage, confirmed }) => {
+    if (confirmed !== true) return errorText('confirmation_required')
     const productTest = ptRepo.getProductTestWithLineage(productTestId)
     if (!productTest) return errorText(`No product test with id ${productTestId}.`)
     let fetchResult = null
@@ -340,11 +339,13 @@ server.registerTool(
       'database — returns the draft for review before approve_strategy.',
     inputSchema: {
       researchDraft: z.record(z.string(), z.any()).describe('A research draft, from generate_research (possibly edited).'),
+      confirmed: z.boolean().describe('Explicit permission to use AI provider credits.'),
       targetCount: z.number().int().positive().optional().describe('Defaults to 12.'),
       mode: z.enum(['exploratory', 'confirmatory']).optional().describe('Defaults to exploratory.'),
     },
   },
-  withErrors(async ({ researchDraft, targetCount, mode }) => {
+  withErrors(async ({ researchDraft, targetCount, mode, confirmed }) => {
+    if (confirmed !== true) return errorText('confirmation_required')
     const result = await generateStrategyDraft({ researchDraft, targetCount: targetCount || 12, mode: mode || 'exploratory' })
     if (!result.ok) return errorText(`Strategy generation failed: ${result.error}`)
     return text({ draft: result.draft, duplicateWarnings: result.duplicateWarnings })
@@ -427,7 +428,8 @@ server.registerTool(
     if (confirmed !== true) {
       return errorText('confirmed must be true, and only after the user has explicitly said to proceed. This call spends real money once dispatched — it was not started.')
     }
-    const result = await startProduction(iterationId, productionRunIds)
+    const selected = productionRunIds === 'all_eligible' ? preflightProduction(iterationId, 'all_eligible').runs.filter((run) => run.state === 'READY').map((run) => run.runId) : productionRunIds
+    const result = await startProduction(iterationId, selected)
     return text(result)
   })
 )

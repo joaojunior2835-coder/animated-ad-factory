@@ -11,7 +11,7 @@ import {
   listJobsForProductionRun,
   setProductionRunStatus,
 } from '../db/repository.mjs'
-import { providerConfigured } from './providerAdapters.mjs'
+import { providerConfigured, providerModelIssue } from './providerAdapters.mjs'
 import { getConfiguredRates, estimateComponentCost } from './rateCatalog.mjs'
 import { dispatchProductionRun } from './dispatcher.mjs'
 
@@ -83,6 +83,7 @@ export function materializeJobsForProductionRun(productionRunId) {
   const gp = generationPlan(snapshot)
   const db = getDb()
   const result = db.transaction(() => {
+    if (listJobsForProductionRun(productionRunId).length) return []
     const jobs = []
     const imageProvider = providerForPlan(snapshot, 'generate_image')
     const imageModel = resolvedModel(snapshot, 'generate_image', imageProvider)
@@ -142,8 +143,10 @@ function preflightOne(runId) {
   const run = runRow(runId)
   const snapshot = parseSnapshot(run)
   if (run.status === 'superseded') return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'SUPERSEDED' }
+  if (run.status !== 'planned') return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'RUN_ALREADY_STARTED' }
   if (run.production_method === 'manual_external') return { runId, creativeId: run.creative_id, state: 'MANUAL_EXTERNAL', reason: 'MANUAL_EXTERNAL' }
   const gp = generationPlan(snapshot)
+  if (!gp.imageGenerations && !gp.videoClips.length) return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'EMPTY_PRODUCTION_PLAN' }
   const capabilities = []
   if (gp.imageGenerations > 0) capabilities.push('generate_image')
   if (gp.videoClips.length > 0) capabilities.push('generate_video')
@@ -152,6 +155,8 @@ function preflightOne(runId) {
     const provider = providerForPlan(snapshot, capability)
     if (!provider || !providerConfigured(provider)) return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'PROVIDER_NOT_CONFIGURED', capability, provider }
     if (capability === 'generate_voice') return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'PROVIDER_NOT_CONFIGURED', capability, provider }
+    const modelIssue = providerModelIssue(capability, provider, resolvedModel(snapshot, capability, provider))
+    if (modelIssue) return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: modelIssue, capability, provider }
   }
   const assetReason = requiredAssetBlocked(run, snapshot)
   if (assetReason) return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: assetReason }
@@ -273,7 +278,8 @@ export function productionStatus(iterationId) {
     else if (row.fx_blocked_count > 0) state = 'FX blocked'
     else if (row.budget_blocked_count > 0) state = 'Budget blocked'
     else if (row.failed_job_count > 0 || row.status === 'failed') state = 'Failed'
-    else if (row.job_count > 0 && row.complete_job_count === row.job_count && row.status === 'complete') state = 'Succeeded'
+    else if (row.status === 'complete') state = 'Succeeded'
+    else if (row.job_count > 0 && row.complete_job_count === row.job_count) state = 'Awaiting assembly'
     else if (row.job_count > row.complete_job_count && row.job_count > 0 && row.generating_job_count === 0) state = 'Waiting on dependency'
     else if (row.generating_job_count > 0 || row.status === 'executing') state = 'Running'
     return { ...row, derivedState: state }

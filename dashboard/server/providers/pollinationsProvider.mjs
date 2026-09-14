@@ -101,6 +101,10 @@ export async function runPollinations({ action_type, input_prompt, aspect_ratio,
   if (!apiKey || !String(apiKey).trim()) {
     return { ...errorResult('Pollinations API key is not configured. Add POLLINATIONS_API_KEY to .env.local and restart the backend.'), connected: false }
   }
+  // This credit-billed endpoint is not free. Keep its existing implementation
+  // dormant until verified pricing and M5 accounting are wired; never spend
+  // using the previous zero-cost assumption (including through legacy tools).
+  if (apiKey) return errorResult('COST_UNKNOWN: Pollinations generation is disabled until verified pricing and M5 accounting are configured. Use local assets or Mock.')
 
   const prompt = String(input_prompt || '').trim()
   if (!prompt) return errorResult('Image prompt is empty.')

@@ -9,7 +9,11 @@ import { getDb, getProductionRunExecution, getJobAssetLink, getOrCreateAsset, at
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const mediaRoot = () => path.resolve(process.env.FACTORY_MEDIA_ROOT || path.join(appRoot, 'local-media'))
 export function localAssetPath(relativePath) {
-  if (relativePath === 'mock-video-output.mp4') return path.resolve(appRoot, 'public', relativePath)
+  if (relativePath === 'mock-video-output.mp4') {
+    const file = path.resolve(appRoot, 'public', relativePath)
+    if (!fs.existsSync(file)) throw new Error('Mock video file is missing.')
+    return file
+  }
   const root = fs.realpathSync(mediaRoot())
   const file = fs.realpathSync(path.resolve(root, relativePath))
   if (!file.startsWith(root + path.sep) || !fs.statSync(file).isFile()) throw new Error('Asset file is outside the local media library or missing.')
@@ -19,11 +23,11 @@ export function localAssetPath(relativePath) {
 export function runVideoTool(executable, args, timeout = 300000) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
-    let stderr = ''
+    let stderr = '', timedOut = false
     child.stderr.on('data', (data) => { stderr = (stderr + data).slice(-32000) })
-    const timer = setTimeout(() => { child.kill(); reject(new Error('Local video processing timed out.')) }, timeout)
+    const timer = setTimeout(() => { timedOut = true; child.kill() }, timeout)
     child.on('error', (error) => { clearTimeout(timer); reject(error) })
-    child.on('close', (code) => { clearTimeout(timer); resolve({ code, stderr }) })
+    child.on('close', (code) => { clearTimeout(timer); if (timedOut) reject(new Error('Local video processing timed out.')); else resolve({ code, stderr }) })
   })
 }
 
@@ -40,11 +44,11 @@ export async function videoTool() {
 
 export async function inspectVideo(file, executable = null) {
   const tool = executable || await videoTool()
-  const result = await runVideoTool(tool, ['-hide_banner', '-i', file, '-map', '0:v:0', '-f', 'null', '-'])
+  const result = await runVideoTool(tool, ['-hide_banner', '-nostats', '-xerror', '-protocol_whitelist', 'file,pipe', '-i', file, '-map', '0:v:0', '-f', 'null', '-'])
   const duration = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(result.stderr)
   const dimensions = /Video:[^\r\n]*?\b(\d{2,5})x(\d{2,5})\b/.exec(result.stderr)
   if (result.code !== 0 || !duration || !dimensions) throw new Error('Video is missing, invalid, or cannot be decoded by FFmpeg.')
-  return { duration: Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]), width: Number(dimensions[1]), height: Number(dimensions[2]), audio: /Audio:/.test(result.stderr), decoded: true }
+  return { duration: Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]), width: Number(dimensions[1]), height: Number(dimensions[2]), audio: /Audio:/.test(result.stderr), videoCodec: /Video:\s*(\w+)/.exec(result.stderr)?.[1], audioCodec: /Audio:\s*(\w+)/.exec(result.stderr)?.[1] || null, decoded: true }
 }
 
 export function assemblyInputs(runId) {
@@ -71,15 +75,31 @@ export async function completeExternalRun(runId, assetId) {
   eligible()
   const asset = getDb().prepare('SELECT * FROM asset WHERE id=?').get(assetId)
   if (!asset) throw new Error('Select a local video Asset.')
-  const metadata = await inspectVideo(localAssetPath(asset.relative_path))
-  return getDb().transaction(() => {
+  const source = localAssetPath(asset.relative_path), tool = await videoTool()
+  await inspectVideo(source, tool)
+  const imports = path.join(mediaRoot(), 'imports')
+  fs.mkdirSync(imports, { recursive: true })
+  const work = fs.mkdtempSync(path.join(imports, 'work-')), output = path.join(work, 'final.mp4')
+  let retained = null
+  try {
+  const result = await runVideoTool(tool, ['-y', '-hide_banner', '-protocol_whitelist', 'file,pipe', '-i', source, '-map', '0:v:0', '-map', '0:a:0?', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', output])
+  if (result.code !== 0) throw new Error('Could not convert imported video to browser-compatible MP4.')
+  const metadata = await inspectVideo(output, tool), bytes = fs.readFileSync(output)
+  const completed = getDb().transaction(() => {
     const run = eligible()
     if (!run.spec_frozen_at) freezeProductionRunSpec(run.id, { ...run.specSnapshot, schemaVersion: 1, planning: { ...run.specSnapshot?.planning, manualExternal: true }, execution: { provider: 'manual', inputAssetIds: [asset.id], frozenAt: new Date().toISOString() } })
-    getDb().prepare('UPDATE asset SET width=?,height=?,duration_seconds=? WHERE id=?').run(metadata.width, metadata.height, metadata.duration, asset.id)
-    setProductionRunFinalAsset(run.id, asset.id)
+    const final = getOrCreateAsset({ contentHash: createHash('sha256').update(bytes).digest('hex'), relativePath: path.relative(mediaRoot(), output).replace(/\\/g, '/'), mimeType: 'video/mp4', fileSize: bytes.length, width: metadata.width, height: metadata.height, durationSeconds: metadata.duration, source: 'generated', provider: 'local-ffmpeg' })
+    localAssetPath(getDb().prepare('SELECT relative_path FROM asset WHERE id=?').get(final.id).relative_path)
+    setProductionRunFinalAsset(run.id, final.id)
     setProductionRunStatus(run.id, 'complete', true)
-    return { assetId: asset.id, runId: run.id }
+    return { assetId: final.id, runId: run.id }
   }).immediate()
+  retained = localAssetPath(getDb().prepare('SELECT relative_path FROM asset WHERE id=?').get(completed.assetId).relative_path)
+  return completed
+  } finally {
+    if (output !== retained) fs.rmSync(output, { force: true })
+    if (!fs.readdirSync(work).length) fs.rmdirSync(work)
+  }
 }
 
 export async function assembleProductionRun(runId) {
@@ -88,6 +108,7 @@ export async function assembleProductionRun(runId) {
   const folder = path.join(mediaRoot(), 'assembly', String(runId))
   fs.mkdirSync(folder, { recursive: true })
   const lock = path.join(folder, 'assembly.lock')
+  let work = null, retainedOutput = null
   try {
     // Serialize stale-lock recovery across the backend and MCP processes.
     getDb().transaction(() => {
@@ -103,19 +124,20 @@ export async function assembleProductionRun(runId) {
     }).immediate()
   } catch (error) { throw new Error(error.code === 'EEXIST' ? 'Assembly is already running.' : error.message) }
   try {
-    const { run, clips } = assemblyInputs(runId)
-    if (run.final_asset_id) {
+    const run = getProductionRunExecution(runId)
+    if (run?.status === 'complete' && run.final_asset_id) {
       const asset = getDb().prepare('SELECT * FROM asset WHERE id=?').get(run.final_asset_id)
       localAssetPath(asset.relative_path)
       return { asset, reused: true }
     }
+    const { clips } = assemblyInputs(runId)
     const tool = await videoTool()
     // A renderer orphaned by an app restart cannot overwrite the next attempt.
-    const work = fs.mkdtempSync(path.join(folder, 'work-'))
+    work = fs.mkdtempSync(path.join(folder, 'work-'))
     for (let i = 0; i < clips.length; i++) {
       const metadata = await inspectVideo(clips[i].file, tool)
       const output = path.join(work, `clip-${i}.mp4`)
-      const args = ['-y', '-hide_banner', '-i', clips[i].file]
+      const args = ['-y', '-hide_banner', '-protocol_whitelist', 'file,pipe', '-i', clips[i].file]
       if (!metadata.audio) args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo')
       args.push('-map', '0:v:0', '-map', metadata.audio ? '0:a:0' : '1:a:0', '-vf', 'scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-af', 'apad', '-t', String(metadata.duration), '-movflags', '+faststart', output)
       if ((await runVideoTool(tool, args)).code !== 0) throw new Error(`Could not normalize clip ${i + 1}. Check the source video.`)
@@ -128,9 +150,10 @@ export async function assembleProductionRun(runId) {
     const bytes = fs.readFileSync(output)
     const contentHash = createHash('sha256').update(bytes).digest('hex')
     const relativePath = path.relative(mediaRoot(), output).replace(/\\/g, '/')
-    return getDb().transaction(() => {
+    const completed = getDb().transaction(() => {
       const current = assemblyInputs(runId)
       if (JSON.stringify(current.clips) !== JSON.stringify(clips)) throw new Error('Assembly inputs changed; run assembly again.')
+      if (current.run.final_asset_id) throw new Error('A final Asset was selected while assembly was running; it was not replaced.')
       const result = getOrCreateAsset({ contentHash, relativePath, mimeType: 'video/mp4', fileSize: bytes.length, width: metadata.width, height: metadata.height, durationSeconds: metadata.duration, source: 'generated', provider: 'local-ffmpeg' })
       const asset = getDb().prepare('SELECT * FROM asset WHERE id=?').get(result.id)
       localAssetPath(asset.relative_path)
@@ -139,5 +162,19 @@ export async function assembleProductionRun(runId) {
       setProductionRunStatus(runId, 'complete', true)
       return { asset, reused: false }
     }).immediate()
-  } finally { fs.unlinkSync(lock) }
+    retainedOutput = localAssetPath(completed.asset.relative_path)
+    return completed
+  } finally {
+    // Delete only this invocation's private scratch directory/files, never
+    // source Assets or an earlier renderer's outputs. Keep the committed MP4.
+    try {
+      if (work && path.dirname(work) === folder && path.basename(work).startsWith('work-')) {
+        for (const entry of fs.readdirSync(work)) {
+          const file = path.join(work, entry)
+          if (file !== retainedOutput) fs.rmSync(file, { force: true })
+        }
+        if (!fs.readdirSync(work).length) fs.rmdirSync(work)
+      }
+    } finally { fs.unlinkSync(lock) }
+  }
 }

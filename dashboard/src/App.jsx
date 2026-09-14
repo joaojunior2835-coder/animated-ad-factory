@@ -97,7 +97,8 @@ export default function App() {
   const [productLibrary, setProductLibrary] = useState(() => loadProductLibrary())
   const [activeStudioSessionId, setActiveStudioSessionId] = useState(null)
   const [studioWizardStep, setStudioWizardStep] = useState(0)
-  const [active, setActive] = useState('brand')
+  const [active, setActive] = useState(() => { try { return sessionStorage.getItem(`operator-active:${apiBase()}`) === 'true' ? 'product_tests' : 'brand' } catch { return 'brand' } })
+  useEffect(() => { try { sessionStorage.setItem(`operator-active:${apiBase()}`, String(active === 'product_tests')) } catch {} }, [active])
   const [backupExists, setBackupExists] = useState(() => hasBackup())
   const [canvasPreviews, setCanvasPreviews] = useState({})
   const [snapshotDirty, setSnapshotDirty] = useState(false)
@@ -238,6 +239,7 @@ export default function App() {
       openai: !!(r.providers && r.providers.openai),
       openrouter: !!(r.providers && r.providers.openrouter),
       groq: !!(r.providers && r.providers.groq),
+      fal: !!(r.providers && r.providers.fal),
       pollinations: !!(r.providers && r.providers.pollinations),
       url: apiBase()
     })
@@ -420,7 +422,7 @@ export default function App() {
     }
 
     setNode({ status: 'generating', status_message: '' })
-    const res = await callPlaceholderLlmAction({ provider_id: imageProviderId, action_type: 'generate_image', input_prompt: prompt, aspect_ratio: d.aspect_ratio, size: sizeForAspect(d.aspect_ratio) })
+    const res = await callPlaceholderLlmAction({ confirmed: true, provider_id: imageProviderId, action_type: 'generate_image', input_prompt: prompt, aspect_ratio: d.aspect_ratio, size: sizeForAspect(d.aspect_ratio) })
     if (!res || !res.success) {
       return fail((res && (res.error || res.message)) || 'Local API not reachable — run npm run dev:server.')
     }
@@ -1354,7 +1356,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={active === 'product_tests' ? 'app operator-active' : 'app'}>
       <header className="topbar">
         <h1>Animated Ad Factory</h1>
         <span className="tag">Visual Production Layer</span>
@@ -1365,8 +1367,8 @@ export default function App() {
             ? 'Local API: checking…'
             : !b.connected
               ? 'Local backend offline — run npm run dev:server or npm run dev:all from dashboard/.'
-              : `Backend online · Groq ${yn(b.groq)} · Pollinations ${yn(b.pollinations)}`
-          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : b.groq || b.pollinations ? 'api-badge ok' : 'api-badge warn'
+              : active === 'product_tests' ? `Backend online · fal ${yn(b.fal)}` : `Backend online · Groq ${yn(b.groq)} · Pollinations ${yn(b.pollinations)}`
+          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : (active === 'product_tests' ? b.fal : b.groq || b.pollinations) ? 'api-badge ok' : 'api-badge warn'
           return (
             <span className="api-badge-wrap" data-testid="runtime-status">
               <span className={cls} title={b.url ? `Backend: ${b.url} (status from /health; no keys exposed)` : 'Local backend status from /health (no keys exposed)'}>
@@ -1397,7 +1399,7 @@ export default function App() {
 
         <main className="main">{renderMain()}</main>
 
-        {active === 'marketing_studio' ? (
+        {active === 'product_tests' ? null : active === 'marketing_studio' ? (
           // The project JSON / export readiness panel is about the MAIN project —
           // it has nothing to do with studio sessions and reads as false alarms
           // here ("export blocked", issue counts). Show a neutral studio aside.

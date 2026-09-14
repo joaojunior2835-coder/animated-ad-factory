@@ -28,7 +28,8 @@ export function reviewCreative({ creativeId, productionRunId, decision, note = '
     const asset = getDb().prepare('SELECT * FROM asset WHERE id=?').get(run.final_asset_id)
     localAssetPath(asset.relative_path)
     if (typeof note !== 'string' || note.length > 4000) throw new Error('Review note must be under 4000 characters.')
-    pt.addReviewEvent({ creativeId, productionRunId, eventType: events[decision], note: note.trim() || null })
+    const last = getDb().prepare('SELECT * FROM review_event WHERE creative_id=? ORDER BY id DESC LIMIT 1').get(creativeId)
+    if (last?.production_run_id !== Number(productionRunId) || last.event_type !== events[decision] || last.note !== (note.trim() || null)) pt.addReviewEvent({ creativeId, productionRunId, eventType: events[decision], note: note.trim() || null })
     getDb().prepare("UPDATE creative SET active_production_run_id=?,approval_status=?,updated_at=datetime('now') WHERE id=?").run(productionRunId, decision, creativeId)
     return { creativeId, productionRunId, decision }
   }).immediate()
@@ -38,6 +39,25 @@ export function requirePublishable(creativeId, runId) {
   const c = getDb().prepare('SELECT * FROM creative WHERE id=?').get(creativeId)
   const run = getDb().prepare('SELECT * FROM production_run WHERE id=? AND creative_id=?').get(runId, creativeId)
   if (!c || c.approval_status !== 'approved' || c.active_production_run_id !== Number(runId) || run?.status !== 'complete' || !run.final_asset_id) throw new Error('Approve this completed final video before recording publication.')
+  localAssetPath(getDb().prepare('SELECT relative_path FROM asset WHERE id=?').get(run.final_asset_id).relative_path)
+}
+
+export function savePublication(body) {
+  if (!Number.isFinite(Date.parse(body.publishedAt))) throw new Error('Enter a valid publication time.')
+  const normalized = { ...body, publishedAt: new Date(body.publishedAt).toISOString(), externalPostId: String(body.externalPostId || '').trim() || null, externalUrl: String(body.externalUrl || '').trim() || null }
+  if (normalized.externalUrl && !['http:', 'https:'].includes(new URL(normalized.externalUrl).protocol)) throw new Error('Publication URL must use HTTP or HTTPS.')
+  return getDb().transaction(() => {
+    requirePublishable(Number(body.creativeId), Number(body.productionRunId))
+    const account = getDb().prepare('SELECT platform FROM account WHERE id=?').get(body.accountId)
+    if (!account || account.platform !== body.platform) throw new Error('Publication platform must match the selected account.')
+    const rows = getDb().prepare('SELECT * FROM publication WHERE account_id=? AND platform=?').all(body.accountId, body.platform)
+    const samePost = rows.find((r) => (normalized.externalPostId && r.external_post_id === normalized.externalPostId) || (normalized.externalUrl && r.external_url === normalized.externalUrl) || (!normalized.externalPostId && !normalized.externalUrl && !r.external_post_id && !r.external_url && r.production_run_id === Number(body.productionRunId) && Date.parse(r.published_at) === Date.parse(normalized.publishedAt)))
+    if (samePost) {
+      if (samePost.creative_id !== Number(body.creativeId) || samePost.production_run_id !== Number(body.productionRunId) || samePost.published_asset_id !== Number(body.publishedAssetId)) throw new Error('This post is already linked to another creative/run/Asset. It was not changed.')
+      return samePost
+    }
+    return pt.createPublicationForCreative(normalized)
+  }).immediate()
 }
 
 export function approveManualPlan({ creativeId, provider, clips }) {
@@ -70,12 +90,12 @@ export function analyzeMetrics(raw = {}) {
   const engagement = engagementParts.every((v) => v !== null) ? engagementParts.reduce((a, b) => a + b, 0) : null
   const enough = (impressions ?? views) !== null && (impressions ?? views) >= ANALYSIS_RULES.minimumViews
   const clickEnough = clicks !== null && clicks >= ANALYSIS_RULES.minimumClicks
-  const distribution = !enough ? 'insufficient distribution' : !clickEnough ? 'keep collecting click data' : 'sufficient for directional judgment'
+  const distribution = (impressions ?? views) === null ? 'missing distribution data' : !enough ? 'insufficient distribution' : !clickEnough ? 'keep collecting click data' : 'sufficient for directional judgment'
   const availability = (a, b) => a === null || b === null ? 'missing data' : b === 0 ? 'not applicable (zero denominator)' : 'available'
   return { raw, engagementRate: ratio(engagement, views, 100), ctr: ratio(clicks, impressions, 100), conversionRate: ratio(purchases, clicks, 100),
     cpaMinor: ratio(number('spend_minor'), purchases), roas: ratio(number('revenue_minor'), number('spend_minor')), costPerViewMinor: ratio(number('spend_minor'), views),
     availability: { engagementRate: availability(engagement, views), ctr: availability(clicks, impressions), conversionRate: availability(purchases, clicks), cpaMinor: availability(number('spend_minor'), purchases), roas: availability(number('revenue_minor'), number('spend_minor')), costPerViewMinor: availability(number('spend_minor'), views) },
-    distribution, recommendation: !enough ? 'insufficient distribution' : !clickEnough || purchases === null ? 'keep collecting data' : purchases > 0 ? 'promising — purchases observed; compare the next iteration' : 'underperforming — no purchases after the click threshold', rules: ANALYSIS_RULES }
+    distribution, recommendation: !enough ? distribution : !clickEnough || purchases === null ? 'keep collecting data' : purchases > 0 ? 'promising — purchases observed; compare the next iteration' : 'underperforming — no purchases after the click threshold', rules: ANALYSIS_RULES }
 }
 
 export function saveMetrics(publicationId, body) {
@@ -85,7 +105,13 @@ export function saveMetrics(publicationId, body) {
   for (const [key, value] of Object.entries(raw)) if (!METRICS.includes(key) || typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error(`Invalid nonnegative metric: ${key}`)
   const exposure = body.qualifiedExposureValue
   if (exposure != null && (typeof exposure !== 'number' || !Number.isFinite(exposure) || exposure < 0)) throw new Error('Exposure must be nonnegative.')
-  return pt.addMetricSnapshot({ ...body, publicationId, capturedAt: new Date(body.capturedAt).toISOString(), rawMetrics: raw })
+  const capturedAt = new Date(body.capturedAt).toISOString()
+  const canonical = (value) => JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+  return getDb().transaction(() => {
+    const latest = getDb().prepare('SELECT * FROM metric_snapshot WHERE publication_id=? AND captured_at=? ORDER BY id DESC LIMIT 1').get(publicationId, capturedAt)
+    if (latest && canonical(parse(latest.raw_metrics)) === canonical(raw) && latest.source === body.source && latest.notes === (body.notes ?? null) && latest.qualified_exposure_metric_name === (body.qualifiedExposureMetricName ?? null) && latest.qualified_exposure_value === (exposure ?? null)) return latest
+    return pt.addMetricSnapshot({ ...body, publicationId, capturedAt, rawMetrics: raw })
+  }).immediate()
 }
 
 export function analysisSummary({ productTestId, iterationId, creativeId } = {}) {

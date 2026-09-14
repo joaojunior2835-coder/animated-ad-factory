@@ -321,7 +321,7 @@ export function listPendingExecutionAttempts() {
 }
 
 export function updateExecutionAttempt(id, patch = {}) {
-  const allowed = { providerStatus: 'provider_status', lastCheckedAt: 'last_checked_at', reconciliationStatus: 'reconciliation_status', resultData: 'result_data', failureClassification: 'failure_classification', errorMessage: 'error_message' }
+  const allowed = { externalRequestId: 'external_request_id', providerStatus: 'provider_status', lastCheckedAt: 'last_checked_at', reconciliationStatus: 'reconciliation_status', resultData: 'result_data', failureClassification: 'failure_classification', errorMessage: 'error_message' }
   const sets = []
   const values = []
   for (const [key, column] of Object.entries(allowed)) {

@@ -10,6 +10,7 @@ const dbPath = path.join(tempRoot, 'factory.db')
 const mediaRoot = path.join(tempRoot, 'local-media')
 fs.mkdirSync(mediaRoot, { recursive: true })
 process.env.FACTORY_DB_PATH = dbPath
+process.env.FACTORY_MEDIA_ROOT = mediaRoot
 process.env.FAL_API_KEY = 'test-token-never-sent'
 process.chdir(tempRoot)
 
@@ -167,11 +168,12 @@ try {
   } } })
   repo.setProductionRunStatus(retryRunId, 'executing')
   await dispatcher.dispatchProductionRun(retryRunId)
-  assert.equal(retrySubmits, 2)
-  assert.equal(repo.getJob(retryJobId).retry_count, 1)
+  assert.equal(retrySubmits, 1, '503 submission outcome is unknown: never submit again')
+  assert.equal(repo.getJob(retryJobId).retry_count, 0)
   await dispatcher.reconcileInFlightJobs()
-  assert.equal(repo.getJob(retryJobId).status, 'complete')
-  assert.equal(retrySubmits, 2, 'fal retry must remain bounded')
+  assert.equal(repo.getJob(retryJobId).status, 'generating')
+  assert.equal(repo.getDb().prepare('SELECT status FROM budget_reservation WHERE job_id=?').get(retryJobId).status, 'active')
+  assert.equal(retrySubmits, 1, 'unknown submission must require manual reconciliation')
   falProvider.setFalClientForTests(fakeFal)
 
   const ambiguousRunId = runId

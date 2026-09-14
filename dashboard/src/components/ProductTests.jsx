@@ -18,6 +18,10 @@ import { OperatorSettings, ReviewQueue, ManualProductionPlan, RunOperator, Analy
 // ---------------------------------------------------------------------------
 
 async function api(method, path, body) {
+  if (method === 'POST' && /\/(research|strategy|production-plan)\/generate$/.test(path)) {
+    if (!window.confirm('This AI drafting request uses provider credits. Continue?')) throw new Error('AI request cancelled; no provider call was made.')
+    body = { ...body, confirmed: true }
+  }
   const res = await fetch(apiBase() + path, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -748,7 +752,10 @@ function AiStrategyWizard({ productTestId, test, onCancel, onApproved }) {
     }
   }
 
+  const researchStarted = useRef(false)
   useEffect(() => {
+    if (researchStarted.current) return
+    researchStarted.current = true
     runResearch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1117,7 +1124,7 @@ function ProductionPlanningWizard({ iterationId, creatives, onCancel, onApproved
     let minor = 0
     let anyUnknown = false
     for (const p of plans) {
-      if (!p.ok) continue
+      if (!p.ok) { anyUnknown = true; continue }
       const edit = editsById[p.creativeId]
       const cost = selectedCostFromBreakdown(p, edit ? edit.plannedModel : 'wan-720p', edit?.generationPlan)
       if (cost) {
@@ -1130,8 +1137,11 @@ function ProductionPlanningWizard({ iterationId, creatives, onCancel, onApproved
 
   const liveStatus = useMemo(() => {
     if (!batchSummary) return null
-    if (typeof batchSummary.budgetCeilingMinor === 'number' && liveTotal.minor > batchSummary.budgetCeilingMinor) return 'ABOVE_CEILING'
-    if (typeof batchSummary.budgetTargetMinor === 'number' && liveTotal.minor > batchSummary.budgetTargetMinor) return 'ABOVE_TARGET_BELOW_CEILING'
+    if (liveTotal.unknown) return 'UNKNOWN_COST'
+    if (!batchSummary.fxRate) return 'FX_RATE_MISSING'
+    const budgetMinor = Math.round(liveTotal.minor * batchSummary.fxRate)
+    if (typeof batchSummary.budgetCeilingMinor === 'number' && budgetMinor > batchSummary.budgetCeilingMinor) return 'ABOVE_CEILING'
+    if (typeof batchSummary.budgetTargetMinor === 'number' && budgetMinor > batchSummary.budgetTargetMinor) return 'ABOVE_TARGET_BELOW_CEILING'
     return 'WITHIN_TARGET'
   }, [batchSummary, liveTotal])
 
@@ -1192,7 +1202,7 @@ function ProductionPlanningWizard({ iterationId, creatives, onCancel, onApproved
           <div className="note" data-testid="batch-summary-bar" style={{ marginBottom: '12px', ...budgetBadgeStyle(liveStatus) }}>
             <b data-testid="batch-total">Total estimated: {costLabel(liveTotal)}</b>
             {' · '}
-            Target: ${((batchSummary.budgetTargetMinor || 0) / 100).toFixed(2)} · Ceiling: ${((batchSummary.budgetCeilingMinor || 0) / 100).toFixed(2)}
+            Target: {((batchSummary.budgetTargetMinor || 0) / 100).toFixed(2)} {batchSummary.budgetCurrency} · Ceiling: {((batchSummary.budgetCeilingMinor || 0) / 100).toFixed(2)} {batchSummary.budgetCurrency}
             {' · '}
             <span data-testid="batch-status-badge">{liveStatus}</span>
           </div>
@@ -1493,6 +1503,7 @@ function ProductionDispatchPanel({ iterationId }) {
 // ---------------------------------------------------------------------------
 
 function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
+  const [analysisRevision, setAnalysisRevision] = useState(0)
   const [publishing, setPublishing] = useState(false)
   const importing = useRef(false)
   const [creative, setCreative] = useState(null)
@@ -1533,6 +1544,7 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
         metrics[pub.id] = m.items || []
       }
       setMetricsByPub(metrics)
+      setAnalysisRevision((value) => value + 1)
       setError('')
     } catch (e) {
       setError(e.message)
@@ -1749,7 +1761,7 @@ function CreativeDetail({ creativeId, onBack, onOpenStudio }) {
         </div>
       ) : null}
 
-      <AnalysisPanel creativeId={creativeId} />
+      <AnalysisPanel creativeId={creativeId} revision={analysisRevision} />
       <div className="ms-session-list" style={{ marginTop: '10px' }}>
         {publications.length === 0 ? <p className="hint small">No publications yet.</p> : null}
         {publications.map((p) => (
@@ -2105,7 +2117,12 @@ function ProductTestsHome({ tests, loading, error, onReload, onNew, onOpen }) {
 // ---------------------------------------------------------------------------
 
 export default function ProductTests({ onOpenStudioSession }) {
-  const [view, setView] = useState({ name: 'home' })
+  const viewKey = `operator-view:${apiBase()}`
+  const [view, setView] = useState(() => {
+    try { const stored = JSON.parse(sessionStorage.getItem(viewKey)); if (['home', 'test', 'creative', 'review'].includes(stored?.name)) return stored } catch {}
+    return { name: 'home' }
+  })
+  useEffect(() => { try { sessionStorage.setItem(viewKey, JSON.stringify(view.name === 'new' ? { name: 'home' } : view)) } catch {} }, [viewKey, view])
   const [tests, setTests] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -2142,6 +2159,7 @@ export default function ProductTests({ onOpenStudioSession }) {
   if (view.name === 'test') {
     return (
       <ProductTestDetail
+        key={view.id}
         productTestId={view.id}
         onBack={async () => {
           await loadTests()
@@ -2153,7 +2171,7 @@ export default function ProductTests({ onOpenStudioSession }) {
     )
   }
   if (view.name === 'creative') {
-    return <CreativeDetail creativeId={view.id} onBack={() => setView({ name: 'test', id: view.testId })} onOpenStudio={onOpenStudioSession} />
+    return <CreativeDetail key={view.id} creativeId={view.id} onBack={() => setView({ name: 'test', id: view.testId })} onOpenStudio={onOpenStudioSession} />
   }
   return (
     <><div className="row" style={{ gap: 12, marginBottom: 12 }}><button className="primary" onClick={() => setView({ name: 'review' })}>Review Queue</button><span>Product Tests → production → assembly → review → publication → analysis</span></div><OperatorSettings />

@@ -46,7 +46,7 @@ import { generateBatchProductionPlan, priceProductionPlan } from './lib/producti
 import { preflightProduction, startProduction, productionStatus, materializeJobsForProductionRun, currentRates } from './lib/productionExecution.mjs'
 import { reconcileInFlightJobs, startExecutionPoller } from './lib/dispatcher.mjs'
 import { operatorRoute } from './lib/operatorRoutes.mjs'
-import { requirePublishable, saveMetrics } from './lib/operator.mjs'
+import { savePublication, saveMetrics } from './lib/operator.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_PATH = path.resolve(__dirname, '..', '.env.local')
@@ -362,9 +362,11 @@ const server = http.createServer(async (req, res) => {
 
   // Serve a saved media file (local disk only, traversal-guarded).
   if (req.method === 'GET' && url.pathname.startsWith('/media/')) {
-    const rel = decodeURIComponent(url.pathname.slice('/media/'.length))
+    let rel
+    try { rel = decodeURIComponent(url.pathname.slice('/media/'.length)) } catch { return send(res, 400, { ok: false, error: 'Malformed media URL.' }) }
     const resolved = resolveWithinMedia(rel)
     if (!resolved) return send(res, 403, { ok: false, error: 'Forbidden path.' })
+    try { if (!fs.realpathSync(resolved).startsWith(fs.realpathSync(MEDIA_ROOT) + path.sep)) return send(res, 403, { ok: false, error: 'Forbidden path.' }) } catch { return send(res, 404, { ok: false, error: 'Not found.' }) }
     fs.readFile(resolved, (err, data) => {
       if (err) return send(res, 404, { ok: false, error: 'Not found.' })
       sendBinary(res, 200, data, MIME_BY_EXT[path.extname(resolved).toLowerCase()] || 'application/octet-stream')
@@ -450,20 +452,7 @@ const server = http.createServer(async (req, res) => {
             message: `Replicate video generation is estimated to cost $${estimate.estimatedCost.toFixed(2)} for ${estimate.seconds} seconds. Send confirmed: true to create a paid prediction.`
           })
         }
-        try {
-          const job = await createReplicateVideoJob({
-            prompt: payload.prompt || payload.input_prompt,
-            start_frame: payload.start_frame || payload.startFrame || payload.start_frame_image,
-            aspect_ratio: payload.aspect_ratio || payload.aspectRatio,
-            duration: payload.duration,
-            media_root: MEDIA_ROOT,
-            confirmed: payload.confirmed,
-            model_id: replicateModel
-          })
-          return send(res, 202, job)
-        } catch (e) {
-          return send(res, 200, { status: 'error', error: `Replicate video generation failed: ${e && e.message ? e.message : 'unknown error'}` })
-        }
+        return send(res, 400, { status: 'error', error: 'production_required', message: 'Paid video must use an approved M5 production run and its budget reservation.' })
       }
       if (provider !== 'mock') {
         return send(res, 400, { status: 'error', error: `Unsupported video provider "${provider}". Use "mock" or "replicate".` })
@@ -523,6 +512,8 @@ const server = http.createServer(async (req, res) => {
       } catch {
         return send(res, 400, { success: false, error: 'Invalid JSON body.', request_id })
       }
+      if (payload?.confirmed !== true) return send(res, 400, { success: false, error: 'confirmation_required', request_id })
+      if (payload.action_type === 'generate_image' && String(payload.provider_id || payload.provider).toLowerCase() === 'openai') return send(res, 400, { success: false, error: 'production_required: paid media must use M5.', request_id })
 
       const provider_id = String(payload.provider_id || payload.provider || '').toLowerCase()
       const action_type = payload.action_type || ''
@@ -834,6 +825,8 @@ const server = http.createServer(async (req, res) => {
       const runId = idNum(m[0])
       return readJsonBody(req, res, (body) =>
         guard(() => {
+          const current = ptRepo.getProductionRunWithLineage(runId)
+          if (current?.final_asset_id && current.final_asset_id !== Number(body.assetId) && (current.status === 'complete' || current.spec_frozen_at)) return fail(400, 'Final Asset is frozen. Create a new run for a revision.')
           setProductionRunFinalAsset(runId, Number(body.assetId))
           return ok({ item: ptRepo.getProductionRunWithLineage(runId) })
         })
@@ -884,8 +877,7 @@ const server = http.createServer(async (req, res) => {
       const creativeId = idNum(m[0])
       return readJsonBody(req, res, (body) =>
         guard(() => {
-          requirePublishable(creativeId, Number(body.productionRunId))
-          return ok({ item: ptRepo.createPublicationForCreative({ ...body, creativeId }) })
+          return ok({ item: savePublication({ ...body, creativeId }) })
         })
       )
     }
@@ -918,6 +910,7 @@ const server = http.createServer(async (req, res) => {
       const testId = idNum(m[0])
       return readJsonBody(req, res, async (body) => {
         try {
+          if (body.confirmed !== true) return fail(400, 'confirmation_required')
           const productTest = ptRepo.getProductTestWithLineage(testId)
           if (!productTest) return fail(404, `No product test with id ${testId}`)
 
@@ -951,6 +944,7 @@ const server = http.createServer(async (req, res) => {
     if ((m = ptMatch('/api/product-tests/:id/strategy/generate')) && req.method === 'POST') {
       return readJsonBody(req, res, async (body) => {
         try {
+          if (body.confirmed !== true) return fail(400, 'confirmation_required')
           const targetCount = Number.isFinite(Number(body.targetCount)) ? Number(body.targetCount) : 12
           const result = await generateStrategyDraft({
             researchDraft: body.researchDraft,
@@ -1038,6 +1032,7 @@ const server = http.createServer(async (req, res) => {
       const iterationId = idNum(m[0])
       return readJsonBody(req, res, async (body) => {
         try {
+          if (body.confirmed !== true) return fail(400, 'confirmation_required')
           const result = await generateBatchProductionPlan(iterationId, body.availabilityByCreativeId || {})
           return ok(result)
         } catch (e) {
@@ -1063,6 +1058,7 @@ const server = http.createServer(async (req, res) => {
           if (!Array.isArray(body.plans) || body.plans.length === 0) {
             return fail(400, 'plans must be a non-empty array.')
           }
+          if (body.plans.some((plan) => ptRepo.getCreativeWithLineage(Number(plan.creativeId))?.iteration_id !== Number(m[0]))) return fail(400, 'Every planned creative must belong to this iteration.')
           const runIds = ptRepo.approveProductionPlan({ plans: body.plans })
           const items = runIds.map((id) => ptRepo.getProductionRunWithLineage(id))
           return ok({ items })

@@ -1,7 +1,8 @@
 // M5 bounded-concurrency dispatcher and restart-safe reconciliation.
 import fs from 'node:fs'
 import path from 'node:path'
-import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   getDb,
   getJob,
@@ -22,11 +23,12 @@ import {
   setProductionRunFinalAsset,
   setProductionRunStatus,
 } from '../db/repository.mjs'
-import { getProviderAdapter, classifyProviderError } from './providerAdapters.mjs'
+import { getProviderAdapter, classifyProviderError, providerModelIssue } from './providerAdapters.mjs'
 import { estimateComponentCost, getConfiguredRates } from './rateCatalog.mjs'
 import { getFxRate } from '../db/repository.mjs'
 
 const BASE_CURRENCY = 'EUR'
+const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const DEFAULT_PAID_CONCURRENCY = 2
 const DEFAULT_FREE_CONCURRENCY = 5
 const DEFAULT_POLL_INTERVAL_MS = 10_000
@@ -58,6 +60,8 @@ function costForJob(job) {
   const provider = String(job.provider || '').toLowerCase()
   if (provider === 'mock') return { unknown: false, minor: 0, currency: BASE_CURRENCY }
   const model = String(params.model || '').toLowerCase()
+  const modelIssue = providerModelIssue(job.capability, provider, model)
+  if (modelIssue) return { unknown: true, reason: modelIssue }
   const videoModelKey = model === 'seedance-2.0-fast'
     ? `${model}-${params.resolution === '720p' ? '720p' : '480p'}`
     : model
@@ -84,10 +88,10 @@ function nowIso() { return new Date().toISOString() }
 function mediaFileForResult(result) {
   const local = String(result && result.local_url || '')
   if (!local) return null
-  if (local === '/mock-video-output.mp4') return { path: path.resolve(process.cwd(), 'public', 'mock-video-output.mp4'), relativePath: 'mock-video-output.mp4' }
+  if (local === '/mock-video-output.mp4') return { path: path.resolve(APP_ROOT, 'public', 'mock-video-output.mp4'), relativePath: 'mock-video-output.mp4' }
   if (local.startsWith('/media/')) {
     const relativePath = decodeURIComponent(local.slice('/media/'.length))
-    const mediaRoot = path.resolve(process.cwd(), 'local-media')
+    const mediaRoot = path.resolve(process.env.FACTORY_MEDIA_ROOT || path.join(APP_ROOT, 'local-media'))
     const filePath = path.resolve(mediaRoot, relativePath)
     const prefix = mediaRoot.endsWith(path.sep) ? mediaRoot : mediaRoot + path.sep
     if (!filePath.startsWith(prefix)) return null
@@ -152,12 +156,15 @@ function reservationFor(jobId, dispatchAttempt) {
 }
 
 async function reconcileAttempt(attempt, { allowRetry = true } = {}) {
+  if (getExecutionAttempt(attempt.id)?.reconciliation_status !== 'pending') return { status: 'skipped', jobId: attempt.job_id }
   const adapter = getProviderAdapter(attempt.provider)
   let checked
   try {
     checked = await adapter.checkStatus(attempt.external_request_id)
+    if (getExecutionAttempt(attempt.id)?.reconciliation_status !== 'pending') return { status: 'skipped', jobId: attempt.job_id }
     updateExecutionAttempt(attempt.id, { providerStatus: checked.providerStatus, lastCheckedAt: nowIso() })
   } catch (error) {
+    if (getExecutionAttempt(attempt.id)?.reconciliation_status !== 'pending') return { status: 'skipped', jobId: attempt.job_id }
     const classification = classifyProviderError(error, attempt.provider)
     updateExecutionAttempt(attempt.id, {
       lastCheckedAt: nowIso(),
@@ -166,7 +173,7 @@ async function reconcileAttempt(attempt, { allowRetry = true } = {}) {
       providerStatus: error.providerStatus,
       resultData: error.safeProviderDiagnostic ? { provider_error: error.safeProviderDiagnostic } : undefined,
     })
-    if (error.requestUnknown || error.manualReconciliation) {
+    if (error.requestUnknown || error.manualReconciliation || classification === 'ambiguous_billing') {
       // Unresolved billing holds the existing reservation. Excluding this
       // attempt from pending polling also prevents automatic settlement/retry.
       updateExecutionAttempt(attempt.id, { reconciliationStatus: 'reconciliation_required' })
@@ -185,8 +192,14 @@ async function reconcileAttempt(attempt, { allowRetry = true } = {}) {
 
   const job = getJob(attempt.job_id)
   const result = adapter.extractResult(checked.resultData || attempt.resultData)
-  updateExecutionAttempt(attempt.id, { resultData: result, reconciliationStatus: 'reconciled', lastCheckedAt: nowIso() })
+  return getDb().transaction(() => {
+  if (getExecutionAttempt(attempt.id)?.reconciliation_status !== 'pending') return { status: 'skipped', jobId: job.id }
   const assetId = attachResult(job, result)
+  if (!assetId && !getJobAssetLink(job.id)) {
+    updateExecutionAttempt(attempt.id, { reconciliationStatus: 'reconciliation_required', errorMessage: 'Completed provider result has no local media Asset.', failureClassification: 'ambiguous_billing' })
+    updateJobRuntime(job.id, { errorMessage: 'ambiguous_billing: Completed result has no local media Asset.' })
+    return { status: 'reconciliation_required', jobId: job.id }
+  }
   const reservation = reservationFor(job.id, attempt.dispatch_attempt)
   if (reservation) {
     const planned = Number(reservation.original_amount_minor) || 0
@@ -208,13 +221,20 @@ async function reconcileAttempt(attempt, { allowRetry = true } = {}) {
   }
   if (assetId) maybeFinishRun(job.production_run_id)
   else maybeFinishRun(job.production_run_id)
+  updateExecutionAttempt(attempt.id, { resultData: result, reconciliationStatus: 'reconciled', lastCheckedAt: nowIso() })
   return { status: 'complete', jobId: job.id, assetId }
+  }).immediate()
 }
 
 async function handleFailure(attempt, classification, message, { allowRetry }) {
-  updateExecutionAttempt(attempt.id, { failureClassification: classification, errorMessage: message, reconciliationStatus: 'reconciled', lastCheckedAt: nowIso() })
   const job = getJob(attempt.job_id)
   const reservation = reservationFor(job.id, attempt.dispatch_attempt)
+  if (classification === 'ambiguous_billing' && reservation) {
+    updateExecutionAttempt(attempt.id, { failureClassification: classification, errorMessage: message, reconciliationStatus: 'reconciliation_required', lastCheckedAt: nowIso() })
+    updateJobRuntime(job.id, { status: 'generating', errorMessage: `${classification}: ${message}` })
+    return { status: 'reconciliation_required', jobId: job.id }
+  }
+  updateExecutionAttempt(attempt.id, { failureClassification: classification, errorMessage: message, reconciliationStatus: 'reconciled', lastCheckedAt: nowIso() })
   if (reservation) {
     settleJob({
       jobId: job.id,
@@ -240,6 +260,11 @@ async function handleFailure(attempt, classification, message, { allowRetry }) {
 }
 
 async function dispatchJob(jobId) {
+  let submissionAttempt = null
+  // Claim, reserve, and persist an unresolved submission marker atomically,
+  // before the first await. Another process can never reuse this reservation
+  // to send a second request. A crash without a returned ID requires review.
+  const prepared = getDb().transaction(() => {
   const job = getJob(jobId)
   if (!job || job.status !== 'planned') return { status: 'skipped', jobId }
   const params = inputParams(job)
@@ -274,6 +299,15 @@ async function dispatchJob(jobId) {
       return { status: 'failed', jobId, reason: 'BUDGET_BLOCKED' }
     }
   }
+  updateJobRuntime(job.id, { status: 'generating', startedAt: nowIso() })
+  if (reservation) {
+    submissionAttempt = createExecutionAttempt({ jobId, dispatchAttempt: attemptNumber, externalRequestId: `submission-unresolved:${randomUUID()}`, providerStatus: 'SUBMISSION_UNRESOLVED' })
+    updateExecutionAttempt(submissionAttempt.id, { reconciliationStatus: 'reconciliation_required', errorMessage: 'Submission outcome not yet recorded. Do not resubmit.' })
+  }
+  return { ready: true, job, params, adapter, attemptNumber, reservation }
+  }).immediate()
+  if (!prepared.ready) return prepared
+  const { job, params, adapter, attemptNumber, reservation } = prepared
 
   let dispatched
   try {
@@ -290,7 +324,8 @@ async function dispatchJob(jobId) {
   } catch (error) {
     if (reservation) {
       const classification = classifyProviderError(error, job.provider)
-      await handleFailure({ id: 0, job_id: job.id, dispatch_attempt: attemptNumber, provider: job.provider, resultData: null }, classification, error.message, { allowRetry: true })
+      if (error.safeProviderDiagnostic) updateExecutionAttempt(submissionAttempt.id, { resultData: { provider_error: error.safeProviderDiagnostic } })
+      return handleFailure({ ...submissionAttempt, provider: job.provider }, classification, error.message, { allowRetry: true })
     } else {
       const classification = classifyProviderError(error, job.provider)
       if (classification === 'transient_retryable' && Number(job.retry_count) === 0) {
@@ -306,13 +341,14 @@ async function dispatchJob(jobId) {
   const externalId = dispatched.externalRequestId
   if (!externalId) {
     const error = new Error('Provider did not return an external request id.')
-    if (reservation) return handleFailure({ id: 0, job_id: job.id, dispatch_attempt: attemptNumber, provider: job.provider, resultData: null }, 'ambiguous_billing', error.message, { allowRetry: false })
+    if (reservation) return handleFailure({ ...submissionAttempt, provider: job.provider }, 'ambiguous_billing', error.message, { allowRetry: false })
     updateJobRuntime(job.id, { status: 'failed', errorMessage: error.message, completedAt: nowIso() })
     return { status: 'failed', jobId }
   }
   // externalRequestId/providerStatus are recorded on job_execution_attempt
   // only (the source of truth) — job itself just needs its own status/timestamp.
-  createExecutionAttempt({ jobId: job.id, dispatchAttempt: attemptNumber, externalRequestId: externalId, providerStatus: dispatched.initialStatus, resultData: dispatched.resultData || null })
+  if (submissionAttempt) updateExecutionAttempt(submissionAttempt.id, { externalRequestId: externalId, providerStatus: dispatched.initialStatus, resultData: dispatched.resultData || null, reconciliationStatus: 'pending', errorMessage: null })
+  else createExecutionAttempt({ jobId: job.id, dispatchAttempt: attemptNumber, externalRequestId: externalId, providerStatus: dispatched.initialStatus, resultData: dispatched.resultData || null })
   updateJobRuntime(job.id, { status: 'generating', startedAt: nowIso() })
   const attempt = getDb().prepare(`SELECT a.*, j.provider, j.production_run_id, j.capability, j.input_params
     FROM job_execution_attempt a JOIN job j ON j.id = a.job_id
