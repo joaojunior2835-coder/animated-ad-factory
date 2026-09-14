@@ -110,7 +110,8 @@ function videoFrom(data) {
  * Generate an image with FLUX Schnell via fal.ai and save it to
  * local-media/temp/. Never throws.
  */
-export async function generateImage({ prompt, width, height, aspectRatio, mediaRoot } = {}) {
+export async function generateImage({ prompt, width, height, aspectRatio, mediaRoot, confirmed } = {}) {
+  if (confirmed !== true) return { ok: false, reason: 'confirmation_required' }
   const client = configuredClient()
   if (!client) return { ok: false, reason: 'FAL_API_KEY_NOT_CONFIGURED' }
 
@@ -155,7 +156,8 @@ export async function generateImage({ prompt, width, height, aspectRatio, mediaR
  * Generate an image-to-video clip with WAN 2.1 via fal.ai and save it to
  * local-media/temp/. Never throws.
  */
-export async function generateVideo({ prompt, imageUrl, duration, aspectRatio, mediaRoot } = {}) {
+export async function generateVideo({ prompt, imageUrl, duration, aspectRatio, mediaRoot, confirmed } = {}) {
+  if (confirmed !== true) return { ok: false, reason: 'confirmation_required' }
   const client = configuredClient()
   if (!client) return { ok: false, reason: 'FAL_API_KEY_NOT_CONFIGURED' }
 

@@ -123,10 +123,12 @@ server.registerTool(
     inputSchema: {
       prompt: z.string().min(1).describe('The image prompt.'),
       aspectRatio: z.enum(['9:16', '16:9', '1:1', '4:3']).optional().describe('Defaults to 1:1 if omitted.'),
+      confirmed: z.boolean().describe('Must be true before this paid fal.ai request is dispatched.'),
     },
   },
-  withErrors(async ({ prompt, aspectRatio }) => {
-    const result = await falProvider.generateImage({ prompt, aspectRatio, mediaRoot: MEDIA_ROOT })
+  withErrors(async ({ prompt, aspectRatio, confirmed }) => {
+    if (confirmed !== true) return errorText('confirmation_required: set confirmed:true to make this paid fal.ai image request.')
+    const result = await falProvider.generateImage({ prompt, aspectRatio, mediaRoot: MEDIA_ROOT, confirmed })
     if (!result.ok) return errorText(`Image generation failed: ${result.reason}`)
     return text({ localUrl: result.localUrl, width: result.width, height: result.height, model: result.model, fileSize: result.fileSize })
   })
@@ -145,10 +147,12 @@ server.registerTool(
       imageUrl: z.string().min(1).describe('Start frame image — a local /media/... URL or a public http(s) URL.'),
       duration: z.number().positive().optional().describe('Clip duration in seconds.'),
       aspectRatio: z.enum(['9:16', '16:9', '1:1']).optional(),
+      confirmed: z.boolean().describe('Must be true before this paid fal.ai request is dispatched.'),
     },
   },
-  withErrors(async ({ prompt, imageUrl, duration, aspectRatio }) => {
-    const result = await falProvider.generateVideo({ prompt, imageUrl, duration, aspectRatio, mediaRoot: MEDIA_ROOT })
+  withErrors(async ({ prompt, imageUrl, duration, aspectRatio, confirmed }) => {
+    if (confirmed !== true) return errorText('confirmation_required: set confirmed:true to make this paid fal.ai video request.')
+    const result = await falProvider.generateVideo({ prompt, imageUrl, duration, aspectRatio, mediaRoot: MEDIA_ROOT, confirmed })
     if (!result.ok) return errorText(`Video generation failed: ${result.reason}`)
     return text({ localUrl: result.localUrl, duration: result.duration, model: result.model, fileSize: result.fileSize })
   })
