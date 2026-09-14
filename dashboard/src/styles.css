@@ -1,17 +1,32 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1d212b;
-  --border: #2a2f3a;
-  --text: #e6e9ef;
-  --muted: #99a1b3;
-  --accent: #f0a85a;
-  --accent-2: #6ea8fe;
-  --danger: #e06a6a;
+  --bg: #0b0d0f;
+  --panel: #17191c;
+  --panel-2: #222529;
+  --border: #34383e;
+  --text: #f4f6f8;
+  --muted: #a5abb4;
+  --accent: #d7ff1f;
+  --accent-2: #d7ff1f;
+  --danger: #ff929a;
+  --warning: #f5c46b;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
+}
+
+:root :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 html,

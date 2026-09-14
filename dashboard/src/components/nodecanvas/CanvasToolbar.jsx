@@ -15,7 +15,7 @@ function slug(name) {
   )
 }
 
-export default function CanvasToolbar({ nc, onChange, onFit, providerMode, onRunAll, runAllDisabled, runAllLabel, onImportScenes, importScenesDisabled }) {
+export default function CanvasToolbar({ nc, onChange, onFit, providerMode, onRunAll, runAllDisabled, runAllLabel, onImportScenes, importScenesDisabled, onUndo, onRedo, canUndo, canRedo, onDuplicate, canDuplicate, onRunSelected, onTemplate }) {
   const fileRef = useRef(null)
   const [editingName, setEditingName] = useState(false)
   const nodeCount = (nc.nodes || []).length
@@ -87,17 +87,19 @@ export default function CanvasToolbar({ nc, onChange, onFit, providerMode, onRun
         </button>
       )}
       <span className="badge" aria-label={`${nodeCount} nodes on the canvas`}>{nodeCount} node{nodeCount === 1 ? '' : 's'}</span>
-      <span className={`api-badge ${providerMode === 'api' ? 'warn' : 'ok'}`} title="Generation provider mode (set in Canvas → Production Board)">
+      <span className={`api-badge nc-legacy-mode ${providerMode === 'api' ? 'warn' : 'ok'}`} title="Legacy local fixture mode">
         Mode: {modeLabel}
       </span>
 
       <span className="nc-toolbar-spacer" />
-
-      <button className="ghost small" onClick={onFit} aria-label="Fit all nodes to screen">⛶ Fit to screen</button>
+      {onUndo ? <button className="ghost small" onClick={onUndo} disabled={!canUndo} aria-label="Undo graph edit" title="Undo · Ctrl+Z">Undo</button> : null}
+      {onRedo ? <button className="ghost small" onClick={onRedo} disabled={!canRedo} aria-label="Redo graph edit" title="Redo · Ctrl+Shift+Z">Redo</button> : null}
+      {onDuplicate ? <button className="ghost small" onClick={onDuplicate} disabled={!canDuplicate} aria-label="Duplicate selected nodes" title="Duplicate draft nodes · Ctrl+D">Duplicate</button> : null}
+      <button className="ghost small" onClick={onFit} aria-label="Fit all nodes to screen">Fit</button>
+      {onTemplate ? <select className="nc-template-picker" aria-label="Add starter graph" value="" onChange={(event) => event.target.value && onTemplate(event.target.value)}><option value="">Add starter graph</option><option value="image-video">Prompt → image → video</option><option value="remix">Reference + product → remix</option><option value="scenes">Scenes for assembly</option></select> : null}
+      <details className="nc-board-menu"><summary>Board</summary><div>
       <button className="ghost small" onClick={saveSnapshot} aria-label="Save canvas snapshot as JSON">Save snapshot</button>
-      <button className="ghost small" onClick={() => fileRef.current && fileRef.current.click()} aria-label="Load canvas snapshot from JSON">
-        Load snapshot
-      </button>
+      <button className="ghost small" onClick={() => fileRef.current && fileRef.current.click()} aria-label="Load canvas snapshot from JSON">Load snapshot</button>
       <input
         ref={fileRef}
         type="file"
@@ -117,6 +119,8 @@ export default function CanvasToolbar({ nc, onChange, onFit, providerMode, onRun
           Import Scenes
         </button>
       ) : null}
+      </div></details>
+      {onRunSelected ? <button className="ghost small" onClick={onRunSelected}>Run selection</button> : null}
       <button className="primary small" onClick={onRunAll} disabled={runAllDisabled} title={runAllDisabled ? 'Generation already running, or nothing to run' : 'Generate every idle image/video node, upstream first'} aria-label="Run all generation nodes">
         {runAllLabel || '▶ Run All'}
       </button>

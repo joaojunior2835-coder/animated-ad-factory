@@ -780,6 +780,7 @@ export function approveProductionPlan({ plans }) {
             // Preserve the approved deterministic plan so M5 can materialize
             // Jobs without asking an AI provider or re-deciding execution.
             generationPlan: {
+              ...(Array.isArray(gp.steps) ? { steps: gp.steps } : {}),
               imageGenerations: Number(gp.imageGenerations) || 0,
               videoClips: Array.isArray(gp.videoClips) ? gp.videoClips : [],
               voiceRequired: gp.voiceRequired === true,

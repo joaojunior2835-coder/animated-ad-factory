@@ -62,7 +62,8 @@ export function assemblyInputs(runId) {
       if (!linked || linked.mime_type !== 'video/mp4') throw new Error('Assembly source is not a linked local video.')
       if (source.sourceRunId) {
         const original = getProductionRunExecution(source.sourceRunId)
-        if (!original || original.creative_id !== run.creative_id || original.status !== 'complete' || original.final_asset_id !== linked.id) throw new Error('Assembly source lineage is invalid.')
+        const selectedVariant = original?.specSnapshot?.planning?.generationPlan?.steps?.length && original.jobs.some(job=>job.capability==='generate_video' && job.status==='complete' && getJobAssetLink(job.id)?.id===linked.id)
+        if (!original || original.creative_id !== run.creative_id || original.status !== 'complete' || (original.final_asset_id !== linked.id && !selectedVariant)) throw new Error('Assembly source lineage is invalid.')
       }
       return { assetId: linked.id, sourceRunId: source.sourceRunId, relativePath: linked.relative_path, file: localAssetPath(linked.relative_path) }
     }) }

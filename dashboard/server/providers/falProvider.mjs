@@ -10,10 +10,11 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { createFalClient } from '@fal-ai/client'
 import { referenceInputs } from '../lib/referenceRemix.mjs'
-import { inspectVideo } from '../lib/assembly.mjs'
+import { inspectVideo, videoTool, runVideoTool } from '../lib/assembly.mjs'
+import { FAL_IMAGE_ENDPOINT, imageJobInput } from './falImageModel.mjs'
 
 const FLUX_SCHNELL_MODEL = 'fal-ai/flux/schnell'
 const WAN_I2V_MODEL = 'fal-ai/wan-i2v'
@@ -88,14 +89,26 @@ function imageSize(aspectRatio, width, height) {
   return SIZE_BY_ASPECT['1:1']
 }
 
-async function downloadToBuffer(url) {
+async function downloadToBuffer(url, restrictFal = false) {
   const parsed = new URL(url)
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('fal.ai returned an unsupported media URL.')
-  const response = await fetch(parsed, { redirect: 'follow' })
+  let response, current = parsed
+  for (let redirects = 0; redirects < 4; redirects++) {
+    if (restrictFal && (current.protocol !== 'https:' || !/(^|\.)fal\.media$/.test(current.hostname))) throw new Error('Refused non-fal image download URL.')
+    response = await fetch(current, { redirect: restrictFal ? 'manual' : 'follow' })
+    if (!restrictFal || ![301,302,303,307,308].includes(response.status)) break
+    current = new URL(response.headers.get('location'), current)
+  }
   if (!response.ok) throw new Error(`fal.ai media download failed (${response.status}).`)
   const declaredLength = Number(response.headers.get('content-length') || 0)
   if (declaredLength > MAX_MEDIA_BYTES) throw new Error('fal.ai media exceeded the local download size limit.')
-  const buffer = Buffer.from(await response.arrayBuffer())
+  const chunks = []; let length = 0
+  for await (const chunk of response.body) {
+    length += chunk.length
+    if (length > MAX_MEDIA_BYTES) throw new Error('fal.ai media exceeded the local download size limit.')
+    chunks.push(chunk)
+  }
+  const buffer = Buffer.concat(chunks)
   if (!buffer.length) throw new Error('fal.ai returned empty media.')
   if (buffer.length > MAX_MEDIA_BYTES) throw new Error('fal.ai media exceeded the local download size limit.')
   return { buffer, mime: (response.headers.get('content-type') || '').split(';')[0].trim() }
@@ -291,6 +304,73 @@ export async function getFalSeedanceVideoJob(externalRequestId, { media_root, on
     error.providerStatus = 'COMPLETED'
     error.safeProviderDiagnostic = diagnostic
     throw error
+  }
+}
+
+/** Same durable M5 protocol as Seedance; direct MCP helpers remain blocked. */
+export async function createFalImageJob(params = {}) {
+  const invalid = message => Object.assign(new Error(message), { failure_classification: 'non_retryable' })
+  if (params.confirmed !== true) throw invalid('confirmation_required')
+  const client = configuredClient()
+  if (!client) throw invalid('FAL_API_KEY_NOT_CONFIGURED')
+  let input
+  try { input = imageJobInput(params) } catch (e) { throw invalid(e.message) }
+  let submitted
+  try {
+    submitted = await client.queue.submit(FAL_IMAGE_ENDPOINT, { input })
+    if (!submitted?.request_id) throw new Error('fal.ai did not return an image request id.')
+  } catch (cause) {
+    const diagnostic = safeFalResultDiagnostic(cause, '')
+    const rejected = [400,401,403,404,422].includes(diagnostic.status)
+    throw Object.assign(new Error(diagnostic.message), { failure_classification: rejected ? 'non_retryable' : 'ambiguous_billing', manualReconciliation: !rejected, safeProviderDiagnostic: diagnostic })
+  }
+  return { jobId: `fal-image:flux-schnell:${encodeURIComponent(submitted.request_id)}`, status: submitted.status || 'IN_QUEUE' }
+}
+
+export async function getFalImageJob(externalRequestId, { media_root, onProgress } = {}) {
+  const client = configuredClient()
+  if (!client) throw new Error('FAL_API_KEY_NOT_CONFIGURED')
+  const match = /^fal-image:flux-schnell:(.+)$/.exec(String(externalRequestId))
+  if (!match) throw new Error('Unknown fal image request id.')
+  const requestId = decodeURIComponent(match[1])
+  let status
+  try { status = await client.queue.status(FAL_IMAGE_ENDPOINT, { requestId }) }
+  catch (cause) {
+    const diagnostic = safeFalResultDiagnostic(cause, requestId)
+    throw Object.assign(new Error(diagnostic.message), { failure_classification: 'ambiguous_billing', manualReconciliation: true, safeProviderDiagnostic: diagnostic })
+  }
+  if (status?.status !== 'COMPLETED') return { status: status?.status || 'IN_QUEUE' }
+  let scratch
+  try {
+    const completed = await client.queue.result(FAL_IMAGE_ENDPOINT, { requestId })
+    if (!Array.isArray(completed?.data?.images) || completed.data.images.length !== 1) throw new Error('Expected exactly one image for this Job.')
+    const image = completed.data.images[0], url = new URL(image.url)
+    if (url.protocol !== 'https:' || !/(^|\.)fal\.media$/.test(url.hostname)) throw new Error('Image result must be a public fal.media URL.')
+    if (completed.data.has_nsfw_concepts?.some(Boolean)) throw new Error('Provider flagged the image result; billing requires review.')
+    onProgress?.('Downloading')
+    const downloaded = await downloadToBuffer(url.toString(), true)
+    if (!['image/png','image/jpeg'].includes(downloaded.mime)) throw new Error('Provider returned an unsupported image content type.')
+    const root = path.resolve(media_root || path.resolve(process.cwd(), 'local-media'))
+    const saved = saveTemp(root, downloaded.buffer, downloaded.mime, 'fal-image-validation', IMAGE_MIME_EXTENSIONS, 'image/png')
+    scratch = saved.filePath
+    const tool = await videoTool()
+    const decoded = await runVideoTool(tool, ['-hide_banner','-nostats','-xerror','-protocol_whitelist','file,pipe','-i',scratch,'-map','0:v:0','-frames:v','1','-f','null','-'])
+    const dimensions = /Video: [^\n]*?\b(\d{2,5})x(\d{2,5})\b/.exec(decoded.stderr)
+    if (decoded.code !== 0 || !dimensions) throw new Error('Generated image cannot be decoded or has invalid dimensions.')
+    const width = Number(dimensions[1]), height = Number(dimensions[2])
+    if (width > 4096 || height > 4096 || width < 64 || height < 64) throw new Error('Generated image dimensions are outside application limits.')
+    const hash = createHash('sha256').update(downloaded.buffer).digest('hex')
+    const relative = `generated/fal-image-${hash}${IMAGE_MIME_EXTENSIONS[downloaded.mime]}`
+    const destination = path.join(root, relative)
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    if (fs.existsSync(destination) && createHash('sha256').update(fs.readFileSync(destination)).digest('hex')!==hash) throw new Error('Existing local image cache is corrupt. Manual reconciliation is required.')
+    if (!fs.existsSync(destination)) fs.renameSync(scratch, destination)
+    return { status: 'COMPLETED', result: { local_url: `/media/${relative}`, mime_type: downloaded.mime, file_size: downloaded.buffer.length, width, height, decoded: true, provider: 'fal', model: FAL_IMAGE_ENDPOINT, request_id: requestId, cost_basis: 'catalog_estimate' } }
+  } catch (cause) {
+    const diagnostic = safeFalResultDiagnostic(cause, requestId)
+    throw Object.assign(new Error(`fal.ai image result unavailable after COMPLETED: ${diagnostic.message}`), { failure_classification: 'ambiguous_billing', manualReconciliation: true, providerStatus: 'COMPLETED', safeProviderDiagnostic: diagnostic })
+  } finally {
+    if (scratch && fs.existsSync(scratch)) fs.unlinkSync(scratch)
   }
 }
 

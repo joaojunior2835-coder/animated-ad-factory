@@ -14,6 +14,8 @@
 // ---- Formats ----
 // clipCount is the exact scene count generateSceneOutline produces;
 // clipRange is the display badge ("8-12 clips").
+import { emptyStudioProduction, normalizeStudioProduction } from './studioProductionModel.js'
+
 export const FORMAT_CATEGORIES = ['UGC', 'French', 'Cinematic']
 
 export const FORMATS = [
@@ -516,6 +518,7 @@ export function emptyStudio() {
     format: null,
     characters: [],
     charactersManual: false,
+    production: emptyStudioProduction(),
     brief: {
       hook: '',
       problem: '',
@@ -571,6 +574,7 @@ export function normalizeStudio(data) {
       : null,
     characters: Array.isArray(d.characters) ? d.characters.map(str).filter(Boolean).slice(0, 2) : [],
     charactersManual: !!d.charactersManual,
+    production: normalizeStudioProduction(d.production),
     brief: {
       hook: str(b.hook),
       problem: str(b.problem),

@@ -68,7 +68,7 @@ function AddModelForm({ onAdd, onClose }) {
   )
 }
 
-export default function CanvasSidebar({ open, onToggle, models, onSpawn, onUseModel, onAddCustomModel }) {
+export default function CanvasSidebar({ open, onToggle, models, onSpawn, onUseModel, onAddCustomModel, archivedModels = [] }) {
   const [tab, setTab] = useState('palette')
   const [search, setSearch] = useState('')
   const [adding, setAdding] = useState(false)
@@ -117,6 +117,8 @@ export default function CanvasSidebar({ open, onToggle, models, onSpawn, onUseMo
               }}
               onClick={() => onSpawn(t)}
               role="button"
+              tabIndex={0}
+              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpawn(t) } }}
               aria-label={`Add ${NODE_DEFS[t].title} node`}
               title={`Add a ${NODE_DEFS[t].title} node`}
             >
@@ -148,19 +150,20 @@ export default function CanvasSidebar({ open, onToggle, models, onSpawn, onUseMo
                   <span className="badge">{m.type}</span>
                 </div>
                 <div className="ncsb-model-desc">{m.description}</div>
-                <button className="primary small" onClick={() => onUseModel(m)} aria-label={`Use model ${m.name}`}>
-                  Use
+                <button className="primary small" onClick={() => onUseModel(m)} disabled={m.unavailable} aria-label={`Use model ${m.name}`}>
+                  {m.unavailable ? 'Unavailable' : 'Use'}
                 </button>
               </div>
             ))}
           </div>
+          {archivedModels.length ? <details className="nc-archived-models"><summary>Saved model notes</summary><p>These legacy/custom entries are preserved. Only the configured production models above can run.</p>{archivedModels.map((model) => <div key={model.id}><strong>{model.name}</strong><p>{model.description}</p></div>)}
           {adding ? (
             <AddModelForm onAdd={onAddCustomModel} onClose={() => setAdding(false)} />
           ) : (
             <button className="ghost small full gap" onClick={() => setAdding(true)} aria-label="Add a custom model">
               + Add Custom Model
             </button>
-          )}
+          )}</details> : null}
         </div>
       )}
     </div>

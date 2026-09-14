@@ -15,16 +15,16 @@ export const NODE_COLORS = {
 }
 
 export const NODE_ICONS = {
-  prompt: '📝',
-  image_generator: '🖼️',
-  video_generator: '🎬',
-  upload: '⬆️',
-  asset: '🗂️',
-  reference: '📌',
-  character: '👤',
-  style: '🎨',
-  output: '🎯',
-  upscale: '🔍'
+  prompt: 'T',
+  image_generator: '▧',
+  video_generator: '▷',
+  upload: '↑',
+  asset: '▣',
+  reference: '↗',
+  character: '◉',
+  style: '◈',
+  output: '↳',
+  upscale: '⌕'
 }
 
 export const FALLBACK_COLOR = '#6b7280'

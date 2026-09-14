@@ -24,7 +24,8 @@ import {
   setProductionRunStatus,
 } from '../db/repository.mjs'
 import { getProviderAdapter, classifyProviderError, providerModelIssue } from './providerAdapters.mjs'
-import { estimateComponentCost, getConfiguredRates, estimateVideoJobCost } from './rateCatalog.mjs'
+import { estimateComponentCost, getConfiguredRates, estimateVideoJobCost, estimateImageJobCost } from './rateCatalog.mjs'
+import { sourceReservationMinor } from './moneyRounding.mjs'
 import { getFxRate } from '../db/repository.mjs'
 
 const BASE_CURRENCY = 'EUR'
@@ -68,10 +69,11 @@ function costForJob(job) {
   const priced = job.capability === 'generate_video'
     ? estimateVideoJobCost(model, params)
     : job.capability === 'generate_image'
-      ? estimateComponentCost('image', provider, 1)
+      ? (provider === 'fal' ? estimateImageJobCost(model,params) : estimateComponentCost('image', provider, 1))
       : { unknown: true, reason: `unpriceable_capability:${job.capability}` }
   if (priced.unknown) return { unknown: true, reason: priced.reason }
-  return { unknown: false, minor: priced.costMinor, currency: priced.currency }
+  if (params.authorized_fx_signature && (params.catalog_source_minor !== priced.costMinor || params.estimated_cost_minor !== sourceReservationMinor(priced.costMinor,job.capability))) return {unknown:true,reason:'PRICE_CHANGED_AFTER_CONFIRMATION'}
+  return { unknown: false, minor: sourceReservationMinor(priced.costMinor,job.capability), currency: priced.currency }
 }
 
 function dependencyInputs(job) {
@@ -122,16 +124,25 @@ function attachResult(job, result) {
     relativePath: file.relativePath,
     mimeType: result.mime_type || (job.capability === 'generate_video' ? 'video/mp4' : 'image/png'),
     fileSize: bytes.length,
+    width: Number(result.width) || null,
+    height: Number(result.height) || null,
     durationSeconds: job.capability === 'generate_video' ? Number(inputParams(job).seconds) || null : null,
     source: 'generated',
     provider: job.provider,
   })
+  // Deduplication may return an older Asset path. Never settle against a
+  // missing/corrupt old file merely because fresh downloaded bytes exist.
+  const stored=getDb().prepare('SELECT relative_path FROM asset WHERE id=?').get(asset.id)
+  const storedFile=mediaFileForResult({local_url:stored.relative_path==='mock-video-output.mp4'?'/mock-video-output.mp4':`/media/${stored.relative_path}`})
+  if(!storedFile || !fs.existsSync(storedFile.path) || createHash('sha256').update(fs.readFileSync(storedFile.path)).digest('hex')!==contentHash)return null
   attachAssetLink(asset.id, { jobId: job.id }, 'job_output')
   return asset.id
 }
 
 function isSingleDirectOutput(run) {
   const planning = run.specSnapshot && run.specSnapshot.planning || {}
+  if (planning.generationPlan?.steps?.length && planning.generationPlan.steps.every(s=>s.capability==='generate_image')) return true
+  if (planning.generationPlan?.steps?.filter(s=>s.capability==='generate_video').length===1) return true
   const counts = planning.estimatedGenerationCounts || {}
   const voiceRequired = !!(planning.generationPlan && planning.generationPlan.voiceRequired)
   return Number(counts.images || 0) === 0 && Number(counts.videoClips || 0) === 1 && !voiceRequired
@@ -152,12 +163,13 @@ function maybeFinishRun(productionRunId) {
   }
   if (jobs.every((job) => job.status === 'complete')) {
     if (isSingleDirectOutput(run)) {
-      const output = jobs.find((job) => getJobAssetLink(job.id))
+      const candidates=run.specSnapshot?.planning?.generationPlan?.steps?.some(s=>s.capability==='generate_video') ? jobs.filter(j=>j.capability==='generate_video') : jobs
+      const output = candidates.find((job) => getJobAssetLink(job.id))
       const asset = output && getJobAssetLink(output.id)
       if (asset) setProductionRunFinalAsset(productionRunId, asset.id)
     }
     // Multi-component runs intentionally remain executing until M6 assembly.
-    if (isSingleDirectOutput(run)) setProductionRunStatus(productionRunId, 'complete', true)
+    if (isSingleDirectOutput(run) || run.specSnapshot?.planning?.generationPlan?.steps?.length) setProductionRunStatus(productionRunId, 'complete', true)
     else setProductionRunStatus(productionRunId, 'executing')
   }
 }
@@ -260,7 +272,7 @@ async function handleFailure(attempt, classification, message, { allowRetry }) {
   } else {
     completeFreeJob({ jobId: job.id, success: false, errorMessage: `${classification}: ${message}` })
   }
-  if (classification === 'transient_retryable' && allowRetry && Number(job.retry_count) === 0) {
+  if (classification === 'transient_retryable' && allowRetry && Number(job.inputParams?.max_attempts ?? 2) > 1 && Number(job.retry_count) === 0) {
     updateJobRuntime(job.id, { status: 'planned', retryCount: 1, errorMessage: message, completedAt: null })
     await dispatchJob(job.id, { retry: true })
     return { status: 'retried', jobId: job.id }
@@ -296,6 +308,10 @@ async function dispatchJob(jobId) {
         updateJobRuntime(job.id, { status: 'failed', errorMessage: 'FX_RATE_MISSING', completedAt: nowIso() })
         maybeFinishRun(job.production_run_id)
         return { status: 'failed', jobId, reason: 'FX_RATE_MISSING' }
+      }
+      if(params.authorized_fx_signature && params.authorized_fx_signature!==JSON.stringify(fx)){
+        updateJobRuntime(job.id,{status:'failed',errorMessage:'FX_CHANGED_AFTER_CONFIRMATION',completedAt:nowIso()});maybeFinishRun(job.production_run_id)
+        return {status:'failed',jobId,reason:'FX_CHANGED_AFTER_CONFIRMATION'}
       }
       reservation = reserveBudget({
         jobId, dispatchAttempt: attemptNumber, originalAmountMinor: cost.minor, originalCurrency: cost.currency,
@@ -339,7 +355,7 @@ async function dispatchJob(jobId) {
       return handleFailure({ ...submissionAttempt, provider: job.provider }, classification, error.message, { allowRetry: true })
     } else {
       const classification = classifyProviderError(error, job.provider)
-      if (classification === 'transient_retryable' && Number(job.retry_count) === 0) {
+      if (classification === 'transient_retryable' && Number(job.inputParams?.max_attempts ?? 2) > 1 && Number(job.retry_count) === 0) {
         updateJobRuntime(job.id, { status: 'planned', retryCount: 1, errorMessage: error.message })
         return dispatchJob(job.id)
       }

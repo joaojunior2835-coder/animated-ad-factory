@@ -14,6 +14,7 @@ import {
 import { providerConfigured, providerModelIssue } from './providerAdapters.mjs'
 import { getConfiguredRates, estimateComponentCost, estimateVideoJobCost } from './rateCatalog.mjs'
 import { dispatchProductionRun } from './dispatcher.mjs'
+import { validateProductionSteps, priceProductionStep } from './productionSteps.mjs'
 
 const BASE_CURRENCY = 'EUR'
 const PAID_PROVIDERS = new Set(['replicate'])
@@ -85,6 +86,19 @@ export function materializeJobsForProductionRun(productionRunId) {
   const result = db.transaction(() => {
     if (listJobsForProductionRun(productionRunId).length) return []
     const jobs = []
+    if (Array.isArray(snapshot?.planning?.generationPlan?.steps)) {
+      const steps = validateProductionSteps(snapshot.planning.generationPlan.steps)
+      const ids = new Map()
+      for (const [index, step] of steps.entries()) {
+        const cost = priceProductionStep(step)
+        if (cost.unknown) throw new Error(cost.reason)
+        const id = createJob({ productionRunId,capability:step.capability,provider:step.provider,inputParams:{...step.params,model:step.model,prompt:step.prompt,sequence:index+1,step_id:step.id,node_id:step.nodeId,max_attempts:1,estimated_cost_minor:cost.sourceMinor,estimated_currency:cost.currency,catalog_source_minor:cost.costMinor,catalog_source_usd:cost.sourceUsd,authorized_fx_signature:step.provider==='fal'?JSON.stringify(getFxRate('USD','EUR')):null,cost_basis:'catalog_estimate'} })
+        ids.set(step.id,id)
+        for (const d of step.dependencies) createJobDependency({jobId:id,dependsOnJobId:ids.get(d.stepId),dependencyType:d.type})
+        jobs.push({id,capability:step.capability})
+      }
+      return jobs
+    }
     const imageProvider = providerForPlan(snapshot, 'generate_image')
     const imageModel = resolvedModel(snapshot, 'generate_image', imageProvider)
     for (let i = 0; i < gp.imageGenerations; i++) {
@@ -115,6 +129,8 @@ export function materializeJobsForProductionRun(productionRunId) {
         aspect_ratio: aspectRatio, resolution,
         generate_audio: clip.generate_audio ?? clip.generateAudio ?? (isSeedance ? true : undefined),
         start_frame: startFrame, needs_start_frame: needsStartFrame,
+        ...(clip.max_attempts===1?{max_attempts:1}:{}),
+        ...(clip.authorized_fx_signature?{authorized_fx_signature:clip.authorized_fx_signature,catalog_source_minor:clip.catalog_source_minor}:{}),
         ...(clip.generation_mode === 'reference_to_video' ? {generation_mode:clip.generation_mode,reference_video_ids:clip.reference_video_ids,reference_image_ids:clip.reference_image_ids,reference_audio_ids:clip.reference_audio_ids} : {}),
         estimated_cost_minor: cost.known ? cost.minor : 0, estimated_currency: cost.currency || null,
       } })
@@ -146,6 +162,14 @@ function preflightOne(runId) {
   if (run.status === 'superseded') return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'SUPERSEDED' }
   if (run.status !== 'planned') return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'RUN_ALREADY_STARTED' }
   if (run.production_method === 'manual_external') return { runId, creativeId: run.creative_id, state: 'MANUAL_EXTERNAL', reason: 'MANUAL_EXTERNAL' }
+  if (Array.isArray(snapshot?.planning?.generationPlan?.steps)) {
+    try {
+      const steps = validateProductionSteps(snapshot.planning.generationPlan.steps)
+      const costs = steps.map(priceProductionStep), issue = costs.find(c=>c.unknown)
+      if (issue) throw new Error(issue.reason)
+      return {runId,creativeId:run.creative_id,state:'READY',estimatedPaidMinor:costs.reduce((sum,c)=>sum+c.minor,0),currentFxRate:costs.find(c=>c.currency==='USD')?.fx.rate || null,fxUpdatedAt:costs.find(c=>c.currency==='USD')?.fx.updatedAt || null,estimateChanged:false,steps:steps.map((s,i)=>({...s,cost:costs[i]}))}
+    } catch(error) { return {runId,creativeId:run.creative_id,state:'BLOCKED',reason:error.message} }
+  }
   const gp = generationPlan(snapshot)
   if (!gp.imageGenerations && !gp.videoClips.length) return { runId, creativeId: run.creative_id, state: 'BLOCKED', reason: 'EMPTY_PRODUCTION_PLAN' }
   const capabilities = []

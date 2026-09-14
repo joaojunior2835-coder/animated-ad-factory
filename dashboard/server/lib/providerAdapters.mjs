@@ -7,7 +7,8 @@ import { createMockVideoJob, getMockVideoJob, shouldFailTransientOnce } from '..
 import { createReplicateVideoJob, getReplicateVideoJob } from '../providers/replicateVideoProvider.mjs'
 import { runPollinations } from '../providers/pollinationsProvider.mjs'
 import { runGroq } from '../providers/groqProvider.mjs'
-import { createFalSeedanceVideoJob, getFalSeedanceVideoJob } from '../providers/falProvider.mjs'
+import { createFalSeedanceVideoJob, getFalSeedanceVideoJob, createFalImageJob, getFalImageJob } from '../providers/falProvider.mjs'
+import { createMockImageJob, getMockImageJob } from '../providers/mockImageProvider.mjs'
 
 const localMediaRoot = () => path.resolve(process.env.FACTORY_MEDIA_ROOT || path.join(path.dirname(fileURLToPath(import.meta.url)), '../../local-media'))
 
@@ -29,7 +30,7 @@ function classified(message, classification = 'non_retryable', extra = {}) {
 // transport. fal's adapter always submits Seedance; it cannot execute Mock/LTX.
 export function providerModelIssue(capability, provider, model) {
   if (provider === 'mock') return null
-  const valid = provider === 'fal' ? capability === 'generate_video' && model === 'seedance-2.0-fast'
+  const valid = provider === 'fal' ? (capability === 'generate_video' && model === 'seedance-2.0-fast') || (capability === 'generate_image' && model === 'flux-schnell')
     : provider === 'replicate' ? capability === 'generate_video' && ['ltx', 'wan-720p'].includes(model)
       : provider === 'pollinations' ? capability === 'generate_image' : false
   return valid ? null : 'PROVIDER_MODEL_MISMATCH'
@@ -39,6 +40,10 @@ function adapterForMock() {
   return {
     provider: 'mock',
     async dispatch(params = {}) {
+      if (params.action_type === 'generate_image') {
+        const response = createMockImageJob(params)
+        return { externalRequestId: response.jobId, initialStatus: 'pending' }
+      }
       if (params.test_failure === 'transient_once' && shouldFailTransientOnce(params.test_failure_key || params.prompt)) throw classified('Mock transient failure (once).', 'transient_retryable')
       if (params.test_failure === 'transient') throw classified('Mock transient failure.', 'transient_retryable')
       if (params.test_failure === 'non_retryable') throw classified('Mock non-retryable failure.', 'non_retryable')
@@ -49,6 +54,10 @@ function adapterForMock() {
       return { externalRequestId: response.jobId, initialStatus: 'pending' }
     },
     async checkStatus(externalRequestId) {
+      if (String(externalRequestId).startsWith('mock-image:')) {
+        const response = await getMockImageJob(externalRequestId, localMediaRoot())
+        return { status: statusFromLegacy(response.status), resultData: response.result, providerStatus: response.status }
+      }
       const response = getMockVideoJob(externalRequestId)
       if (response.status === 'error' && /not found/i.test(response.error || '')) {
         throw classified(response.error, 'ambiguous_billing', { requestUnknown: true })
@@ -110,7 +119,8 @@ function adapterForFal() {
     provider: 'fal',
     async dispatch(params = {}, {onProgress} = {}) {
       try {
-        const response = await createFalSeedanceVideoJob({ ...params, media_root: localMediaRoot(), confirmed: true, onProgress })
+        const create = params.action_type === 'generate_image' ? createFalImageJob : createFalSeedanceVideoJob
+        const response = await create({ ...params, media_root: localMediaRoot(), confirmed: true, onProgress })
         return { externalRequestId: response.jobId, initialStatus: statusFromLegacy(response.status) }
       } catch (error) {
         if (error && error.failure_classification) throw error
@@ -119,7 +129,8 @@ function adapterForFal() {
       }
     },
     async checkStatus(externalRequestId, {onProgress} = {}) {
-      const response = await getFalSeedanceVideoJob(externalRequestId, { media_root: localMediaRoot(), onProgress })
+      const get = String(externalRequestId).startsWith('fal-image:') ? getFalImageJob : getFalSeedanceVideoJob
+      const response = await get(externalRequestId, { media_root: localMediaRoot(), onProgress })
       return { status: statusFromLegacy(response.status), resultData: response.result, providerStatus: response.status }
     },
     extractResult(resultData) { return resultData || null },

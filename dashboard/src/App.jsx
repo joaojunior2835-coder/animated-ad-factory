@@ -33,6 +33,14 @@ import NodeCanvas from './components/nodecanvas/NodeCanvas.jsx'
 import MarketingStudio from './components/MarketingStudio.jsx'
 import ProductTests from './components/ProductTests.jsx'
 import CreativeGenerator from './components/CreativeGenerator.jsx'
+import WorkspaceShell from './components/WorkspaceShell.jsx'
+import AssetsWorkspace from './components/AssetsWorkspace.jsx'
+import ImageWorkspace from './components/ImageWorkspace.jsx'
+import StudioWorkbench from './components/StudioWorkbench.jsx'
+import CanvasProductionDialog from './components/CanvasProductionDialog.jsx'
+import { mergeCanvasProduction } from './lib/canvasProductionBinding.js'
+import { canvasNodeFingerprint } from './lib/nodeCanvasExecution.js'
+import { isWorkspaceKey } from './lib/workspaceNavigation.js'
 import { emptyStudio, normalizeStudio, createSession, updateSession, renameSession, deleteSession, loadProductLibrary, saveProductLibrary, saveProductToLibrary, deleteProductFromLibrary, inferStudioFromQuickPrompt, formatById } from './lib/marketingStudioModel.js'
 // Session persistence lives in the backend database as of Phase 4. The model's
 // loadSessions/saveSession localStorage helpers are deliberately NOT imported
@@ -47,7 +55,7 @@ import {
 } from './lib/studioSessionsApi.js'
 import { createSaveDebouncer } from './lib/saveDebouncer.js'
 import { fetchNodeCanvas, saveNodeCanvas, importLegacyNodeCanvas, hasCanvasContent, NODE_CANVAS_ID } from './lib/nodeCanvasApi.js'
-import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, effectiveStartFrameUrl, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas } from './lib/nodeCanvasModel.js'
+import { emptyNodeCanvas, normalizeNodeCanvas, updateNodeData, effectivePromptText, effectiveStartFrameUrl, modelById, modelUsesCredits, propagateResultToOutputs, addSceneNodesToCanvas, newNode, addNode, addConnection } from './lib/nodeCanvasModel.js'
 import { normalizeMediaResult } from './lib/ai/mediaResultContract.js'
 import { runMock } from './lib/ai/mockProvider.js'
 import { callPlaceholderLlmAction } from './lib/ai/apiClient.js'
@@ -97,9 +105,51 @@ export default function App() {
   const [legacyStudioSessions, setLegacyStudioSessions] = useState(() => readLegacySessions())
   const [legacyImportState, setLegacyImportState] = useState({ status: 'idle', message: '' })
   const [productLibrary, setProductLibrary] = useState(() => loadProductLibrary())
-  const [activeStudioSessionId, setActiveStudioSessionId] = useState(null)
+  const [activeStudioSessionId, setActiveStudioSessionId] = useState(()=>{try{return localStorage.getItem(`studio-selection:${apiBase()}`)||null}catch{return null}})
+  useEffect(()=>{try{if(activeStudioSessionId)localStorage.setItem(`studio-selection:${apiBase()}`,activeStudioSessionId);else localStorage.removeItem(`studio-selection:${apiBase()}`)}catch{}},[activeStudioSessionId])
   const [studioWizardStep, setStudioWizardStep] = useState(0)
-  const [active, setActive] = useState(() => { try { return sessionStorage.getItem(`operator-active:${apiBase()}`) === 'true' ? 'product_tests' : 'create_ad' } catch { return 'create_ad' } })
+  const [active, setActive] = useState(() => { try { const key=sessionStorage.getItem(`workspace-active:${apiBase()}`);return isWorkspaceKey(key)?key:sessionStorage.getItem(`operator-active:${apiBase()}`) === 'true' ? 'product_tests' : 'create_ad' } catch { return 'create_ad' } })
+  const generatorRef=useRef(null),imageWorkspaceRef=useRef(null)
+  const [workstationOptions,setWorkstationOptions]=useState(null),[studioAdvanced,setStudioAdvanced]=useState(false)
+  const [contextError,setContextError]=useState('')
+  const [canvasQuote,setCanvasQuote]=useState(null),[canvasStarting,setCanvasStarting]=useState(false),canvasStartLock=useRef(false)
+  const workspaceRequest=async(route,body)=>{const response=await fetch(apiBase()+route,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const value=await response.json();if(!response.ok||value.ok===false)throw new Error(value.error||'Local workspace request failed.');return value}
+  const [productionContext,setProductionContext]=useState(()=>{try{const s=JSON.parse(localStorage.getItem(`generator-selection:${apiBase()}`)||'{}');return {productTestId:s.productId||'',creativeId:s.creativeId||''}}catch{return {productTestId:'',creativeId:''}}})
+  useEffect(()=>{let alive=true;workspaceRequest('/api/operator/generator/options').then(o=>{if(alive)setWorkstationOptions(o)}).catch(()=>{});return()=>{alive=false}},[active,productionContext.productTestId,productionContext.creativeId])
+  const changeProductionContext = next => { setProductionContext(previous=>String(previous.productTestId)===String(next.productTestId)&&String(previous.creativeId)===String(next.creativeId)?previous:next);try{localStorage.setItem(`generator-selection:${apiBase()}`,JSON.stringify({productId:String(next.productTestId||''),creativeId:String(next.creativeId||'')}))}catch{} }
+  const selectProductionContext=async next=>{try{await generatorRef.current?.flushDraft();await imageWorkspaceRef.current?.flushDraft();changeProductionContext(next);setContextError('')}catch(error){setContextError(error.message)}}
+  const navigateWorkspace=async key=>{await generatorRef.current?.flushDraft();await imageWorkspaceRef.current?.flushDraft();if(active==='marketing_studio'){flushStudioSave();if(await studioSaveTasks.current.get(activeStudioSessionId)===false)throw new Error('Studio could not save. Resolve the displayed error before switching.')}setActive(key)}
+  const useAssetInCreative=async(asset)=>{
+    if(!productionContext.creativeId)throw new Error('Choose a Product Test and Creative in the top bar before linking an Asset.')
+    await generatorRef.current?.flushDraft();await imageWorkspaceRef.current?.flushDraft()
+    const cid=productionContext.creativeId, isImage=asset.mime_type.startsWith('image/')
+    if(!isImage && asset.mime_type!=='video/mp4')throw new Error('Choose an image start frame or an MP4 scene.')
+    const original=(await workspaceRequest(`/api/operator/generator/${cid}`)).workspace
+    const draft={name:isImage?'Image start frame':'Linked media scene',prompt:'',provider:workstationOptions?.models[0]?.provider||'mock',mode:isImage?'image-to-video':'text-to-video',seconds:5,resolution:'480p',aspectRatio:'9:16',generateAudio:false,startAssetId:isImage?asset.id:null}
+    let next=(await workspaceRequest(`/api/operator/generator/${cid}/scenes`,{revision:original.revision,scenes:[...original.scenes,draft]})).workspace
+    if(!isImage)next=(await workspaceRequest(`/api/operator/generator/${cid}/result`,{revision:next.revision,sceneId:next.scenes.at(-1).id,assetId:asset.id})).workspace
+    await navigateWorkspace('video')
+  }
+  const useAssetInCanvas=async(asset)=>{
+    const node=newNode('reference',80,80)
+    node.data={...node.data,asset_id:asset.id,local_url:asset.relative_path==='mock-video-output.mp4'?'/mock-video-output.mp4':`/media/${asset.relative_path}`,mime_type:asset.mime_type,media_type:asset.mime_type.split('/')[0],label:`Asset #${asset.id}`}
+    updateNodeCanvas(c=>addNode(c,node));await navigateWorkspace('node_canvas')
+  }
+  const useAssetInStudio=async(asset)=>{
+    if(!asset.mime_type.startsWith('image/'))throw new Error('Choose a product image for Studio.')
+    const draft={...emptyStudio(),production:{productAssetId:asset.id,productTestId:Number(productionContext.productTestId)||null,creativeId:Number(productionContext.creativeId)||null}}
+    createStudioSession(draft);setStudioAdvanced(false);await navigateWorkspace('marketing_studio')
+  }
+  const studioToCanvas=async payload=>{
+    updateNodeCanvas(c=>{let next=normalizeNodeCanvas(c,{preserveRuntimeStatus:true});for(const [i,s] of payload.scenes.entries()){
+      const prompt=newNode('prompt',60,80+i*680),video=newNode('video_generator',400,80+i*680),output=newNode('output',800,80+i*680)
+      prompt.data.text=s.prompt;video.data={...video.data,model_id:payload.modelId||'mock-video',mode:s.startAssetId?'image-to-video':'text-to-video',duration_seconds:s.seconds,resolution:payload.resolution,aspect_ratio:payload.aspectRatio,generate_audio:payload.generateAudio,count:1,source_scene_id:s.sceneId,source_creative_id:payload.creativeId}
+      next=addNode(addNode(addNode(next,prompt),video),output);next=addConnection(next,{from_node:prompt.id,from_socket:'prompt',to_node:video.id,to_socket:'prompt'});next=addConnection(next,{from_node:video.id,from_socket:'video',to_node:output.id,to_socket:'video'})
+      if(s.startAssetId){const ref=newNode('reference',60,360+i*680),a=workstationOptions?.media.find(a=>a.id===s.startAssetId);ref.data={...ref.data,asset_id:s.startAssetId,local_url:a?`/media/${a.relative_path}`:'',media_type:'image',mime_type:a?.mime_type||'image/png'};next=addNode(next,ref);next=addConnection(next,{from_node:ref.id,from_socket:'image',to_node:video.id,to_socket:'start_frame'})}
+      if(s.assetId){const a=workstationOptions?.media.find(a=>a.id===s.assetId);if(a){const local=a.relative_path==='mock-video-output.mp4'?'/mock-video-output.mp4':`/media/${a.relative_path}`;next=updateNodeData(next,video.id,{result_asset_id:a.id,result_local_url:local,result_saved:true,stale:false,status:'done',generated_fingerprint:canvasNodeFingerprint(next,video.id)});next=propagateResultToOutputs(next,video.id,{asset_id:a.id,local_url:local,media_type:'video'})}}
+    }return {...next,execution_context:{creativeId:payload.creativeId||productionContext.creativeId}}});await navigateWorkspace('node_canvas')
+  }
+  useEffect(()=>{try{sessionStorage.setItem(`workspace-active:${apiBase()}`,active)}catch{}},[active])
   useEffect(() => { try { sessionStorage.setItem(`operator-active:${apiBase()}`, String(active === 'product_tests')) } catch {} }, [active])
   const [backupExists, setBackupExists] = useState(() => hasBackup())
   const [canvasPreviews, setCanvasPreviews] = useState({})
@@ -162,6 +212,25 @@ export default function App() {
   }
   const scheduleNodeCanvasSave = () => nodeCanvasDebouncerRef.current.schedule(NODE_CANVAS_ID)
   const flushNodeCanvasSave = () => nodeCanvasDebouncerRef.current.flush()
+  const requestCanvasProduction=async scope=>{
+    if(!productionContext.creativeId)throw new Error('Choose a Product Test and Creative in the top bar first.')
+    nodeCanvasDebouncerRef.current.cancel();await saveNodeCanvas(nodeCanvasRef.current)
+    const response=await workspaceRequest('/api/operator/canvas/default/quote',{...scope,creativeId:Number(productionContext.creativeId)})
+    setCanvasQuote(response.quote)
+  }
+  const confirmCanvasProduction=async()=>{
+    if(canvasStartLock.current||!canvasQuote)return
+    canvasStartLock.current=true;setCanvasStarting(true);const q=canvasQuote;setCanvasQuote(null)
+    try{nodeCanvasDebouncerRef.current.cancel();await saveNodeCanvas(nodeCanvasRef.current);const r=await workspaceRequest('/api/operator/canvas/default/start',{token:q.token,confirmed:true,creativeId:Number(productionContext.creativeId)});const failed=r.outcomes?.find(o=>o.outcome!=='started');if(failed)throw new Error(failed.reason);await refreshCanvasProduction()}
+    catch(e){setNodeCanvasError(e.message)}finally{canvasStartLock.current=false;setCanvasStarting(false)}
+  }
+  const refreshCanvasProduction=async()=>{
+    const status=await workspaceRequest('/api/operator/canvas/default/status')
+    if(!status.nodes.length||!nodeCanvasRef.current)return
+    const next=mergeCanvasProduction(normalizeNodeCanvas(nodeCanvasRef.current,{preserveRuntimeStatus:true}),status)
+    if(JSON.stringify(next)!==JSON.stringify(nodeCanvasRef.current)){nodeCanvasRef.current=next;setProject(p=>({...p,node_canvas:next}));scheduleNodeCanvasSave()}
+  }
+  useEffect(()=>{if(active!=='node_canvas')return;let alive=true;const refresh=()=>{if(alive)refreshCanvasProduction().catch(e=>{if(alive)setNodeCanvasError(e.message)})};refresh();const timer=setInterval(refresh,2500);return()=>{alive=false;clearInterval(timer)}},[active])
 
   useEffect(() => {
     let cancelled = false
@@ -561,6 +630,7 @@ export default function App() {
   const activeStudio = activeStudioSession ? activeStudioSession.studio : emptyStudio()
 
   const studioSessionsRef = useRef([])
+  const studioSaveTasks = useRef(new Map())
 
   useEffect(() => {
     studioSessionsRef.current = studioSessions
@@ -572,6 +642,7 @@ export default function App() {
       const list = await apiFetchSessions()
       studioSessionsRef.current = list
       setStudioSessions(list)
+      setActiveStudioSessionId(id=>id&&list.some(s=>s.id===id)?id:null)
       setStudioSessionsError('')
     } catch (e) {
       setStudioSessionsError(
@@ -590,17 +661,26 @@ export default function App() {
 
   // A failed save leaves React state exactly as it is — the user's work stays
   // on screen and the error offers a retry, rather than silently vanishing.
-  const persistStudioSession = async (session) => {
+  const persistStudioSession = (session) => {
     if (!session) return
+    const task=(async()=>{
+    await studioSaveTasks.current.get(session.id)
     try {
-      await apiSaveSession(session.id, session.name, session.studio)
+      const latest=studioSessionsRef.current.find(s=>s.id===session.id)
+      if(!latest)return true
+      await apiSaveSession(latest.id, latest.name, latest.studio)
       setStudioSessionsError('')
+      return true
     } catch (e) {
       setStudioSessionsError(
         `Could not save "${session.name}": ${e && e.message ? e.message : 'unknown error'}. ` +
           'Your work is still here — fix the backend and click Retry save.'
       )
+      return false
     }
+    })()
+    studioSaveTasks.current.set(session.id,task)
+    return task
   }
 
   // Debounce timing lives in the shared helper so the Studio and the Node
@@ -1076,7 +1156,10 @@ export default function App() {
           <NodeCanvas
           nodeCanvas={normalizeNodeCanvas(project.node_canvas, { preserveRuntimeStatus: true })}
           onChange={updateNodeCanvas}
-          savedMedia={savedMedia}
+          savedMedia={[...(workstationOptions?.media||[]).map(a=>({...a,asset_id:a.id,name:a.relative_path.split('/').pop(),url:a.relative_path==='mock-video-output.mp4'?'/mock-video-output.mp4':`/media/${a.relative_path}`,local_url:a.relative_path==='mock-video-output.mp4'?'/mock-video-output.mp4':`/media/${a.relative_path}`})),...savedMedia]}
+          capabilities={workstationOptions?.capabilities||[]}
+          onRequestProduction={requestCanvasProduction}
+          onUseInCreative={async nodeId=>{const node=nodeCanvasRef.current.nodes.find(n=>n.id===nodeId),id=node?.data.selected_asset_id||node?.data.result_asset_id;const options=await workspaceRequest('/api/operator/generator/options');const asset=options.media.find(a=>a.id===Number(id));if(!asset)throw new Error('This output must be saved as a local Asset first.');await useAssetInCreative(asset)}}
           onGenerateNode={generateForNode}
           providerMode={(project.canvas && project.canvas.provider_mode) || 'manual'}
           videoProviderId={selectedVideoProvider(project.canvas || {})}
@@ -1118,7 +1201,9 @@ export default function App() {
         </>
       )
     }
-    if (active === 'create_ad') return <CreativeGenerator studio={activeStudio} onReview={() => { try { sessionStorage.setItem(`operator-view:${apiBase()}`, JSON.stringify({ name: 'review' })) } catch {} setActive('product_tests') }} onProductTests={() => setActive('product_tests')} />
+    if (['create_ad','video','remix'].includes(active)) return <CreativeGenerator key={`${active}:${productionContext.productTestId}:${productionContext.creativeId}`} ref={generatorRef} context={productionContext} onContextChange={changeProductionContext} workspace={active} studio={activeStudio} onReview={() => { try { sessionStorage.setItem(`operator-view:${apiBase()}`, JSON.stringify({ name: 'review' })) } catch {} navigateWorkspace('product_tests') }} onProductTests={() => navigateWorkspace('product_tests')} />
+    if(active==='image')return null
+    if (active === 'assets') return <AssetsWorkspace onUseAsStartFrame={useAssetInCreative} onAddToCanvas={useAssetInCanvas} onUseInStudio={useAssetInStudio} onSaveToCreative={useAssetInCreative}/>
     if (active === 'product_tests') {
       return (
         <ProductTests
@@ -1130,8 +1215,10 @@ export default function App() {
       )
     }
     if (active === 'marketing_studio') {
+      if(studioSessionsLoading)return <p role="status">Loading saved Studio sessions…</p>
+      if(!studioAdvanced)return <>{studioSessionsError&&<div role="alert" className="note bad">{studioSessionsError}<button className="ghost" onClick={retryStudioSave}>Retry save</button></div>}<StudioWorkbench sessionId={activeStudioSessionId} studio={activeStudio} onUpdate={updateStudio} onCreateSession={createStudioSession} onAdvanced={()=>setStudioAdvanced(true)} onSessions={()=>{closeStudioSession();setStudioAdvanced(true)}} productLibrary={productLibrary} context={productionContext} onContextChange={changeProductionContext} onCreateVariation={createStudioSession} onOpenCanvas={studioToCanvas} onOpenCreative={async payload=>{changeProductionContext({productTestId:payload.productTestId,creativeId:payload.creativeId});await navigateWorkspace('create_ad')}}/></>
       return (
-        <><div className="subpanel"><button className="primary" onClick={() => setActive('create_ad')}>Create ad from these scenes</button><p className="hint small">Generate and preview videos in Create Ad. Select a Creative, then import this session’s editable scenes.</p></div><MarketingStudio
+        <><div className="subpanel"><button className="primary" onClick={() => setStudioAdvanced(false)}>Back to visual Studio</button><button className="ghost" onClick={() => setActive('create_ad')}>Create ad from these scenes</button><p className="hint small">Advanced wizard and original exports remain available here.</p></div><MarketingStudio
           sessions={studioSessions}
           activeSessionId={activeStudioSessionId}
           studio={activeStudio}
@@ -1359,19 +1446,15 @@ export default function App() {
   }
 
   return (
-    <div className={['product_tests', 'create_ad'].includes(active) ? 'app operator-active' : 'app'}>
-      <header className="topbar">
-        <h1>Animated Ad Factory</h1>
-        <span className="tag">Visual Production Layer</span>
-        {(() => {
+    <WorkspaceShell active={active} onNavigate={navigateWorkspace} hasContent={hasContent} context={<><select aria-label="Active Product Test" value={productionContext.productTestId||''} onChange={e=>selectProductionContext({productTestId:e.target.value,creativeId:''})}><option value="">Product context</option>{workstationOptions?.productTests.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select aria-label="Active Creative" value={productionContext.creativeId||''} onChange={e=>selectProductionContext({...productionContext,creativeId:e.target.value})}><option value="">Creative context</option>{workstationOptions?.creatives.filter(c=>String(c.product_test_id)===String(productionContext.productTestId)).map(c=><option key={c.id} value={c.id}>{c.angle}</option>)}</select></>} status={(() => {
           const b = apiBadge
           const yn = (v) => (v ? '✓' : '✗')
           const label = b.loading
             ? 'Local API: checking…'
             : !b.connected
               ? 'Local backend offline — run npm run dev:server or npm run dev:all from dashboard/.'
-              : ['product_tests', 'create_ad'].includes(active) ? `Backend online · fal ${yn(b.fal)}` : `Backend online · Groq ${yn(b.groq)} · Pollinations ${yn(b.pollinations)}`
-          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : (['product_tests', 'create_ad'].includes(active) ? b.fal : b.groq || b.pollinations) ? 'api-badge ok' : 'api-badge warn'
+              : ['product_tests','create_ad','video','image','remix','assets','node_canvas','marketing_studio'].includes(active) ? `Backend online · fal ${yn(b.fal)}` : `Backend online · Groq ${yn(b.groq)} · Pollinations ${yn(b.pollinations)}`
+          const cls = b.loading ? 'api-badge' : !b.connected ? 'api-badge off' : (['product_tests','create_ad','video','image','remix','assets','node_canvas','marketing_studio'].includes(active) ? b.fal : b.groq || b.pollinations) ? 'api-badge ok' : 'api-badge warn'
           return (
             <span className="api-badge-wrap" data-testid="runtime-status">
               <span className={cls} title={b.url ? `Backend: ${b.url} (status from /health; no keys exposed)` : 'Local backend status from /health (no keys exposed)'}>
@@ -1382,50 +1465,7 @@ export default function App() {
               </button>
             </span>
           )
-        })()}
-      </header>
-
-      <div className="layout">
-        <nav className="sidebar-left">
-          {navItems.map((item, i) => (
-            <button
-              key={item.key}
-              className={active === item.key ? 'nav active' : 'nav'}
-              onClick={() => setActive(item.key)}
-            >
-              <span className="num">{i + 1}</span>
-              <span className="nav-text">{item.label}</span>
-              {hasContent(item) ? <span className="dot" title="Has content" /> : null}
-            </button>
-          ))}
-        </nav>
-
-        <main className="main">{renderMain()}</main>
-
-        {['product_tests', 'create_ad'].includes(active) ? null : active === 'marketing_studio' ? (
-          // The project JSON / export readiness panel is about the MAIN project —
-          // it has nothing to do with studio sessions and reads as false alarms
-          // here ("export blocked", issue counts). Show a neutral studio aside.
-          <aside className="sidebar-right ms-aside">
-            <h3>Marketing Studio</h3>
-            <p className="hint small">Prompt packages, not videos. Everything on this panel of the workflow is generated locally — no credits, no API calls.</p>
-            <div className="ms-aside-stats">
-              <div><b>{studioSessions.length}</b> saved session{studioSessions.length === 1 ? '' : 's'}</div>
-              <div><b>{productLibrary.length}</b> product{productLibrary.length === 1 ? '' : 's'} in library</div>
-            </div>
-            <p className="hint small">Sessions auto-save to the local database. Export a Markdown package from Step 5 to share or re-import later.</p>
-            <div className="ms-aside-rules">
-              <h4>Prompt rules in force</h4>
-              <ul>
-                <li>Duration lives in the setup header, never in the prompt</li>
-                <li>The attached frame carries identity — no appearance text</li>
-                <li>Podcast speakers look at each other, not the camera</li>
-                <li>Every dialogue clip ends with the natural-pace tail</li>
-                <li>French dialogue never routes to Seedance</li>
-              </ul>
-            </div>
-          </aside>
-        ) : (
+        })()} aside={['product_tests','create_ad','image','video','remix','assets','node_canvas','marketing_studio'].includes(active)?null:(
           <JsonPreview
             project={project}
             onExport={handleExport}
@@ -1436,7 +1476,11 @@ export default function App() {
             onLoadExample={handleLoadExample}
             onReset={handleReset}
           />
-        )}
+        )}>
+        {contextError&&<div role="alert" className="note bad">{contextError}</div>}
+        <div hidden={active!=='image'}><ImageWorkspace ref={imageWorkspaceRef} active={active==='image'} context={productionContext} onContextChange={changeProductionContext} onUseAsStartFrame={useAssetInCreative} onAddToCanvas={useAssetInCanvas} onUseInStudio={useAssetInStudio} onSaveToCreative={useAssetInCreative}/></div>
+        {renderMain()}
+        {canvasQuote?<CanvasProductionDialog quote={canvasQuote} busy={canvasStarting} onCancel={()=>setCanvasQuote(null)} onConfirm={confirmCanvasProduction}/>:null}
         {replicateConfirm ? (
           <div className="modal-overlay" onClick={() => closeReplicateConfirmation(false)}>
             <div className="modal small" onClick={(e) => e.stopPropagation()}>
@@ -1457,7 +1501,6 @@ export default function App() {
             </div>
           </div>
         ) : null}
-      </div>
-    </div>
+    </WorkspaceShell>
   )
 }

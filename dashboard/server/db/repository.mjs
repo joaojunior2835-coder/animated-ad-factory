@@ -472,6 +472,7 @@ export function _deriveLineageFromJob(db, jobId) {
     .prepare(
       `SELECT j.id            AS jobId,
               j.provider      AS provider,
+              j.capability    AS capability,
               j.status        AS jobStatus,
               j.production_run_id AS productionRunId,
               pr.creative_id  AS creativeId,
@@ -499,6 +500,7 @@ export function _deriveLineageFromJob(db, jobId) {
     job: { id: Number(row.jobId), provider: row.provider, status: row.jobStatus },
     jobId: Number(row.jobId),
     provider: row.provider,
+    capability: row.capability,
     productionRunId: Number(row.productionRunId),
     creativeId: Number(row.creativeId),
     iterationId: Number(row.iterationId),
@@ -548,7 +550,8 @@ export function reserveBudget({
         }
       }
 
-      const baseCurrencyAmountMinor = Math.round(originalAmountMinor * fxRate)
+      const baseCurrencyAmountMinor = lineage.capability === 'generate_image' && originalAmountMinor > 0
+        ? Math.ceil(originalAmountMinor * fxRate) : Math.round(originalAmountMinor * fxRate)
 
       const ceiling = lineage.executionPolicySnapshot?.budgetCeilingMinor
       if (typeof ceiling !== 'number' || !Number.isFinite(ceiling)) {
@@ -660,7 +663,8 @@ export function settleJob({
         return { alreadySettled: true, currentStatus: reservation.status }
       }
 
-      const baseCurrencyAmountMinor = Math.round(actualAmountMinor * fxRate)
+      const baseCurrencyAmountMinor = lineage.capability === 'generate_image' && actualAmountMinor > 0
+        ? Math.ceil(actualAmountMinor * fxRate) : Math.round(actualAmountMinor * fxRate)
 
       // Record the real amount even if it exceeds the reservation or the
       // ceiling. The ledger records what happened; it is never massaged to fit.

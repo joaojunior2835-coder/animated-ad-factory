@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Isolated Canvas interaction fixture</title></head>
+<body style="margin:0"><div id="root"></div>
+<script type="module">
+  import React, { useEffect, useRef, useState } from 'react'
+  import { createRoot } from 'react-dom/client'
+  import NodeCanvas from '/src/components/nodecanvas/NodeCanvas.jsx'
+  import { addConnection, addNode, emptyNodeCanvas, newNode, normalizeNodeCanvas, propagateResultToOutputs, updateNodeData } from '/src/lib/nodeCanvasModel.js'
+  import { canvasNodeFingerprint, compileCanvasExecution } from '/src/lib/nodeCanvasExecution.js'
+  import '/src/styles.css'
+  const e = React.createElement
+  const capabilities = [
+    { id:'mock-image', provider:'mock', model:'mock-image', label:'Local image fixture', capability:'generate_image', modes:['text-to-image'], aspects:['1:1','9:16'], imageSizes:[{id:'square',width:1024,height:1024,label:'Square · 1024 × 1024'},{id:'portrait',width:576,height:1024,label:'Portrait · 576 × 1024'}], quantity:{min:1,max:4}, configured:true, priced:true, references:{image:0,video:0}, audio:false },
+    { id:'mock-video', provider:'mock', model:'mock-video', label:'Local video fixture', capability:'generate_video', modes:['text-to-video','image-to-video','reference-to-video'], aspects:['9:16','16:9','1:1'], resolutions:['480p','720p'], durations:[4,5,6], quantity:{min:1,max:4}, configured:true, priced:true, references:{image:9,video:1}, audio:true }
+  ]
+  const media = [{ id:101, asset_id:101, file_name:'Synthetic product reference', local_url:'/__canvas_qa__/product.svg', mime_type:'image/png', width:1024, height:1024 }]
+  function seed() {
+    let graph = {...emptyNodeCanvas(),name:'Product launch · interaction QA',zoom:.78,pan_x:35,pan_y:28}
+    function node(type,id,x,y,data={}) {const item=newNode(type,x,y);item.id=id;item.data={...item.data,...data};graph=addNode(graph,item);return item}
+    const prompt=node('prompt','prompt-main',0,0,{text:'A factual close-up of the product, with soft daylight and a charcoal background.'})
+    const image=node('image_generator','image-main',340,0,{image_size:'square',model_id:'mock-image'})
+    const video=node('video_generator','video-main',680,0,{user_prompt:'Slow camera push-in, keeping the product composition clear.',resolution:'480p',model_id:'mock-video'})
+    const output=node('output','output-main',1020,0)
+    for(const [from,out,to,input] of [[prompt,'prompt',image,'prompt'],[image,'image',video,'start_frame'],[video,'video',output,'video']]) graph=addConnection(graph,{from_node:from.id,from_socket:out,to_node:to.id,to_socket:input})
+    node('reference','reference-main',0,800,{label:'Product reference',local_url:media[0].local_url,asset_id:101,file_name:'Synthetic product reference',mime_type:'image/png'})
+    node('style','style-main',340,800,{style_description:'Neutral charcoal surfaces, warm directional light.'})
+    node('character','character-main',680,800,{character_name:'Optional presenter',description:'A manual reference slot; no generated identity.'})
+    node('upscale','upscale-main',1020,800)
+    node('prompt','prompt-alt',0,1400,{text:'Alternative scene draft.'})
+    node('image_generator','image-alt',340,1400,{user_prompt:'An alternate composition.',image_size:'square',model_id:'mock-image'})
+    node('video_generator','video-alt',680,1400,{user_prompt:'A second video concept.',resolution:'480p',model_id:'mock-video'})
+    node('asset','asset-main',1020,1400,{asset_id:101,local_url:media[0].local_url,file_name:'Synthetic product reference'})
+    return graph
+  }
+  function Fixture() {
+    const [canvas,setCanvas]=useState(null), ref=useRef(null), [calls,setCalls]=useState(0)
+    ref.current=canvas
+    useEffect(()=>{fetch('/__canvas_qa__/state').then(r=>r.json()).then(value=>setCanvas(normalizeNodeCanvas(value.canvas || seed(),{preserveRuntimeStatus:true})))},[])
+    useEffect(()=>{if(canvas)fetch('/__canvas_qa__/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({canvas})})},[canvas])
+    useEffect(()=>{window.__canvasQA={read:()=>structuredClone(ref.current),replace:next=>setCanvas(normalizeNodeCanvas(next,{preserveRuntimeStatus:true})),calls:()=>calls,capabilities};return()=>{delete window.__canvasQA}},[calls])
+    const change=fn=>setCanvas(current=>typeof fn==='function'?fn(current):fn)
+    const request=async scope=>{
+      const compiled=compileCanvasExecution(ref.current,{...scope,capabilities})
+      if(compiled.blockers.length)throw new Error(compiled.blockers[0].message)
+      setCalls(value=>value+1)
+      setCanvas(current=>{
+        let next=current
+        for(const [index,step] of compiled.steps.entries()) {
+          const image=step.capability==='generate_image',assetId=501+index,local_url=image?'/__canvas_qa__/product.svg':'/mock-video-output.mp4'
+          next=updateNodeData(next,step.nodeId,{status:'done',stale:false,result_asset_id:assetId,result_local_url:local_url,result_saved:true,result_mime_type:image?'image/png':'video/mp4'})
+          next=propagateResultToOutputs(next,step.nodeId,{asset_id:assetId,local_url,media_type:image?'image':'video'})
+          next=updateNodeData(next,step.nodeId,{generated_fingerprint:canvasNodeFingerprint(next,step.nodeId)})
+        }
+        return next
+      })
+    }
+    return e('main',{style:{padding:12,minHeight:'100vh',background:'#0b0d0f'}},e('p',{style:{fontSize:12,color:'#a5abb4',margin:'0 0 8px'}},'Isolated Canvas interaction QA · synthetic media · no provider connection'),canvas?e(NodeCanvas,{nodeCanvas:canvas,onChange:change,capabilities,savedMedia:media,onRequestProduction:request}):e('p',null,'Loading isolated fixture…'))
+  }
+  createRoot(document.getElementById('root')).render(e(Fixture))
+</script></body></html>

@@ -5,6 +5,7 @@ import { getDb, getFxRate, setFxRate } from '../db/repository.mjs'
 import { reviewQueue, reviewCreative, approveManualPlan, analysisSummary, runDetails } from './operator.mjs'
 import { assembleProductionRun, completeExternalRun, videoTool, runVideoTool } from './assembly.mjs'
 import { generatorOptions, createGeneratorCreative, generatorWorkspace, saveGeneratorScenes, estimateGenerator, quoteGenerator, startGenerator, chooseGeneratorResult, assembleGenerator } from './creativeGenerator.mjs'
+import { quoteCanvas, startCanvas, canvasProductionStatus } from './canvasProduction.mjs'
 
 export async function operatorRoute(req, res, url, send) {
   if (!url.pathname.startsWith('/api/operator/')) return false
@@ -18,6 +19,14 @@ export async function operatorRoute(req, res, url, send) {
     }
     let data
     const route = url.pathname.slice('/api/operator/'.length)
+    const canvas=/^canvas\/([a-zA-Z0-9_-]+)\/(quote|start|status)$/.exec(route)
+    if(canvas){
+      if(req.method==='POST'&&canvas[2]==='quote')data=quoteCanvas(canvas[1],body)
+      else if(req.method==='POST'&&canvas[2]==='start')data=await startCanvas(canvas[1],body)
+      else if(req.method==='GET'&&canvas[2]==='status')data=canvasProductionStatus(canvas[1])
+      else throw new Error('Unknown Canvas production action.')
+      send(res,200,{ok:true,...data});return true
+    }
     if (req.method === 'POST' && route === 'references/analyze') { send(res,200,{ok:true,analysis:await analyzeReference(body)}); return true }
     if (req.method === 'POST' && route === 'references/validate') { send(res,200,{ok:true,...await validateReferenceAsset(body.assetId,body.kind)}); return true }
     if (req.method === 'POST' && /^generator\/\d+\/remix-prompt$/.test(route)) { send(res,200,{ok:true,...promptForRemix(Number(route.split('/')[1]),body.scene)}); return true }

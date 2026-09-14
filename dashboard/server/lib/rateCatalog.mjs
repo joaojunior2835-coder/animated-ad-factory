@@ -6,6 +6,10 @@
 import { REPLICATE_VIDEO_MODELS, estimateVideoCost } from '../providers/replicateVideoProvider.mjs'
 import { FAL_SEEDANCE_RATES_USD_PER_SECOND } from '../providers/falProvider.mjs'
 import { referenceInputs } from './referenceRemix.mjs'
+import { FAL_IMAGE_MODEL, IMAGE_SIZES } from '../providers/falImageModel.mjs'
+
+// Official model page, verified 2026-09-15. Each output rounds up megapixels.
+export const FAL_IMAGE_RATE = Object.freeze({ usdPerMegapixel: 0.003, source: 'https://fal.ai/models/fal-ai/flux/schnell', verifiedAt: '2026-09-15', billingUnit: 'rounded_up_megapixel_per_image' })
 
 // Verified 2026-09-14 via GET api.fal.ai/v1/models/pricing for this endpoint.
 // Formula: fal.ai/models/bytedance/seedance-2.0/fast/reference-to-video
@@ -31,6 +35,7 @@ export function getConfiguredRates() {
 
   return {
     image: {
+      [FAL_IMAGE_MODEL]: { currency: 'USD', configured: isConfigured('FAL_API_KEY'), ...FAL_IMAGE_RATE },
       pollinations: {
         costPerImageMinor: null,
         currency: 'USD',
@@ -81,6 +86,17 @@ export function getConfiguredRates() {
     // must resolve to COST_UNKNOWN downstream.
     voice: {},
   }
+}
+
+/** Raw fractional USD cents; do not round to zero before the reserve boundary. */
+export function estimateImageJobCost(model, params = {}) {
+  const size = IMAGE_SIZES.find(s => s.id === (params.image_size || params.imageSize || 'square_hd'))
+  if (!size) return { unknown: true, reason: 'Unsupported image size.' }
+  if (model === 'mock-image') return { unknown: false, costMinor: 0, sourceUsd: 0, currency: 'EUR', pricingBasis: 'local_mock' }
+  if (model !== FAL_IMAGE_MODEL || !isConfigured('FAL_API_KEY')) return { unknown: true, reason: 'Image provider not configured or model price unavailable.' }
+  const megapixels = Math.ceil(size.width * size.height / 1_000_000)
+  const sourceUsd = megapixels * FAL_IMAGE_RATE.usdPerMegapixel
+  return { unknown: false, costMinor: sourceUsd * 100, sourceUsd, currency: 'USD', megapixels, pricingBasis: 'catalog_estimate', pricingSource: FAL_IMAGE_RATE.source }
 }
 
 /**
