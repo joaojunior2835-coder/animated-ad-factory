@@ -81,7 +81,8 @@ const KEY_NAMES = {
   openrouter: 'OPENROUTER_API_KEY',
   groq: 'GROQ_API_KEY',
   pollinations: 'POLLINATIONS_API_KEY',
-  replicate: 'REPLICATE_API_TOKEN'
+  replicate: 'REPLICATE_API_TOKEN',
+  fal: 'FAL_API_KEY'
 }
 
 // The configured OpenAI model name (not a secret). Safe to expose for display.
@@ -343,6 +344,7 @@ const server = http.createServer(async (req, res) => {
       pollinations_image_configured: Boolean(cfg.pollinations),
       mock_video: true,
       replicate: Boolean(cfg.replicate),
+      fal: Boolean(cfg.fal),
       db: checkDbConnectivity() // real query against factory.db, not a file-exists check
     })
   }

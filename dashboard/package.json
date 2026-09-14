@@ -15,9 +15,12 @@
     "qa:e2e": "node scripts/qa-e2e.mjs",
     "qa:all": "npm run build && npm run test:docs && npm run qa:canvas && npm run qa:e2e",
     "dev:server": "node server/index.mjs",
+    "dev:mcp": "node server/mcp.mjs",
     "dev:all": "node server/dev-all.mjs"
   },
   "dependencies": {
+    "@fal-ai/client": "^1.10.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "adm-zip": "^0.6.1",
     "better-sqlite3": "^13.0.3",
     "cheerio": "^1.2.0",
@@ -26,7 +29,8 @@
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "replicate": "^1.4.0"
+    "replicate": "^1.4.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
