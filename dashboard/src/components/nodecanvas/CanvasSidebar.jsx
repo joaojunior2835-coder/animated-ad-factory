@@ -7,6 +7,12 @@ import { nodeColor, nodeIcon } from './nodeTheme.js'
 // node uses). Pure UI — all mutations go up through props.
 
 const PALETTE = ['prompt', 'image_generator', 'video_generator', 'reference', 'character', 'style', 'output', 'upscale', 'upload', 'asset']
+const PALETTE_GROUPS = [
+  ['INPUTS', ['upload', 'asset', 'prompt']],
+  ['GENERATORS', ['image_generator', 'video_generator']],
+  ['OUTPUT', ['output']],
+  ['ADVANCED', ['reference', 'character', 'style', 'upscale']]
+]
 
 const CATEGORY_ORDER = { Test: 0, Manual: 1, Premium: 2 }
 const categoryRank = (c) => (c in CATEGORY_ORDER ? CATEGORY_ORDER[c] : 3)
@@ -104,27 +110,31 @@ export default function CanvasSidebar({ open, onToggle, models, onSpawn, onUseMo
 
       {tab === 'palette' ? (
         <div className="ncsb-body" role="tabpanel" aria-label="Node palette">
-          <p className="hint small">Drag a card onto the board, or click to add at center.</p>
-          {PALETTE.map((t) => (
-            <div
-              key={t}
-              className="ncsb-node-card"
-              style={{ borderLeft: `3px solid ${nodeColor(t)}` }}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = 'copy'
-                e.dataTransfer.setData('application/x-aaf-node-type', t)
-              }}
-              onClick={() => onSpawn(t)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpawn(t) } }}
-              aria-label={`Add ${NODE_DEFS[t].title} node`}
-              title={`Add a ${NODE_DEFS[t].title} node`}
-            >
-              <span aria-hidden="true">{nodeIcon(t)}</span>
-              <span>{NODE_DEFS[t].title}</span>
-            </div>
+          {PALETTE_GROUPS.map(([label, types]) => (
+            <section className="ncsb-group" key={label} aria-label={label}>
+              <h4>{label}</h4>
+              {types.filter((t) => PALETTE.includes(t)).map((t) => (
+                <div
+                  key={t}
+                  className="ncsb-node-card"
+                  style={{ borderLeft: `3px solid ${nodeColor(t)}` }}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'copy'
+                    e.dataTransfer.setData('application/x-aaf-node-type', t)
+                  }}
+                  onClick={() => onSpawn(t)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpawn(t) } }}
+                  aria-label={`Add ${NODE_DEFS[t].title} node`}
+                  title={`Add a ${NODE_DEFS[t].title} node`}
+                >
+                  <span aria-hidden="true">{nodeIcon(t)}</span>
+                  <span>{NODE_DEFS[t].title}</span>
+                </div>
+              ))}
+            </section>
           ))}
         </div>
       ) : (

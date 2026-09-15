@@ -45,7 +45,10 @@
 .iw-diagnostics { margin: 10px 0; color: var(--muted); font-size: 12px; }
 .iw-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
 .iw-composer { position: sticky; bottom: 0; z-index: 10; margin-top: auto; padding: 18px 20px 14px; background: var(--panel-2); border: 1px solid #4b5159; border-radius: 18px; box-shadow: 0 12px 40px #0005; }
-.iw-prompt-label { display: block; margin-bottom: 7px; font-size: 11px; color: var(--muted); }
+.iw-prompt-row { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+.iw-attach { width:38px; min-height:38px; border-radius:999px; display:grid; place-items:center; font-size:20px; padding:0; }
+.iw-attach:disabled { opacity:.42; cursor:not-allowed; }
+.iw-prompt-label { display: block; margin:0; font-size: 11px; color: var(--muted); }
 .iw-composer textarea { display: block; width: 100%; min-height: 76px; max-height: 240px; resize: vertical; padding: 2px 0 12px; border: 0; border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; line-height: 1.6; }
 .iw-composer textarea:focus { outline: none; }
 .iw-composer textarea::placeholder { color: #89909a; }

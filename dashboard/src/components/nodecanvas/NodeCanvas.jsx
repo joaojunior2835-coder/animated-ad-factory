@@ -1462,6 +1462,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
 
   const review = runReview ? compileCanvasExecution(nc, { ...runReview, capabilities }) : null
   const selectedNode = selected.length === 1 ? (nc.nodes || []).find((node) => node.id === selected[0]) : null
+  const selectedNodeTitle = selectedNode ? (selectedNode.data?.label || NODE_DEFS[selectedNode.type]?.title || 'Node') : ''
   useEffect(() => {
     if (!runReview && !(narrow && propertiesOpen && selectedNode)) return
     const previous = document.activeElement
@@ -1518,7 +1519,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
       <div className="row between">
         <h2>Canvas</h2>
         <span className="hint small">
-          Connect a creative workflow. Review its scope and price before running.
+          Build with nodes. Select one to edit its settings.
         </span>
       </div>
       <CanvasToolbar
@@ -1632,7 +1633,7 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
                     else delete nodeEls.current[node.id]
                   }}
                   className={`gnode${isSelected(node.id) ? ' selected' : ''}${d.status === 'error' ? ' has-error' : ''}`}
-                  style={{ left: node.x, top: node.y, width: node.width || 280, borderLeft: `3px solid ${nodeColor(node.type)}` }}
+                  style={{ left: node.x, top: node.y, width: node.width || 248, borderLeft: `3px solid ${nodeColor(node.type)}` }}
                   onMouseDown={(e) => onNodeMouseDown(e, node)}
                   aria-label={`${def ? def.title : node.type} node: ${title}`}
                   data-node-id={node.id}
@@ -1701,14 +1702,14 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
                     </div>
                   ) : null}
 
-                  {isSelected(node.id) && !narrow ? renderBody(node) : <div className="nc-node-summary" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+                  <div className="nc-node-summary" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
                     {renderThumb(d.result_local_url || d.result_external_url || d.final_local_path || d.final_media_url || d.local_url || d.file_url || d.ref_image_url || '', title)}
                     {d.text || d.user_prompt ? <p>{d.text || d.user_prompt}</p> : null}
                     <div className="nc-node-chips">{d.model_id ? <span>{capabilities.find((model) => model.id === d.model_id)?.label || modelById(d.model_id)?.name || d.model_id}</span> : null}{d.aspect_ratio ? <span>{d.aspect_ratio}</span> : null}{node.type === 'video_generator' ? <span>{d.duration_seconds}s</span> : null}</div>
                     {GENERATOR_TYPES.includes(node.type) ? renderGenFooter(node) : null}
                     {onUseInCreative && (d.selected_asset_id || d.result_asset_id) ? <button className="primary small" onClick={() => Promise.resolve(onUseInCreative(node.id)).catch((error) => setBoardNotice(error.message || 'Could not link this Asset to the Creative.'))}>Use in Creative</button> : null}
                     <button className="ghost small" onClick={() => { setSelected([node.id]); setPropertiesOpen(true) }}>Edit properties</button>
-                  </div>}
+                  </div>
                 </div>
               )
             })}
@@ -1730,8 +1731,9 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
           <div className="nc-zoom" onMouseDown={(event) => event.stopPropagation()}><button className="ghost small" aria-label="Zoom out" onClick={() => zoomAtCenter(1 / 1.2)}>−</button><span aria-label="Canvas zoom">{Math.round(view.zoom * 100)}%</span><button className="ghost small" aria-label="Zoom in" onClick={() => zoomAtCenter(1.2)}>+</button></div>
           {renderMiniMap()}
 
-          {(nc.nodes || []).length === 0 ? <div className="node-canvas-hint">Right-click anywhere (or use the palette) to add a node: Prompt, Image/Video Generator, Reference, Character, Style, Output, Upscale, Upload, Asset.</div> : null}
+          {(nc.nodes || []).length === 0 ? <div className="node-canvas-hint"><h3>Start a workflow</h3><p>Choose a starter or add a node from the palette.</p><div className="nc-starter-buttons"><button className="primary small" onClick={(event) => { event.stopPropagation(); startTemplate('image-video') }}>Image to Video</button><button className="ghost small" onClick={(event) => { event.stopPropagation(); spawnAt('prompt', 0, 0) }}>Prompt</button><button className="ghost small" onClick={(event) => { event.stopPropagation(); spawnAt('upload', 0, 0) }}>Media</button></div></div> : null}
         </div>
+        {!narrow && selectedNode ? <aside className="nc-properties nc-properties-side" aria-label="Selected node inspector"><header><h3>{selectedNodeTitle}</h3><button className="ghost small" onClick={() => { setSelected([]); setPropertiesOpen(false) }}>Close</button></header>{renderBody(selectedNode)}</aside> : null}
       </div>
       {narrow && propertiesOpen && selectedNode ? <div className="nc-properties-backdrop" onClick={() => setPropertiesOpen(false)}><section className="nc-properties" role="dialog" aria-modal="true" aria-label="Node properties" onClick={(event) => event.stopPropagation()}><header><h3>{selectedNode.data?.label || NODE_DEFS[selectedNode.type]?.title || 'Node'}</h3><button className="ghost" autoFocus onClick={() => setPropertiesOpen(false)}>Close</button></header>{renderBody(selectedNode)}</section></div> : null}
       {review ? <div className="modal-overlay" onClick={() => !productionBusy && setRunReview(null)}><section className="modal nc-run-review" role="dialog" aria-modal="true" aria-label="Review Canvas execution" onClick={(event) => event.stopPropagation()}><div className="modal-head"><h3>{runReview.scope === 'node' ? 'Run node and required inputs' : runReview.scope === 'selection' ? 'Run selected path' : 'Run workflow'}</h3><button className="ghost" autoFocus disabled={productionBusy} onClick={() => setRunReview(null)}>Close</button></div><div className="modal-body"><p>{review.closureNodeIds.length} nodes in scope · {review.steps.length} generation steps · {review.outputCount} requested outputs</p><p>Current outputs are reused. Missing or stale steps receive a fresh quote and confirmation.</p>{review.blockers.length ? <ul className="note bad">{review.blockers.map((blocker, index) => <li key={`${blocker.nodeId}-${index}`}>{nc.nodes.find((node) => node.id === blocker.nodeId)?.data?.label || 'Graph'}: {blocker.message}</li>)}</ul> : null}<ol>{review.steps.map((step) => <li key={step.nodeId}><strong>{step.provenance.label}</strong> · {capabilities.find((model) => model.id === step.modelId)?.label || step.modelId} · {step.params.quantity} output(s){step.params.seconds ? ` · ${step.params.seconds}s` : ''}{step.params.resolution ? ` · ${step.params.resolution}` : ''}</li>)}</ol>{!review.steps.length && !review.blockers.length ? <p>All outputs in this path are current. Edit inputs to create a new draft.</p> : null}<button className="primary" disabled={productionBusy || review.blockers.length > 0 || !review.steps.length} onClick={async () => { setProductionBusy(true); try { await onRequestProduction({ ...runReview, graphFingerprint: review.graphFingerprint }); setRunReview(null) } catch (error) { setBoardNotice(error.message || 'Could not prepare the execution quote.') } finally { setProductionBusy(false) } }}>{productionBusy ? 'Preparing quote…' : 'Review total cost'}</button><small>Connecting nodes and preparing this scope do not generate media.</small></div></section></div> : null}

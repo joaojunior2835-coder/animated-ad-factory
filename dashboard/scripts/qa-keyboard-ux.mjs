@@ -83,8 +83,8 @@ try {
 
   const proofs = []
   await nav('video')
-  await page.getByLabel('Scene 1 prompt', { exact: true }).waitFor()
-  proofs.push(await typeNaturally('Video prompt', page.getByLabel('Scene 1 prompt', { exact: true })))
+  await page.getByLabel('Video prompt', { exact: true }).waitFor()
+  proofs.push(await typeNaturally('Video prompt', page.getByLabel('Video prompt', { exact: true })))
 
   await nav('remix')
   await page.getByLabel('What should change?', { exact: true }).waitFor()
@@ -104,7 +104,8 @@ try {
 
   await nav('node_canvas')
   await page.getByLabel('Add starter graph').selectOption('image-video')
-  const canvasText = page.locator('.gnode textarea').first()
+  await page.locator('[aria-label^="Prompt node"]').first().getByRole('button', { name: 'Edit properties', exact: true }).click()
+  const canvasText = page.getByLabel('Prompt text', { exact: true })
   await canvasText.waitFor()
   proofs.push(await typeNaturally('Canvas prompt', canvasText))
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
