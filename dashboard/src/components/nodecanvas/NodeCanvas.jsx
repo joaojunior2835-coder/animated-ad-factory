@@ -36,6 +36,7 @@ import { apiBase, saveMediaToLocal } from '../../lib/ai/apiClient.js'
 import { nodeColor, nodeIcon } from './nodeTheme.js'
 import CanvasSidebar from './CanvasSidebar.jsx'
 import CanvasToolbar from './CanvasToolbar.jsx'
+import { isEditableTarget } from '../../lib/editableTarget.js'
 import './nodeCanvas.css'
 
 // Read an image file client-side: data_url (session preview) + real dimensions.
@@ -460,13 +461,12 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
 
   // ---- keyboard: delete selection/wire, escape, space-pan ----
   useEffect(() => {
-    function isTyping() {
-      const tag = (document.activeElement && document.activeElement.tagName) || ''
-      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable
+    function isTyping(event) {
+      return isEditableTarget(event?.target) || isEditableTarget(document.activeElement)
     }
     function down(e) {
       if (runReview || (narrow && propertiesOpen) || resultModalNodeId) return
-      if (e.code === 'Space' && !isTyping()) {
+      if (e.code === 'Space' && !isTyping(e)) {
         spaceDown.current = true
         return
       }
@@ -479,26 +479,26 @@ export default function NodeCanvas({ nodeCanvas, onChange, savedMedia = [], onGe
         setSelectedWire(null)
         return
       }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !isTyping()) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !isTyping(e)) {
         e.preventDefault()
         if (e.shiftKey) redo(); else undo()
         return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !isTyping()) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !isTyping(e)) {
         e.preventDefault(); redo()
         return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && !isTyping()) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && !isTyping(e)) {
         e.preventDefault(); duplicateSelection()
         return
       }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !isTyping()) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !isTyping(e)) {
         e.preventDefault()
         setSelected((nc.nodes || []).map((n) => n.id))
         return
       }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
-      if (isTyping()) return
+      if (isTyping(e)) return
       if (selectedWire) {
         pushHistory()
         onChange((c) => removeConnection(c, selectedWire))

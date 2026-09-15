@@ -38,7 +38,7 @@ try {
   page.on('dialog', (dialog) => dialog.accept())
   page.setDefaultTimeout(20000)
   await check('UI loads with no error overlay and healthy keyless backend/MCP', async () => {
-    await page.goto('http://127.0.0.1:5173')
+    await page.goto('http://localhost:5173')
     await page.getByRole('button', { name: /Product Tests/ }).click()
     await page.getByTestId('new-product-test').waitFor()
     assert.equal(await page.locator('vite-error-overlay').count(), 0)
@@ -225,7 +225,7 @@ try {
     await remote.addInitScript(() => localStorage.setItem('API_BASE_URL', 'http://127.0.0.1:8787'))
     await remote.route(tunnel + '/**', async (route) => {
       const url = new URL(route.request().url())
-      const target = /^\/(api|health|media|mock-video-output)/.test(url.pathname) ? api : 'http://127.0.0.1:5173'
+      const target = /^\/(api|health|media|mock-video-output)/.test(url.pathname) ? api : 'http://localhost:5173'
       const response = await route.fetch({ url: target + url.pathname + url.search })
       await route.fulfill({ response })
     })
@@ -242,8 +242,8 @@ try {
     assert.deepEqual(loopback, []); assert.deepEqual(remoteErrors, [])
     assert.equal(await tab.evaluate(async () => (await import('/src/lib/ai/apiClient.js')).apiBase()), '')
     // Also exercise the actual Vite proxy read-only, without exposing a port.
-    assert.equal((await fetch('http://127.0.0.1:5173/health')).status, 200)
-    assert.equal((await fetch('http://127.0.0.1:5173/mock-video-output.mp4')).status, 200)
+    assert.equal((await fetch('http://localhost:5173/health')).status, 200)
+    assert.equal((await fetch('http://localhost:5173/mock-video-output.mp4')).status, 200)
     await remote.close()
   })
   console.log(`Operator browser QA: ${passed}/${passed} PASS; zero paid calls`)

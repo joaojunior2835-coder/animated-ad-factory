@@ -25,11 +25,11 @@ try{
   const external=[],errors=[]
   await context.route('**/*',route=>{const u=new URL(route.request().url());if(!['localhost','127.0.0.1'].includes(u.hostname)){external.push(u.hostname);return route.abort()}return route.continue()})
   page=await context.newPage();page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept())
-  await check('Create Ad has obvious scratch / remix navigation',async()=>{await page.goto('http://127.0.0.1:5173');await page.getByTestId('creative-generator').waitFor();await page.getByRole('button',{name:/Remix Reference Ad/}).click();await page.getByText('New Product Test',{exact:true}).click();await page.getByLabel('Product name',{exact:true}).fill('Our travel suitcase');await page.getByRole('button',{name:'Create Product Test',exact:true}).click();await page.getByLabel('Product Test',{exact:true}).getByRole('option',{name:'Our travel suitcase'}).waitFor({state:'attached'})})
+  await check('Create Ad has obvious scratch / remix navigation',async()=>{await page.goto('http://localhost:5173');await page.getByTestId('creative-generator').waitFor();await page.getByRole('button',{name:/Remix Reference Ad/}).click();await page.getByText('New product',{exact:true}).click();await page.getByLabel('Product name',{exact:true}).fill('Our travel suitcase');await page.getByRole('button',{name:'Create product',exact:true}).click();await page.getByLabel('Product Test',{exact:true}).getByRole('option',{name:'Our travel suitcase'}).waitFor({state:'attached'})})
   for(const [idx,mode] of ['product_swap','background_swap','full_remix'].entries()){
     const id=idx+1,scene=()=>page.getByTestId('generator-scene-1')
     await check(mode+': upload video/image and type one instruction',async()=>{
-      await page.getByLabel('New Creative title').fill(mode);await page.getByRole('button',{name:'Create Creative',exact:true}).click();await page.getByRole('heading',{name:mode,exact:true}).waitFor()
+      await page.getByLabel('New Creative title').fill(mode);await page.getByRole('button',{name:'Create ad',exact:true}).click();await page.getByRole('heading',{name:mode,exact:true}).waitFor()
       await scene().waitFor();await saved();assert.equal((await read(id)).scenes.length,1)
       if(mode==='background_swap')await scene().getByLabel('Reference video from Media Library',{exact:true}).selectOption(String((await read(1)).scenes[0].remix.sourceAssetId));else await scene().getByLabel('Upload reference video',{exact:true}).setInputFiles(video);await scene().getByText(/Original preserved locally/).waitFor();await saved()
       if(mode==='background_swap'){await scene().getByLabel('Reference image from Media Library',{exact:true}).selectOption(String((await read(1)).scenes[0].remix.images[0].assetId));await scene().getByRole('button',{name:'Add selected reference',exact:true}).click()}else await scene().getByLabel('Upload reference image',{exact:true}).setInputFiles(image);await scene().getByAltText('@Product reference').waitFor();await saved()
@@ -39,7 +39,7 @@ try{
       await saved();assert.equal((await read(id)).scenes[0].remix.editMode,mode)
     })
     await check(mode+': automatic preparation; Advanced editing remains optional',async()=>{
-      await scene().getByText(/Reference analyzed/).waitFor();await saved()
+      await scene().locator('p[role="status"]').filter({hasText:/Reference analyzed|Ready/}).waitFor();await saved()
       if(mode==='product_swap'){
         assert.equal(await scene().locator('.remix-advanced').getAttribute('open'),null)
         for(const name of ['Analyze reference','Build adapted script & prompt'])assert.equal(await scene().getByRole('button',{name,exact:true}).isVisible(),false)
@@ -103,13 +103,13 @@ try{
     await page.reload()
   })
   await check('Automatic analysis failure blocks generation and preserves upload for non-paid retry',async()=>{
-    await page.setViewportSize({width:390,height:844});await page.getByLabel('New Creative title').fill('Mobile motion remix');await page.getByRole('button',{name:'Create Creative',exact:true}).click();await page.getByRole('heading',{name:'Mobile motion remix',exact:true}).waitFor()
+    await page.setViewportSize({width:390,height:844});await page.getByLabel('New Creative title').fill('Mobile motion remix');await page.getByRole('button',{name:'Create ad',exact:true}).click();await page.getByRole('heading',{name:'Mobile motion remix',exact:true}).waitFor()
     const s=page.getByTestId('generator-scene-1');await s.getByLabel('Remix mode',{exact:true}).selectOption('motion_transfer');await saved()
     let release;const gate=new Promise(resolve=>{release=resolve})
     await page.route(api+'/api/operator/references/analyze',async route=>{await gate;return route.fulfill({status:503,json:{ok:false,error:'Local analysis unavailable (QA)'}})})
-    await s.getByLabel('Upload reference video',{exact:true}).setInputFiles(video);await s.getByText('Analyzing reference…',{exact:true}).waitFor();assert.equal(await s.getByRole('button',{name:'Generate remix',exact:true}).isDisabled(),true);release()
-    await s.getByRole('button',{name:'Retry reference analysis',exact:true}).waitFor();await saved();let w=await read(5);assert.ok(w.scenes[0].remix.sourceAssetId);assert.equal(w.scenes[0].remix.preparedAssetId,null);assert.equal(w.scenes[0].runId,undefined);assert.equal(await s.getByRole('button',{name:'Generate remix',exact:true}).isDisabled(),true)
-    await page.unroute(api+'/api/operator/references/analyze');await s.getByRole('button',{name:'Retry reference analysis',exact:true}).click();await s.getByText(/Reference analyzed/).waitFor();await saved();w=await read(5);assert.ok(w.scenes[0].remix.preparedAssetId)
+    await s.getByLabel('Upload reference video',{exact:true}).setInputFiles(video);await s.getByText(/Analyzing reference|Preparing reference/,{exact:true}).waitFor();assert.equal(await s.getByRole('button',{name:'Generate remix',exact:true}).isDisabled(),true);release()
+    await s.getByRole('button',{name:/Retry reference analysis|Retry reference preparation/}).waitFor();await saved();let w=await read(5);assert.ok(w.scenes[0].remix.sourceAssetId);assert.equal(w.scenes[0].remix.preparedAssetId,null);assert.equal(w.scenes[0].runId,undefined);assert.equal(await s.getByRole('button',{name:'Generate remix',exact:true}).isDisabled(),true)
+    await page.unroute(api+'/api/operator/references/analyze');await s.getByRole('button',{name:/Retry reference analysis|Retry reference preparation/}).click();await s.locator('p[role="status"]').filter({hasText:/Reference analyzed|Ready/}).waitFor();await saved();w=await read(5);assert.ok(w.scenes[0].remix.preparedAssetId)
   })
   await check('Mobile Motion Transfer: references + one sentence -> confirmation -> result, Advanced never opened',async()=>{
     const s=page.getByTestId('generator-scene-1');await s.getByLabel('Upload reference image',{exact:true}).setInputFiles(image);await s.getByAltText('@Product reference').waitFor();await saved()
@@ -123,7 +123,7 @@ try{
     await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.getByTestId('generator-scene-1').scrollIntoViewIfNeeded();await page.screenshot({path:'qa-artifacts/remix-mobile.png'});assert.deepEqual(errors,[]);assert.deepEqual(external,[])
   })
   await check('Older saved draft generates a fresh quote without Advanced or re-editing its instruction',async()=>{
-    await page.getByLabel('New Creative title').fill('Older saved draft');await page.getByRole('button',{name:'Create Creative',exact:true}).click();await page.getByRole('heading',{name:'Older saved draft',exact:true}).waitFor()
+    await page.getByLabel('New Creative title').fill('Older saved draft');await page.getByRole('button',{name:'Create ad',exact:true}).click();await page.getByRole('heading',{name:'Older saved draft',exact:true}).waitFor()
     const old=await read(6),reference=(await read(5)).scenes[0]
     const scene={...old.scenes[0],remix:{...reference.remix,script:'',scriptApproved:false,promptContext:''},prompt:''}
     const response=await fetch(api+'/api/operator/generator/6/scenes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:old.revision,scenes:[scene]})});assert.equal(response.status,200)

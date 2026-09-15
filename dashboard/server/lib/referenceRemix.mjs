@@ -154,12 +154,23 @@ export function buildRemixPrompt(scene, productName, creative = {}) {
   const r=normalizeRemix(scene.remix),aliases=referenceAliases(r.images)
   const beats=(r.analysis?.beats || []).slice(0,24).map(b=>`${b.start}–${b.end}s: ${b.label}. ${b.description || ''}`).join('\n')
   const script=r.script.trim() || [`Meet ${productName}.`,creative.hook_text || `See ${productName} in everyday use.`,`Show the product details clearly.`,`Discover ${productName}.`].join('\n')
-  let prompt=[`Create a new ${r.editMode.replaceAll('_',' ')} ad for ${productName}. Use @Video1 as structural, motion and pacing reference; interpret guidance, not a pixel-perfect edit.`,
+  const modeGuidance = {
+    product_swap: `Object swap for ${productName}. Use @Video1 as the structure: same camera, motion, timing, scene order, subject action, framing, environment and lighting. Change only the requested object/product as closely as the model allows. Do not add an intro, outro, CTA, extra scene, new camera move or unrelated action unless the operator explicitly asks for it.`,
+    character_swap: `Character swap for ${productName}. Use @Video1 as the structure: same camera, motion, timing, scene order, framing, environment and lighting. Change only the requested person/character appearance as closely as the model allows. Do not add an intro, outro, CTA, extra scene, new camera move or unrelated action unless the operator explicitly asks for it.`,
+    background_swap: `Background or location swap for ${productName}. Use @Video1 as the structure: same subject action, camera, motion, timing, scene order and framing. Change only the requested environment/background as closely as the model allows. Do not add an intro, outro, CTA, extra scene, new camera move or unrelated action unless the operator explicitly asks for it.`,
+    outfit: `Outfit or appearance swap for ${productName}. Use @Video1 as the structure: same person, camera, motion, timing, scene order, framing, environment and lighting. Change only the requested outfit/appearance details as closely as the model allows. Do not add an intro, outro, CTA, extra scene, new camera move or unrelated action unless the operator explicitly asks for it.`,
+    motion_transfer: `Motion transfer for ${productName}. @Video1 defines movement, timing, camera motion, action sequence, scene order and framing. Image references define appearance, cast, product, styling or location. Preserve the reference motion and temporal rhythm; do not invent a new ad arc, intro, outro, CTA or extra scene unless requested.`,
+    full_remix: `Create a new full ad remix for ${productName}. Use @Video1 as structural, motion and pacing reference while adapting the creative framework to the current product. Interpret guidance, not a pixel-perfect edit.`
+  }
+  const structureRule = r.editMode === 'full_remix'
+    ? 'Adapt the creative framework to the current product. Do not reproduce competitor brands, logos, unsupported claims, testimonials or exact source dialogue. Do not invent product benefits.'
+    : 'Follow the selected reference segment from start to finish. Preserve its timing and order. Do not introduce new scenes, intros, outros, CTAs, text overlays, camera moves or claims that are not present in the reference or explicitly requested.'
+  let prompt=[modeGuidance[r.editMode],
     ...aliases.map(a=>`${a.token} supplies the ${a.role.toLowerCase().replaceAll('_',' ')} reference (${a.alias}).`),
     `KEEP guidance: ${r.keep.join(', ') || 'use the reference beat structure'}.`, `CHANGE guidance: ${r.change.join(', ') || 'adapt to the current product'}.`,r.instructions,r.observations,
     beats && `Operator-reviewed beat outline:\n${beats}`,
     r.creativeAnalysis && `Operator-authored creative analysis (guidance, not verified facts):\n${Object.entries(r.creativeAnalysis).map(([k,v])=>`${k}: ${v}`).join('\n')}`,
-    'Adapt the creative framework to the current product. Do not reproduce competitor brands, logos, unsupported claims, testimonials or exact source dialogue. Do not invent product benefits.',
+    structureRule,
     scene.generateAudio ? `New adapted dialogue / audio direction:\n${script}${r.audioAssetId ? '\nUse @Audio1 for the requested audio style, not unapproved source words.' : ''}` : 'Silent output. The adapted script is planning/caption guidance for later use, not spoken dialogue.',
   ].filter(Boolean).join('\n\n')
   prompt=prompt.replaceAll('@ReferenceVideo','@Video1')

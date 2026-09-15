@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import Database from 'better-sqlite3'
 
 const api = 'http://127.0.0.1:8797'
-const web = 'http://127.0.0.1:5173'
+const web = 'http://localhost:5173'
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'aaf-workstation-browser-'))
 const databasePath = path.join(temp, 'factory.db')
 const artifacts = path.resolve('qa-artifacts/workstation')
@@ -177,12 +177,12 @@ try {
   })
   await check('Operator explicitly creates Product Test and Creative through the dashboard', async () => {
     await navigate('create_ad')
-    await generator().getByText('New Product Test', { exact: true }).click()
+    await generator().getByText('New product', { exact: true }).click()
     await generator().getByLabel('Product name', { exact: true }).fill('Workstation fixture bottle')
-    await generator().getByRole('button', { name: 'Create Product Test', exact: true }).click()
+    await generator().getByRole('button', { name: 'Create product', exact: true }).click()
     await generator().getByLabel('Product Test', { exact: true }).getByRole('option', { name: 'Workstation fixture bottle' }).waitFor({ state: 'attached' })
     await generator().getByLabel('New Creative title', { exact: true }).fill('Image to video acceptance')
-    await generator().getByRole('button', { name: 'Create Creative', exact: true }).click()
+    await generator().getByRole('button', { name: 'Create ad', exact: true }).click()
     await generator().getByRole('heading', { name: 'Image to video acceptance', exact: true }).waitFor()
     const catalog = await options()
     productTestId = catalog.productTests.find(row => row.name === 'Workstation fixture bottle').id
@@ -482,7 +482,7 @@ try {
     assert.ok(source, 'Mock fixture library needs a video of at least two seconds for Remix preparation')
     const jobsBefore = counts().job
     await remix.getByLabel('Reference video from Media Library', { exact: true }).selectOption(String(source.id))
-    await remix.getByText(/Reference analyzed/).waitFor()
+    await remix.locator('p[role="status"]').filter({ hasText: /Reference analyzed|Ready/ }).waitFor()
     await generatorSaved()
     await remix.getByLabel('Reference image from Media Library', { exact: true }).selectOption(String(imageAssetId))
     await remix.getByRole('button', { name: 'Add selected reference', exact: true }).click()
