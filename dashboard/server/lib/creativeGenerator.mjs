@@ -13,6 +13,7 @@ import { validateProductionSteps, priceProductionStep } from './productionSteps.
 
 const key = (id) => `creative_generator_${id}`
 const quickKey = workspace => `quick_create_${workspace}_${new Date().toISOString().slice(0, 10)}`
+const quickSelectionKey = workspace => `creative_quick_selection_${workspace}`
 const parse = (s, fallback = {}) => { try { return JSON.parse(s) ?? fallback } catch { return fallback } }
 const fail = (condition, message) => { if (!condition) throw new Error(message) }
 function creative(id) {
@@ -27,6 +28,25 @@ function write(id, value) {
   value.revision++
   getDb().prepare("INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(key(id), JSON.stringify(value))
   return value
+}
+function isInternalQuickCreative(id) {
+  const row = getDb().prepare(`SELECT c.id,c.concept_summary,i.product_test_id,p.name AS product_name
+    FROM creative c JOIN iteration i ON i.id=c.iteration_id JOIN product_test pt ON pt.id=i.product_test_id JOIN product p ON p.id=pt.product_id
+    WHERE c.id=?`).get(Number(id))
+  return row && row.product_name === 'Quick Create' && /Quick Create draft/i.test(row.concept_summary || '') ? row : null
+}
+function rememberQuickSelection(workspace, ids) {
+  const kind = ['image', 'video', 'remix', 'studio', 'canvas'].includes(workspace) ? workspace : 'video'
+  getDb().prepare("INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+    .run(quickSelectionKey(kind), JSON.stringify({ ...ids, workspace: kind, source: 'backend', updatedAt: new Date().toISOString() }))
+}
+function activeQuickSelection(workspace) {
+  const kind = ['image', 'video', 'remix', 'studio', 'canvas'].includes(workspace) ? workspace : 'video'
+  const saved = parse(getDb().prepare('SELECT value FROM app_settings WHERE key=?').get(quickSelectionKey(kind))?.value, null)
+  if (!saved?.creativeId) return null
+  const row = isInternalQuickCreative(saved.creativeId)
+  if (!row) return null
+  return { productTestId: row.product_test_id, creativeId: row.id, workspace: kind }
 }
 function version(state, revision) { fail(state.revision === revision, 'This Creative changed in another window. Reload before continuing.') }
 // Omit the default video quantity from signatures so existing completed single
@@ -76,6 +96,7 @@ export async function generatorOptions() {
   let ffmpeg = false; try { ffmpeg = Boolean(await videoTool()) } catch {}
   const capabilities = modelCapabilities()
   return { referenceRoles:REFERENCE_ROLES, remixModes:REMIX_MODES, models, capabilities, imageModels: capabilities.filter(m=>m.capability==='generate_image' && m.configured && m.priced), imageUnavailableReason: 'FLUX Schnell is text-only. Generate an image in Image, or upload/select a local product photo for image-to-video.', falConfigured: rates.video['seedance-2.0-fast-480p'].configured, fx: getFxRate('USD', 'EUR'), ffmpeg,
+    quickSelections: { image: activeQuickSelection('image'), video: activeQuickSelection('video'), remix: activeQuickSelection('remix') },
     productTests: getDb().prepare('SELECT pt.id,p.name,pt.code FROM product_test pt JOIN product p ON p.id=pt.product_id ORDER BY pt.id DESC').all(),
     creatives: getDb().prepare('SELECT c.*,i.product_test_id FROM creative c JOIN iteration i ON i.id=c.iteration_id ORDER BY c.id DESC').all(),
     media: getDb().prepare("SELECT * FROM asset WHERE mime_type IN ('image/png','image/jpeg','image/webp','video/mp4','video/quicktime','audio/mpeg','audio/wav','audio/x-wav') ORDER BY id DESC").all().filter(a => { try { localAssetPath(a.relative_path); return true } catch { return false } }) }
@@ -91,7 +112,7 @@ export function createGeneratorCreative({ productTestId, angle, marketingStudioS
   }).immediate()
 }
 
-export function createQuickGeneratorCreative({ workspace = 'video', title = '' } = {}) {
+export function createQuickGeneratorCreative({ workspace = 'video', title = '', source = 'ui' } = {}) {
   const kind = ['image', 'video', 'remix', 'studio', 'canvas'].includes(workspace) ? workspace : 'video'
   const label = String(title || '').trim().slice(0, 300) || `Quick ${kind.replace('_', ' ')} draft`
   const productId = createProduct({ name: 'Quick Create', notes: `Internal lineage for ${quickKey(kind)}. Not used as prompt context unless explicitly linked.` })
@@ -108,7 +129,9 @@ export function createQuickGeneratorCreative({ workspace = 'video', title = '' }
     conceptSummary: 'Quick Create draft. Prompt context is isolated from project/testing data.',
     defaultProductionMethod: 'factory_generated',
   })
-  return { productTestId: test.id, iterationId, creativeId, quick: true }
+  const result = { productTestId: test.id, iterationId, creativeId, quick: true }
+  if (source === 'mcp') rememberQuickSelection(kind, result)
+  return result
 }
 export function generatorWorkspace(id) {
   const state = read(id), c = creative(id)

@@ -270,12 +270,51 @@ function cleanCreativeId(args = {}, workspace = 'video') {
   if (args.projectContext?.productTestId) {
     return createGeneratorCreative({ productTestId: Number(args.projectContext.productTestId), angle: args.title || `MCP ${workspace} draft` }).creativeId
   }
-  return createQuickGeneratorCreative({ workspace, title: args.title || `MCP quick ${workspace}` }).creativeId
+  return createQuickGeneratorCreative({ workspace, title: args.title || `MCP quick ${workspace}`, source: 'mcp' }).creativeId
 }
 
 function saveFreshScenes(creativeId, scenes) {
   const workspace = generatorWorkspace(creativeId)
   return saveGeneratorScenes(creativeId, { revision: workspace.revision, scenes })
+}
+
+function limitScenes(scenes, count) {
+  const target = Number(count) || scenes.length
+  if (!Array.isArray(scenes) || scenes.length <= target) return scenes
+  if (target <= 1) return scenes.slice(0, 1)
+  const middle = scenes.slice(1, -1)
+  return [scenes[0], ...middle.slice(0, Math.max(0, target - 2)), scenes[scenes.length - 1]]
+}
+
+function sceneForSave(scene, patch = {}) {
+  if (scene.kind === 'image') {
+    return {
+      id: scene.id,
+      kind: 'image',
+      name: patch.name ?? scene.name,
+      prompt: patch.prompt ?? scene.prompt,
+      provider: patch.provider ?? scene.provider,
+      model: patch.model ?? scene.model,
+      mode: 'text-to-image',
+      imageSize: patch.imageSize ?? patch.image_size ?? scene.imageSize,
+      outputFormat: patch.outputFormat ?? patch.output_format ?? scene.outputFormat,
+      quantity: Number(patch.quantity ?? scene.quantity ?? 1),
+    }
+  }
+  return {
+    id: scene.id,
+    name: patch.name ?? scene.name,
+    prompt: patch.prompt ?? scene.prompt,
+    provider: patch.provider ?? scene.provider,
+    mode: patch.mode ?? scene.mode,
+    seconds: Number(patch.duration ?? patch.seconds ?? scene.seconds ?? 5),
+    resolution: patch.resolution ?? scene.resolution,
+    aspectRatio: patch.aspectRatio ?? scene.aspectRatio,
+    generateAudio: patch.generateAudio ?? patch.generate_audio ?? scene.generateAudio,
+    quantity: Number(patch.quantity ?? scene.quantity ?? 1),
+    startAssetId: patch.startAssetId === null ? null : Number(patch.startAssetId ?? scene.startAssetId ?? 0) || null,
+    ...(scene.remix ? { remix: patch.remix ?? scene.remix } : {}),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +414,7 @@ server.registerTool('creative_plan_scenes', {
   inputSchema: {
     brief: z.string().min(1),
     targetDuration: z.number().int().positive().optional(),
+    targetScenes: z.number().int().positive().max(12).optional(),
     provider: z.string().optional(),
     creativeId: z.number().int().positive().optional(),
     projectContext: z.object({ productTestId: z.number().int().positive().optional(), creativeId: z.number().int().positive().optional() }).optional(),
@@ -382,16 +422,65 @@ server.registerTool('creative_plan_scenes', {
 }, withErrors(async (args) => {
   const creativeId = cleanCreativeId(args, 'video')
   const inferred = inferStudioFromQuickPrompt(args.brief, 'en')
-  const outline = generateSceneOutline({ ...inferred, targetDuration: args.targetDuration || 20 })
+  const targetDuration = args.targetDuration || 20
+  const targetScenes = Math.max(1, Math.min(12, Number(args.targetScenes || Math.round(targetDuration / 5) || 4)))
+  const outline = limitScenes(generateSceneOutline({ ...inferred, brief: { ...inferred.brief, duration: targetDuration } }), targetScenes)
   const prompts = generateOmniPrompts(inferred, outline)
+  const seconds = Math.max(4, Math.min(15, Math.round(targetDuration / Math.max(1, outline.length))))
   const scenes = prompts.map((prompt, index) => quickVideoScene({
     name: outline[index]?.purpose || `Scene ${index + 1}`,
     prompt: prompt.promptText || outline[index]?.visualDescription || args.brief,
     provider: args.provider || 'mock',
-    duration: Math.max(4, Math.min(15, Number(prompt.duration) || 5)),
+    duration: seconds,
   }))
   const workspace = saveFreshScenes(creativeId, scenes)
   return text({ creativeId, sceneCount: workspace.scenes.length, workspace })
+}))
+
+server.registerTool('creative_attach_asset_to_video', {
+  title: 'Creative attach asset to video',
+  description: 'Attach one existing local image Asset as the start/product reference for one or more Video scenes using the same dashboard scene-save path. Local/free; never dispatches generation.',
+  inputSchema: {
+    creativeId: z.number().int().positive(),
+    assetId: z.number().int().positive(),
+    sceneIds: z.array(z.string()).optional(),
+  },
+}, withErrors(async ({ creativeId, assetId, sceneIds }) => {
+  const workspace = generatorWorkspace(creativeId)
+  const selected = new Set(sceneIds?.length ? sceneIds : workspace.scenes.filter((scene) => scene.kind !== 'image').map((scene) => scene.id))
+  const scenes = workspace.scenes.map((scene) => sceneForSave(scene, selected.has(scene.id) && scene.kind !== 'image' ? { mode: 'image-to-video', startAssetId: assetId } : {}))
+  const next = saveGeneratorScenes(creativeId, { revision: workspace.revision, scenes })
+  return text({ creativeId, assetId, sceneIds: [...selected], workspace: next })
+}))
+
+server.registerTool('creative_update_scene', {
+  title: 'Creative update scene',
+  description: 'Update one editable Image/Video/Remix scene through the same dashboard scene-save path. Local/free; never dispatches generation.',
+  inputSchema: {
+    creativeId: z.number().int().positive(),
+    sceneId: z.string().min(1),
+    patch: z.object({
+      name: z.string().optional(),
+      prompt: z.string().optional(),
+      provider: z.string().optional(),
+      model: z.string().optional(),
+      mode: z.enum(['text-to-video', 'image-to-video', 'reference-to-video']).optional(),
+      duration: z.number().int().positive().optional(),
+      seconds: z.number().int().positive().optional(),
+      resolution: z.string().optional(),
+      aspectRatio: z.string().optional(),
+      generateAudio: z.boolean().optional(),
+      generate_audio: z.boolean().optional(),
+      quantity: z.number().int().positive().max(4).optional(),
+      startAssetId: z.number().int().positive().nullable().optional(),
+    }),
+  },
+}, withErrors(async ({ creativeId, sceneId, patch }) => {
+  const workspace = generatorWorkspace(creativeId)
+  if (!workspace.scenes.some((scene) => scene.id === sceneId)) return errorText('Scene not found.')
+  const scenes = workspace.scenes.map((scene) => sceneForSave(scene, scene.id === sceneId ? patch : {}))
+  const next = saveGeneratorScenes(creativeId, { revision: workspace.revision, scenes })
+  return text({ creativeId, sceneId, workspace: next })
 }))
 
 server.registerTool('creative_create_remix', {

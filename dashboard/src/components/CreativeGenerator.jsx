@@ -33,6 +33,7 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
   const lock = useRef(false), current = useRef(null), selection = useRef('')
   const modal = useRef(null), starting = useRef(false)
   const quickCreating = useRef(false)
+  const forceFreshQuick = useRef(false)
   const imageDrafts=useRef([])
   const activeTask=useRef(null),dirtyRef=useRef(false)
   const [entry,setEntry] = useState(() => localStorage.getItem('generator-entry') || 'scratch')
@@ -62,9 +63,17 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
     if (quickMode) {
       let saved = {}
       try { saved = JSON.parse(sessionStorage.getItem(`quick-generator:${workspace}:${apiBase()}`) || '{}') } catch {}
-      if (isInternalQuickCreative(o, saved)) {
-        setProductId(String(saved.productTestId || ''))
-        setCreativeId(String(saved.creativeId || ''))
+      if (saved.creativeId && !isInternalQuickCreative(o, saved)) {
+        sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`)
+        forceFreshQuick.current = true
+        return
+      }
+      const backendSaved = o.quickSelections?.[workspace]
+      const selected = isInternalQuickCreative(o, saved) ? saved : backendSaved
+      if (selected && isInternalQuickCreative(o, selected)) {
+        sessionStorage.setItem(`quick-generator:${workspace}:${apiBase()}`, JSON.stringify(selected))
+        setProductId(String(selected.productTestId || ''))
+        setCreativeId(String(selected.creativeId || ''))
       } else if (saved.creativeId) {
         sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`)
       }
@@ -79,7 +88,31 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
     if (!quickMode || !options || creativeId || quickCreating.current) return
     let saved = {}
     try { saved = JSON.parse(sessionStorage.getItem(`quick-generator:${workspace}:${apiBase()}`) || '{}') } catch {}
+    if (saved.creativeId && !isInternalQuickCreative(options, saved)) {
+      sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`)
+      forceFreshQuick.current = true
+    }
+    if (forceFreshQuick.current) {
+      quickCreating.current = true
+      act(async () => {
+        const r = await api('quick-creative', { workspace, title: workspace === 'remix' ? 'Quick remix draft' : 'Quick video draft' })
+        const initial = workspace === 'remix' ? remixDraft(options.models[0]?.id || 'mock') : blank()
+        await api(`${r.creativeId}/scenes`, { revision: 0, scenes: [initial] })
+        await refreshOptions()
+        sessionStorage.setItem(`quick-generator:${workspace}:${apiBase()}`, JSON.stringify({ productTestId: r.productTestId, creativeId: r.creativeId }))
+        setProductId(String(r.productTestId))
+        setCreativeId(String(r.creativeId))
+      }).finally(() => { quickCreating.current = false; forceFreshQuick.current = false })
+      return
+    }
+    const backendSaved = options.quickSelections?.[workspace]
     if (isInternalQuickCreative(options, saved)) return
+    if (backendSaved && isInternalQuickCreative(options, backendSaved)) {
+      sessionStorage.setItem(`quick-generator:${workspace}:${apiBase()}`, JSON.stringify(backendSaved))
+      setProductId(String(backendSaved.productTestId || ''))
+      setCreativeId(String(backendSaved.creativeId || ''))
+      return
+    }
     if (saved.creativeId) sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`)
     quickCreating.current = true
     act(async () => {
