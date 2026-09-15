@@ -1,18 +1,18 @@
 import { STAGES } from '../data/stages.js'
 
 export const PRIMARY_WORKSPACES = [
-  { key: 'create_ad', label: 'Create Ad' },
   { key: 'image', label: 'Image' },
   { key: 'video', label: 'Video' },
   { key: 'remix', label: 'Remix' },
-  { key: 'node_canvas', label: 'Node Canvas' },
   { key: 'marketing_studio', label: 'Marketing Studio' },
+  { key: 'node_canvas', label: 'Canvas' },
   { key: 'assets', label: 'Assets' },
 ]
 
 // Keep legacy keys and labels: existing saved projects and QA distinguish
 // the scene Canvas (`canvas`) from the node board (`node_canvas`).
 export const SUPPORTING_WORKSPACES = [
+  { key: 'create_ad', label: 'Legacy Create Ad' },
   { key: 'product_tests', label: 'Product Tests' },
   { key: 'methods', label: 'Ad Methods' },
   { key: 'brand', label: 'Brand Library' },

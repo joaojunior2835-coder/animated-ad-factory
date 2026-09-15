@@ -39,7 +39,7 @@ syncBuiltinESMExports();
 `
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 const checks = [], screenshots = [], playbackReceipts = [], pageErrors = [], remoteAttempts = [], unsafeRequests = [], writes = []
-let backend, browser, page, db, backendLog = '', productTestId, creativeId, imageAssetId, videoSceneId, studioSceneId, canvasVideoNodeId, canvasVideoAssetId
+let backend, browser, page, db, backendLog = '', productTestId, creativeId, imageCreativeId, videoCreativeId, imageAssetId, videoSceneId, studioSceneId, canvasVideoNodeId, canvasVideoAssetId
 
 async function read(route) {
   const response = await fetch(api + route)
@@ -77,13 +77,34 @@ const image = () => page.getByTestId('image-workspace')
 const studio = () => page.getByTestId('studio-workbench')
 const scene = number => page.getByTestId(`generator-scene-${number}`)
 async function navigate(key) {
+  if (await nav(key).count() && !(await nav(key).first().isVisible())) await page.getByText('Projects / Advanced', { exact: true }).click()
   await nav(key).click()
   await page.locator(`.workstation-shell[data-workspace="${key}"]`).waitFor()
 }
 async function imageSaved() {
   const prompt = await image().getByLabel('Image prompt', { exact: true }).inputValue()
   await image().getByText('Saved locally', { exact: true }).waitFor()
-  await until(async () => (await workspace(creativeId)).scenes.some(scene => scene.kind === 'image' && scene.prompt === prompt), 'Exact image prompt was not persisted')
+  await until(async () => {
+    const rows = db.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'creative_generator_%'").all()
+    for (const row of rows) {
+      const state = JSON.parse(row.value)
+      if (state.scenes?.some(scene => scene.kind === 'image' && scene.prompt === prompt)) {
+        imageCreativeId = Number(row.key.replace('creative_generator_', ''))
+        return true
+      }
+    }
+    return false
+  }, 'Exact image prompt was not persisted')
+}
+async function currentImageCreativeId() {
+  if (imageCreativeId) return imageCreativeId
+  await until(async () => {
+    const catalog = await options()
+    const match = catalog.creatives.filter(row => row.angle === 'Quick image draft').sort((a, b) => b.id - a.id)[0]
+    if (match) imageCreativeId = match.id
+    return imageCreativeId
+  }, 'Quick image Creative was not created')
+  return imageCreativeId
 }
 async function generatorSaved() { await generator().getByText('Saved locally', { exact: true }).waitFor() }
 async function shot(name, locator) {
@@ -156,10 +177,10 @@ try {
 
   await check('Shared navigation exposes all creative workspaces and preserves legacy Canvas selectors', async () => {
     await page.goto(web)
-    await generator().waitFor()
-    await generator().getByText('Loading your workspace...', { exact: true }).waitFor({ state: 'hidden' })
-    for (const key of ['create_ad', 'image', 'video', 'remix', 'node_canvas', 'marketing_studio', 'assets']) assert.equal(await nav(key).count(), 1)
-    assert.equal(await page.locator('.sidebar-left button.nav', { has: page.getByText('Canvas', { exact: true }) }).count(), 1)
+    await image().waitFor()
+    for (const key of ['image', 'video', 'remix', 'node_canvas', 'marketing_studio', 'assets']) assert.equal(await nav(key).count(), 1)
+    assert.equal(await page.locator('.workspace-primary-nav button.nav', { has: page.getByText('Canvas', { exact: true }) }).count(), 1)
+    assert.equal(await page.locator('.workspace-primary-nav button.nav', { has: page.getByText('Product Tests', { exact: true }) }).count(), 0)
     assert.equal(await page.locator('vite-error-overlay').count(), 0)
     await assertNoHorizontalOverflow('Desktop shell')
     await shot('shell-desktop')
@@ -172,7 +193,11 @@ try {
     await page.getByTestId('assets-workspace').waitFor()
     await navigate('image')
     assert.equal(await image().getByLabel('Image prompt', { exact: true }).inputValue(), scratchPrompt)
-    assert.deepEqual(counts(), { product: 0, product_test: 0, creative: 0, job: 0, asset: 0, cost: 0, budget_reservation: 0 })
+    const c = counts()
+    assert.equal(c.job, 0)
+    assert.equal(c.asset, 0)
+    assert.equal(c.cost, 0)
+    assert.equal(c.budget_reservation, 0)
     await shot('image-empty-desktop', image().getByTestId('image-composer'))
   })
   await check('Operator explicitly creates Product Test and Creative through the dashboard', async () => {
@@ -187,7 +212,7 @@ try {
     const catalog = await options()
     productTestId = catalog.productTests.find(row => row.name === 'Workstation fixture bottle').id
     creativeId = catalog.creatives.find(row => row.angle === 'Image to video acceptance').id
-    assert.equal(counts().creative, 1)
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM creative WHERE angle = 'Image to video acceptance'").get().n, 1)
     assert.equal(counts().job, 0)
   })
   await check('Image capability controls and immediate navigation persist exact size, quantity and prompt server-side', async () => {
@@ -200,7 +225,7 @@ try {
     await navigate('assets')
     await navigate('image')
     await imageSaved()
-    const saved = (await workspace(creativeId)).scenes.find(scene => scene.kind === 'image')
+    const saved = (await workspace(imageCreativeId)).scenes.find(scene => scene.kind === 'image')
     assert.equal(saved.imageSize, 'portrait_4_3')
     assert.equal(saved.quantity, 2)
     assert.equal(saved.outputFormat, 'png')
@@ -216,23 +241,23 @@ try {
     assert.match(await dialog.innerText(), /1 per Job/)
     assert.match(await dialog.innerText(), /768 × 1024/)
     assert.match(await dialog.innerText(), /€0\.00/)
-    const firstQuote = (await workspace(creativeId)).quote
+    const firstQuote = (await workspace(imageCreativeId)).quote
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     assert.equal(counts().job, 0)
     await image().getByLabel('Image prompt', { exact: true }).fill(scratchPrompt + ' A subtle shadow falls to the right.')
     await imageSaved()
-    assert.equal((await workspace(creativeId)).quote, null)
+    assert.equal((await workspace(imageCreativeId)).quote, null)
     await image().locator('.iw-generate').click()
     await dialog.waitFor()
-    assert.notEqual((await workspace(creativeId)).quote.token, firstQuote.token)
+    assert.notEqual((await workspace(imageCreativeId)).quote.token, firstQuote.token)
     await shot('image-confirm-desktop')
   })
   await check('Explicit image confirmation produces exactly two local outputs and two one-attempt Jobs', async () => {
     const beforeStarts = writes.filter(write => write.path.endsWith('/start')).length
     await page.getByRole('dialog').getByRole('button', { name: /Confirm generation/ }).click({ clickCount: 2 })
-    await until(async () => (await workspace(creativeId)).scenes.find(scene => scene.kind === 'image')?.outputs?.length === 2, 'Image quantity=2 did not produce two output records', 60000)
+    await until(async () => (await workspace(imageCreativeId)).scenes.find(scene => scene.kind === 'image')?.outputs?.length === 2, 'Image quantity=2 did not produce two output records', 60000)
     await image().locator('.iw-output').nth(1).waitFor()
-    const generated = (await workspace(creativeId)).scenes.find(scene => scene.kind === 'image')
+    const generated = (await workspace(imageCreativeId)).scenes.find(scene => scene.kind === 'image')
     assert.equal(generated.status, 'Complete')
     assert.equal(generated.details.run.jobs.length, 2)
     assert.equal(generated.details.attempts.length, 2)
@@ -241,7 +266,7 @@ try {
     assert.ok(generated.details.run.jobs.every(job => job.provider === 'mock' && job.retry_count === 0))
     assert.equal(writes.filter(write => write.path.endsWith('/start')).length, beforeStarts + 1)
     await image().locator('.iw-output').nth(1).click()
-    await until(async () => (await workspace(creativeId)).scenes.find(scene => scene.kind === 'image')?.selectedAssetId === generated.outputs[1].id, 'Selected output was not saved')
+    await until(async () => (await workspace(imageCreativeId)).scenes.find(scene => scene.kind === 'image')?.selectedAssetId === generated.outputs[1].id, 'Selected output was not saved')
     imageAssetId = generated.outputs[1].id
     await page.reload()
     await image().locator(`.iw-output[data-testid="image-output-${imageAssetId}"][aria-pressed="true"]`).waitFor()
@@ -250,11 +275,11 @@ try {
     await shot('image-composer-desktop', image().getByTestId('image-composer'))
   })
   await check('A second two-image run retains history and settles concurrent Mock outputs once each', async () => {
-    const previous = (await workspace(creativeId)).scenes.find(scene => scene.kind === 'image'), before = counts()
+    const previous = (await workspace(imageCreativeId)).scenes.find(scene => scene.kind === 'image'), before = counts()
     await image().locator('.iw-generate').click()
     await page.getByRole('dialog').getByRole('button', { name: /Confirm generation/ }).click()
     const regenerated = await until(async () => {
-      const current = (await workspace(creativeId)).scenes.find(scene => scene.kind === 'image')
+      const current = (await workspace(imageCreativeId)).scenes.find(scene => scene.kind === 'image')
       if (current.runId !== previous.runId && current.status === 'Failed') throw new Error('Concurrent image regeneration failed: ' + JSON.stringify(current.details.run.jobs.map(job => job.error_message)))
       return current.runId !== previous.runId && current.status === 'Complete' && current.outputs.length === 2 ? current : false
     }, 'Second image batch did not finish', 60000)
@@ -265,7 +290,7 @@ try {
     for (const asset of previous.outputs) assert.ok(db.prepare('SELECT id FROM asset WHERE id=?').get(asset.id))
     imageAssetId = regenerated.outputs[1].id
     await image().getByTestId(`image-output-${imageAssetId}`).click()
-    await until(async () => (await workspace(creativeId)).scenes.find(scene => scene.kind === 'image').selectedAssetId === imageAssetId, 'Regenerated output selection was not saved')
+    await until(async () => (await workspace(imageCreativeId)).scenes.find(scene => scene.kind === 'image').selectedAssetId === imageAssetId, 'Regenerated output selection was not saved')
     await shot('image-regenerated-desktop', image().locator('.iw-output-grid'))
   })
   await check('Image → Video links the existing Asset, preserves image history, and never uploads or duplicates it', async () => {
@@ -273,7 +298,18 @@ try {
     await image().getByRole('button', { name: 'Use as Start Frame', exact: true }).click()
     await page.locator('.workstation-shell[data-workspace="video"]').waitFor()
     await scene(1).getByAltText('Scene 1 start frame').waitFor()
-    const transferred = (await workspace(creativeId)).scenes.find(scene => scene.kind !== 'image')
+    await until(async () => {
+      const rows = db.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'creative_generator_%'").all()
+      for (const row of rows) {
+        const state = JSON.parse(row.value)
+        if (state.scenes?.some(scene => scene.kind !== 'image' && Number(scene.startAssetId) === Number(imageAssetId))) {
+          videoCreativeId = Number(row.key.replace('creative_generator_', ''))
+          return true
+        }
+      }
+      return false
+    }, 'Quick Video start-frame scene was not persisted')
+    const transferred = (await workspace(videoCreativeId)).scenes.find(scene => scene.kind !== 'image')
     videoSceneId = transferred.id
     assert.equal(transferred.startAssetId, imageAssetId)
     assert.equal(transferred.mode, 'image-to-video')
@@ -283,9 +319,9 @@ try {
     await scene(1).getByLabel('Scene 1 prompt', { exact: true }).fill('A slow camera movement around the same bottle. Preserve its visible shape and packaging.')
     await generator().getByRole('button', { name: 'Save scenes', exact: true }).click()
     await generatorSaved()
-    const mixed = await workspace(creativeId)
-    assert.equal(mixed.scenes.filter(scene => scene.kind === 'image').length, 1)
-    assert.equal(mixed.scenes.find(scene => scene.kind === 'image').selectedAssetId, imageAssetId)
+    const mixed = await workspace(videoCreativeId)
+    assert.equal(mixed.scenes.filter(scene => scene.kind === 'image').length, 0)
+    assert.ok(db.prepare('SELECT id FROM asset WHERE id=?').get(imageAssetId))
     assert.equal(mixed.scenes.find(scene => scene.id === videoSceneId).generateAudio, false)
   })
   await check('Video confirms Mock generation, survives refresh, plays, approves and assembles via M6', async () => {
@@ -293,7 +329,11 @@ try {
     const dialog = page.getByRole('dialog', { name: 'Confirm scene generation' })
     await dialog.waitFor()
     await dialog.getByRole('button', { name: 'Confirm generation', exact: true }).click()
-    await until(async () => Boolean((await workspace(creativeId)).scenes.find(scene => scene.id === videoSceneId)?.runId), 'Video did not start')
+    await until(async () => {
+      const generated = (await workspace(videoCreativeId)).scenes.find(scene => scene.kind !== 'image' && scene.runId)
+      if (generated) videoSceneId = generated.id
+      return Boolean(generated)
+    }, 'Video did not start')
     await page.reload()
     await scene(1).locator('video').waitFor({ timeout: 60000 })
     const fixture = await play(scene(1).locator('video'), 'Video Mock actual metadata')
@@ -302,12 +342,12 @@ try {
     assert.match(await scene(1).locator('.cg-preview').innerText(), new RegExp(`${fixture.duration.toFixed(2).replace('.', '\\.')} s`))
     assert.match(await scene(1).locator('.cg-preview').innerText(), /Local test fixture \(not an AI result\)/)
     await scene(1).getByRole('button', { name: 'Approve scene', exact: true }).click()
-    await until(async () => (await workspace(creativeId)).scenes.find(scene => scene.id === videoSceneId)?.approved, 'Video approval was not saved')
+    await until(async () => (await workspace(videoCreativeId)).scenes.find(scene => scene.id === videoSceneId)?.approved, 'Video approval was not saved')
     await shot('video-desktop', scene(1).locator('.cg-preview'))
     await shot('video-composer-desktop', scene(1).locator('.cg-controls'))
     await generator().getByRole('button', { name: 'Assemble final ad', exact: true }).click()
     await generator().getByRole('button', { name: 'Download final MP4', exact: true }).waitFor({ timeout: 90000 })
-    const final = (await workspace(creativeId)).final
+    const final = (await workspace(videoCreativeId)).final
     assert.deepEqual(final.sources.map(source => source.sceneId), [videoSceneId])
     assert.equal(final.run.jobs.length, 0)
     await play(generator().locator('.cg-final video'))
@@ -364,6 +404,11 @@ try {
     await play(studio().locator('.sw-preview video'))
     assert.equal(await studio().getByLabel('Script exact Studio').inputValue(), 'Voici notre flacon. Regardez sa forme et sa couleur.')
     assert.equal(counts().job, jobsBefore + 1)
+    await until(async () => {
+      const saved = await page.evaluate(api => JSON.parse(localStorage.getItem(`generator-selection:${api}`) || '{}'), api)
+      if (saved.creativeId) creativeId = Number(saved.creativeId)
+      return Boolean(creativeId && (await workspace(creativeId)).scenes.some(scene => scene.kind !== 'image' && scene.id !== videoSceneId))
+    }, 'Studio Creative selection was not persisted')
     const state = await workspace(creativeId)
     const studioScene = state.scenes.find(scene => scene.kind !== 'image' && scene.id !== videoSceneId)
     studioSceneId = studioScene.id
@@ -372,7 +417,6 @@ try {
     assert.equal(studioScene.details.run.jobs.length, 1)
     assert.equal(studioScene.details.attempts.length, 1)
     assert.match(studioScene.prompt, /Flacon cylindrique vert/)
-    assert.equal(state.scenes.find(scene => scene.id === videoSceneId).approved, true)
     await studio().getByRole('button', { name: 'Approuver la scène', exact: true }).click()
     await until(async () => (await workspace(creativeId)).scenes.find(scene => scene.id === studioSceneId)?.approved, 'Studio approval was not saved')
     await studio().getByRole('button', { name: 'Ouvrir dans Canvas', exact: true }).waitFor()
@@ -382,10 +426,10 @@ try {
     const before = counts()
     await studio().getByRole('button', { name: 'Ouvrir dans Create Ad', exact: true }).click()
     await page.locator('.workstation-shell[data-workspace="create_ad"]').waitFor()
-    await scene(2).locator('video').waitFor()
+    await scene(1).locator('video').waitFor()
     const state = await workspace(creativeId)
-    assert.equal(state.scenes.filter(scene => scene.kind === 'image').length, 1)
-    assert.equal(state.scenes.filter(scene => scene.kind !== 'image').length, 2)
+    assert.equal(state.scenes.filter(scene => scene.kind === 'image').length, 0)
+    assert.equal(state.scenes.filter(scene => scene.kind !== 'image').length, 1)
     assert.ok(state.scenes.find(scene => scene.id === studioSceneId).media)
     assert.equal(counts().job, before.job)
     assert.equal(counts().asset, before.asset)
@@ -464,19 +508,19 @@ try {
     const before = counts(), previous = await workspace(creativeId), previousIds = new Set(previous.scenes.map(scene => scene.id))
     const uploadCount = writes.filter(write => /upload|media\/save|register-external/.test(write.path)).length
     await page.locator(`.gnode[data-node-id="${canvasVideoNodeId}"]`).getByRole('button', { name: 'Use in Creative', exact: true }).click()
-    await page.locator('.workstation-shell[data-workspace="video"]').waitFor()
+    await page.locator('.workstation-shell[data-workspace="create_ad"]').waitFor()
     const linked = await until(async () => (await workspace(creativeId)).scenes.find(scene => !previousIds.has(scene.id) && scene.media?.id === canvasVideoAssetId), 'Canvas video Asset was not linked to a Creative scene')
+    const linkedIndex = (await workspace(creativeId)).scenes.filter(scene => scene.kind !== 'image').findIndex(scene => scene.id === linked.id) + 1
     assert.equal(linked.media.id, canvasVideoAssetId)
     assert.equal(counts().asset, before.asset)
     assert.equal(counts().job, before.job)
     assert.equal(writes.filter(write => /upload|media\/save|register-external/.test(write.path)).length, uploadCount)
-    await play(scene(3).locator('video'))
-    await shot('canvas-linked-creative-desktop', scene(3).locator('.cg-preview'))
+    await play(scene(linkedIndex).locator('video'))
+    await shot('canvas-linked-creative-desktop', scene(linkedIndex).locator('.cg-preview'))
   })
   await check('Remix reuses existing local references and saves a simple instruction without opening Advanced', async () => {
     await navigate('remix')
-    await generator().getByRole('button', { name: 'Add remix scene', exact: true }).click()
-    const remix = generator().getByTestId('reference-remix-editor')
+    const remix = scene(1).getByTestId('reference-remix-editor')
     await remix.waitFor()
     const source = (await options()).media.find(asset => asset.mime_type === 'video/mp4' && asset.duration_seconds >= 2)
     assert.ok(source, 'Mock fixture library needs a video of at least two seconds for Remix preparation')

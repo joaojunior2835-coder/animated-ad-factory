@@ -20,6 +20,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js'
@@ -32,6 +33,7 @@ import {
   getMarketingStudioSession,
   upsertMarketingStudioSession,
   createProduct,
+  getOrCreateAsset,
   checkDbConnectivity,
 } from './db/repository.mjs'
 import * as ptRepo from './db/productTestRepository.mjs'
@@ -44,6 +46,16 @@ import { reviewQueue, reviewCreative, analysisSummary } from './lib/operator.mjs
 import { runPollinations } from './providers/pollinationsProvider.mjs'
 import { createMockVideoJob, getMockVideoJob } from './providers/mockVideoProvider.mjs'
 import * as falProvider from './providers/falProvider.mjs'
+import {
+  generatorOptions,
+  createGeneratorCreative,
+  createQuickGeneratorCreative,
+  generatorWorkspace,
+  saveGeneratorScenes,
+  quoteGenerator,
+  startGenerator,
+  assembleGenerator,
+} from './lib/creativeGenerator.mjs'
 import {
   inferStudioFromQuickPrompt,
   formatById,
@@ -208,6 +220,231 @@ server.registerTool(
     }
   })
 )
+
+const quickVideoScene = (args = {}) => ({
+  name: args.name || 'Quick video',
+  prompt: args.prompt || '',
+  provider: args.provider || 'mock',
+  mode: args.mode || 'text-to-video',
+  seconds: Number(args.duration || args.seconds || 5),
+  resolution: args.resolution || '480p',
+  aspectRatio: args.aspectRatio || '9:16',
+  generateAudio: Boolean(args.generateAudio ?? args.generate_audio ?? false),
+  quantity: Number(args.quantity || 1),
+  startAssetId: args.startAssetId ? Number(args.startAssetId) : null,
+})
+
+const quickImageScene = (args = {}) => ({
+  kind: 'image',
+  name: args.name || 'Quick image',
+  prompt: args.prompt || '',
+  provider: args.provider || 'mock',
+  model: args.model || (args.provider === 'fal' ? 'flux-schnell' : 'mock-image'),
+  mode: 'text-to-image',
+  imageSize: args.imageSize || args.image_size || 'square',
+  outputFormat: args.outputFormat || args.output_format || 'png',
+  quantity: Number(args.quantity || 1),
+})
+
+const remixState = (args = {}) => ({
+  editMode: args.mode === 'motion_transfer' ? 'motion_transfer' : 'product_swap',
+  sourceAssetId: args.referenceVideoAssetId ? Number(args.referenceVideoAssetId) : null,
+  preparedAssetId: args.preparedAssetId ? Number(args.preparedAssetId) : null,
+  audioAssetId: args.audioAssetId ? Number(args.audioAssetId) : null,
+  images: (args.referenceImageAssetIds || []).map((assetId, index) => ({ assetId: Number(assetId), role: index === 0 ? 'PRODUCT' : 'OTHER' })),
+  keep: args.mode === 'motion_transfer'
+    ? ['Camera movement', 'Timing / pacing', 'Action', 'Framing']
+    : ['Camera movement', 'Timing / pacing', 'Scene order', 'Creator', 'Background', 'Lighting style'],
+  change: args.mode === 'motion_transfer' ? ['Appearance/product from references'] : ['Product'],
+  instructions: args.instruction || '',
+  transcript: '',
+  script: '',
+  scriptApproved: false,
+  observations: '',
+  analysis: null,
+})
+
+function cleanCreativeId(args = {}, workspace = 'video') {
+  if (args.creativeId) return Number(args.creativeId)
+  if (args.projectContext?.creativeId) return Number(args.projectContext.creativeId)
+  if (args.projectContext?.productTestId) {
+    return createGeneratorCreative({ productTestId: Number(args.projectContext.productTestId), angle: args.title || `MCP ${workspace} draft` }).creativeId
+  }
+  return createQuickGeneratorCreative({ workspace, title: args.title || `MCP quick ${workspace}` }).creativeId
+}
+
+function saveFreshScenes(creativeId, scenes) {
+  const workspace = generatorWorkspace(creativeId)
+  return saveGeneratorScenes(creativeId, { revision: workspace.revision, scenes })
+}
+
+// ---------------------------------------------------------------------------
+// CREATIVE WORKSTATION TOOLS — same service layer as the dashboard UI.
+// ---------------------------------------------------------------------------
+
+server.registerTool('creative_list_models', {
+  title: 'Creative list models',
+  description: 'Return the dashboard model registry/capabilities used by Image, Video, Remix, Studio, and Canvas. Read-only.',
+  inputSchema: {},
+}, withErrors(async () => {
+  const options = await generatorOptions()
+  return text({ models: options.models, capabilities: options.capabilities, imageModels: options.imageModels, falConfigured: options.falConfigured, fx: options.fx })
+}))
+
+server.registerTool('creative_list_assets', {
+  title: 'Creative list assets',
+  description: 'Search/select local Assets visible to the creative workspaces. Read-only.',
+  inputSchema: { mimePrefix: z.string().optional(), limit: z.number().int().positive().max(100).optional() },
+}, withErrors(async ({ mimePrefix, limit }) => {
+  const options = await generatorOptions()
+  const items = options.media.filter((asset) => !mimePrefix || String(asset.mime_type || '').startsWith(mimePrefix)).slice(0, limit || 50)
+  return text({ assets: items })
+}))
+
+server.registerTool('creative_import_asset', {
+  title: 'Creative import asset',
+  description: 'Register an existing file already under local-media as an Asset, using the same safe local-media boundary as the dashboard.',
+  inputSchema: { relativePath: z.string().min(1), mimeType: z.string().min(1), source: z.string().optional() },
+}, withErrors(async ({ relativePath, mimeType, source }) => {
+  const rel = String(relativePath || '').replace(/^\/+/, '').replace(/\\/g, '/')
+  const abs = path.resolve(MEDIA_ROOT, rel)
+  const rootWithSep = MEDIA_ROOT.endsWith(path.sep) ? MEDIA_ROOT : MEDIA_ROOT + path.sep
+  if (abs !== MEDIA_ROOT && !abs.startsWith(rootWithSep)) return errorText('Refused to register outside local-media/.')
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return errorText('Asset file does not exist under local-media/.')
+  const buf = fs.readFileSync(abs)
+  const asset = getOrCreateAsset({ contentHash: createHash('sha256').update(buf).digest('hex'), relativePath: rel, mimeType, fileSize: buf.length, source: source || 'mcp_import' })
+  return text({ asset })
+}))
+
+server.registerTool('creative_generate_image', {
+  title: 'Creative generate image',
+  description: 'Create or update a clean Image quick draft, quote it, and optionally start generation through M5 when confirmed:true is supplied.',
+  inputSchema: {
+    prompt: z.string().min(1),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    imageSize: z.string().optional(),
+    outputFormat: z.string().optional(),
+    quantity: z.number().int().positive().max(4).optional(),
+    creativeId: z.number().int().positive().optional(),
+    projectContext: z.object({ productTestId: z.number().int().positive().optional(), creativeId: z.number().int().positive().optional() }).optional(),
+    confirmed: z.boolean().optional(),
+  },
+}, withErrors(async (args) => {
+  const creativeId = cleanCreativeId(args, 'image')
+  const workspace = saveFreshScenes(creativeId, [quickImageScene(args)])
+  const imageScenes = workspace.scenes.filter((scene) => scene.kind === 'image')
+  const quote = quoteGenerator(creativeId, { revision: workspace.revision, sceneIds: imageScenes.map((scene) => scene.id) }).quote
+  if (args.confirmed !== true) return text({ creativeId, quote, workspace: generatorWorkspace(creativeId), note: 'confirmation_required_before_dispatch' })
+  await startGenerator(creativeId, { confirmed: true, token: quote.token, revision: quote.revision })
+  return text({ creativeId, workspace: generatorWorkspace(creativeId) })
+}))
+
+server.registerTool('creative_generate_video', {
+  title: 'Creative generate video',
+  description: 'Create or update a clean Video quick draft, quote it, and optionally start generation through M5 when confirmed:true is supplied.',
+  inputSchema: {
+    prompt: z.string().min(1),
+    provider: z.string().optional(),
+    mode: z.enum(['text-to-video', 'image-to-video']).optional(),
+    duration: z.number().int().positive().optional(),
+    seconds: z.number().int().positive().optional(),
+    resolution: z.string().optional(),
+    aspectRatio: z.string().optional(),
+    generateAudio: z.boolean().optional(),
+    generate_audio: z.boolean().optional(),
+    quantity: z.number().int().positive().max(4).optional(),
+    startAssetId: z.number().int().positive().optional(),
+    creativeId: z.number().int().positive().optional(),
+    projectContext: z.object({ productTestId: z.number().int().positive().optional(), creativeId: z.number().int().positive().optional() }).optional(),
+    confirmed: z.boolean().optional(),
+  },
+}, withErrors(async (args) => {
+  const creativeId = cleanCreativeId(args, 'video')
+  const workspace = saveFreshScenes(creativeId, [quickVideoScene(args)])
+  const sceneIds = workspace.scenes.filter((scene) => scene.kind !== 'image').map((scene) => scene.id)
+  const quote = quoteGenerator(creativeId, { revision: workspace.revision, sceneIds }).quote
+  if (args.confirmed !== true) return text({ creativeId, quote, workspace: generatorWorkspace(creativeId), note: 'confirmation_required_before_dispatch' })
+  await startGenerator(creativeId, { confirmed: true, token: quote.token, revision: quote.revision })
+  return text({ creativeId, workspace: generatorWorkspace(creativeId) })
+}))
+
+server.registerTool('creative_plan_scenes', {
+  title: 'Creative plan scenes',
+  description: 'Persist an editable scene plan into the same Video workspace the dashboard opens. Local/free; never dispatches generation.',
+  inputSchema: {
+    brief: z.string().min(1),
+    targetDuration: z.number().int().positive().optional(),
+    provider: z.string().optional(),
+    creativeId: z.number().int().positive().optional(),
+    projectContext: z.object({ productTestId: z.number().int().positive().optional(), creativeId: z.number().int().positive().optional() }).optional(),
+  },
+}, withErrors(async (args) => {
+  const creativeId = cleanCreativeId(args, 'video')
+  const inferred = inferStudioFromQuickPrompt(args.brief, 'en')
+  const outline = generateSceneOutline({ ...inferred, targetDuration: args.targetDuration || 20 })
+  const prompts = generateOmniPrompts(inferred, outline)
+  const scenes = prompts.map((prompt, index) => quickVideoScene({
+    name: outline[index]?.purpose || `Scene ${index + 1}`,
+    prompt: prompt.promptText || outline[index]?.visualDescription || args.brief,
+    provider: args.provider || 'mock',
+    duration: Math.max(4, Math.min(15, Number(prompt.duration) || 5)),
+  }))
+  const workspace = saveFreshScenes(creativeId, scenes)
+  return text({ creativeId, sceneCount: workspace.scenes.length, workspace })
+}))
+
+server.registerTool('creative_create_remix', {
+  title: 'Creative create remix',
+  description: 'Create a reference-first Remix draft in the dashboard. Local/free until creative_generate_scenes is called with confirmed:true.',
+  inputSchema: {
+    referenceVideoAssetId: z.number().int().positive(),
+    referenceImageAssetIds: z.array(z.number().int().positive()).optional(),
+    instruction: z.string().min(1),
+    mode: z.enum(['motion_transfer', 'object_swap']).optional(),
+    provider: z.string().optional(),
+    duration: z.number().int().positive().optional(),
+    resolution: z.string().optional(),
+    aspectRatio: z.string().optional(),
+    creativeId: z.number().int().positive().optional(),
+    projectContext: z.object({ productTestId: z.number().int().positive().optional(), creativeId: z.number().int().positive().optional() }).optional(),
+  },
+}, withErrors(async (args) => {
+  const creativeId = cleanCreativeId(args, 'remix')
+  const scene = quickVideoScene({ ...args, name: 'Reference remix', mode: 'reference-to-video', prompt: args.instruction, aspectRatio: args.aspectRatio || 'auto' })
+  scene.remix = remixState(args)
+  const workspace = saveFreshScenes(creativeId, [scene])
+  return text({ creativeId, workspace })
+}))
+
+server.registerTool('creative_generate_scenes', {
+  title: 'Creative generate scenes',
+  description: 'Quote and dispatch selected ready scenes through existing M5 safety. Requires confirmed:true before any paid provider request.',
+  inputSchema: { creativeId: z.number().int().positive(), sceneIds: z.array(z.string()).optional(), confirmed: z.boolean() },
+}, withErrors(async ({ creativeId, sceneIds, confirmed }) => {
+  if (confirmed !== true) return errorText('confirmed:true is required before production can spend money.')
+  const workspace = generatorWorkspace(creativeId)
+  const selected = sceneIds?.length ? sceneIds : workspace.scenes.filter((scene) => !['Complete', 'Queued', 'Generating', 'Reconciliation required'].includes(scene.status)).map((scene) => scene.id)
+  const quote = quoteGenerator(creativeId, { revision: workspace.revision, sceneIds: selected }).quote
+  const result = await startGenerator(creativeId, { confirmed: true, token: quote.token, revision: quote.revision })
+  return text({ creativeId, quote, result, workspace: generatorWorkspace(creativeId) })
+}))
+
+server.registerTool('creative_get_generation', {
+  title: 'Creative get generation',
+  description: 'Read the current dashboard creative draft, scenes, statuses, results, history and final asset. Read-only.',
+  inputSchema: { creativeId: z.number().int().positive() },
+}, withErrors(async ({ creativeId }) => text(generatorWorkspace(creativeId))))
+
+server.registerTool('creative_assemble', {
+  title: 'Creative assemble',
+  description: 'Assemble approved scene Assets into a final local MP4 using the same M6 path as the dashboard. Local/free.',
+  inputSchema: { creativeId: z.number().int().positive() },
+}, withErrors(async ({ creativeId }) => {
+  const workspace = generatorWorkspace(creativeId)
+  const result = await assembleGenerator(creativeId, { revision: workspace.revision })
+  return text(result)
+}))
 
 // ---------------------------------------------------------------------------
 // PRODUCT TEST TOOLS

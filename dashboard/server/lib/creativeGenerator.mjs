@@ -1,7 +1,7 @@
 // Operator composition over existing M4/M5/M6. No new ledger or schema.
 import { randomUUID, createHash } from 'node:crypto'
 import fs from 'node:fs'
-import { getDb, getFxRate, getBudgetSummary, freezeProductionRunSpec, attachAssetLink, setProductionRunStatus } from '../db/repository.mjs'
+import { getDb, getFxRate, getBudgetSummary, freezeProductionRunSpec, attachAssetLink, setProductionRunStatus, createProduct } from '../db/repository.mjs'
 import * as pt from '../db/productTestRepository.mjs'
 import { getConfiguredRates, estimateVideoJobCost } from './rateCatalog.mjs'
 import { normalizeRemix, remixParams, buildRemixPrompt, REFERENCE_ROLES, REMIX_MODES } from './referenceRemix.mjs'
@@ -12,6 +12,7 @@ import { modelCapabilities } from './modelCapabilities.mjs'
 import { validateProductionSteps, priceProductionStep } from './productionSteps.mjs'
 
 const key = (id) => `creative_generator_${id}`
+const quickKey = workspace => `quick_create_${workspace}_${new Date().toISOString().slice(0, 10)}`
 const parse = (s, fallback = {}) => { try { return JSON.parse(s) ?? fallback } catch { return fallback } }
 const fail = (condition, message) => { if (!condition) throw new Error(message) }
 function creative(id) {
@@ -48,11 +49,21 @@ function stateOf(s) {
   // Keep a missing-file scene editable; preview reports the missing media and
   // approval/assembly validate its real local file before accepting it.
   const outputs = details?.assets ? [...details.assets].sort((a,b)=>(a.job_id-b.job_id)||(a.id-b.id)) : []
+  const historyOutputs = (s.history || []).flatMap(entry => {
+    if (entry.assetId) {
+      const a = getDb().prepare('SELECT * FROM asset WHERE id=?').get(entry.assetId)
+      return a ? [a] : []
+    }
+    if (entry.runId) {
+      try { return runDetails(entry.runId).assets || [] } catch { return [] }
+    }
+    return []
+  }).filter(a => s.kind === 'image' ? /^image\//.test(a.mime_type) : a.mime_type === 'video/mp4')
   const media = s.selectedAssetId ? getDb().prepare('SELECT * FROM asset WHERE id=?').get(s.selectedAssetId) : details?.finalAsset || (s.kind!=='image' && Number(s.quantity || 1)>1 && details?.run.status==='complete' ? outputs.find(a=>a.mime_type==='video/mp4') : null) || null
   const status = ambiguous ? 'Reconciliation required' : details?.run.status === 'failed' ? 'Failed' : details?.run.status === 'executing' ? (details.attempts.some(a => a.provider_status === 'IN_PROGRESS') ? 'Generating' : 'Queued') : media ? 'Complete' : details?.run.status === 'planned' ? 'Ready' : 'Ready'
   const current = !s.runId || s.generatedSignature === signature(s)
   const displayStatus=['Queued','Generating'].includes(status) ? details?.attempts.map(activeProgress).find(Boolean) || status : status
-  return { ...s, quantity:Number(s.quantity ?? 1), status, displayStatus, current, media, outputs:outputs.length ? outputs : (media ? [media] : []), approved: Boolean(s.approved && current && media), details }
+  return { ...s, quantity:Number(s.quantity ?? 1), status, displayStatus, current, media, outputs:outputs.length ? outputs : (media ? [media] : []), historyOutputs, approved: Boolean(s.approved && current && media), details }
 }
 function editable(s) {
   const live = stateOf(s)
@@ -78,6 +89,26 @@ export function createGeneratorCreative({ productTestId, angle, marketingStudioS
     const creativeId = pt.createCreativeForIteration({ iterationId, angle: angle.trim(), format: 'Vertical ad', conceptSummary: angle.trim(), defaultProductionMethod: 'factory_generated', marketingStudioSessionId })
     return { creativeId }
   }).immediate()
+}
+
+export function createQuickGeneratorCreative({ workspace = 'video', title = '' } = {}) {
+  const kind = ['image', 'video', 'remix', 'studio', 'canvas'].includes(workspace) ? workspace : 'video'
+  const label = String(title || '').trim().slice(0, 300) || `Quick ${kind.replace('_', ' ')} draft`
+  const productId = createProduct({ name: 'Quick Create', notes: `Internal lineage for ${quickKey(kind)}. Not used as prompt context unless explicitly linked.` })
+  const test = pt.createProductTestForProduct({ productId, market: 'FR', language: 'en', currency: 'EUR' })
+  const iterationId = pt.createIterationForTest({
+    productTestId: test.id,
+    mode: 'exploratory',
+    strategySnapshot: { purpose: 'Internal Quick Create lineage', workspace: kind },
+  })
+  const creativeId = pt.createCreativeForIteration({
+    iterationId,
+    angle: label,
+    format: kind === 'image' ? 'Image generation' : 'Vertical media',
+    conceptSummary: 'Quick Create draft. Prompt context is isolated from project/testing data.',
+    defaultProductionMethod: 'factory_generated',
+  })
+  return { productTestId: test.id, iterationId, creativeId, quick: true }
 }
 export function generatorWorkspace(id) {
   const state = read(id), c = creative(id)

@@ -83,20 +83,10 @@ try {
 
   const proofs = []
   await nav('video')
-  await page.getByText('New product', { exact: true }).click()
-  await page.getByLabel('Product name', { exact: true }).fill('Keyboard UX fixture')
-  await page.getByRole('button', { name: 'Create product', exact: true }).click()
-  await page.waitForFunction(() => Boolean(document.querySelector('[aria-label="Product Test"]')?.value))
-  await page.getByLabel('New Creative title', { exact: true }).fill('Keyboard video ad')
-  await page.getByRole('button', { name: 'Create ad', exact: true }).waitFor({ state: 'visible' })
-  await page.getByRole('button', { name: 'Create ad', exact: true }).click()
   await page.getByLabel('Scene 1 prompt', { exact: true }).waitFor()
   proofs.push(await typeNaturally('Video prompt', page.getByLabel('Scene 1 prompt', { exact: true })))
 
   await nav('remix')
-  await page.getByLabel('New Creative title', { exact: true }).fill('Keyboard remix ad')
-  await page.getByRole('button', { name: 'Create ad', exact: true }).waitFor({ state: 'visible' })
-  await page.getByRole('button', { name: 'Create ad', exact: true }).click()
   await page.getByLabel('What should change?', { exact: true }).waitFor()
   proofs.push(await typeNaturally('Remix instruction', page.getByLabel('What should change?', { exact: true })))
 

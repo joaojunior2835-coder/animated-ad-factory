@@ -24,11 +24,14 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
   const [options, setOptions] = useState(null), [work, setWork] = useState(null), [scenes, setScenes] = useState([])
   const [productId, setProductId] = useState(''), [creativeId, setCreativeId] = useState(''), [title, setTitle] = useState(''), [productName, setProductName] = useState(''), [brief, setBrief] = useState('')
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [dirty, setDirty] = useState(false), [quote, setQuote] = useState(null), [estimate, setEstimate] = useState(null)
+  const [videoMode, setVideoMode] = useState('single')
   const lock = useRef(false), current = useRef(null), selection = useRef('')
   const modal = useRef(null), starting = useRef(false)
+  const quickCreating = useRef(false)
   const imageDrafts=useRef([])
   const activeTask=useRef(null),dirtyRef=useRef(false)
   const [entry,setEntry] = useState(() => localStorage.getItem('generator-entry') || 'scratch')
+  const quickMode = ['video', 'remix'].includes(workspace)
   const chooseEntry = value => { setEntry(value); localStorage.setItem('generator-entry',value) }
   useEffect(()=>{if(workspace==='remix')chooseEntry('remix');else if(workspace==='video')chooseEntry('scratch')},[workspace])
   useEffect(() => {
@@ -51,15 +54,40 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
   useEffect(() => { if (mediaSignature) refreshOptions().catch(e => setError(e.message)) }, [mediaSignature])
   useEffect(() => { let alive = true; refreshOptions().then(o => {
     if (!alive) return
+    if (quickMode) {
+      let saved = {}
+      try { saved = JSON.parse(sessionStorage.getItem(`quick-generator:${workspace}:${apiBase()}`) || '{}') } catch {}
+      if (o.creatives.some(c => String(c.id) === String(saved.creativeId))) {
+        setProductId(String(saved.productTestId || ''))
+        setCreativeId(String(saved.creativeId || ''))
+      }
+      return
+    }
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(`generator-selection:${apiBase()}`) || '{}') } catch {}
     if(context?.productTestId) saved={productId:String(context.productTestId),creativeId:String(context.creativeId||'')}
     if (o.productTests.some(p => String(p.id) === saved.productId)) { setProductId(saved.productId); setCreativeId(saved.creativeId || '') }
     else if (o.productTests.length) setProductId(String(o.productTests[0].id))
   }).catch(e => setError(e.message)); return () => { alive = false } }, [])
   useEffect(() => {
+    if (!quickMode || !options || creativeId || quickCreating.current) return
+    let saved = {}
+    try { saved = JSON.parse(sessionStorage.getItem(`quick-generator:${workspace}:${apiBase()}`) || '{}') } catch {}
+    if (saved.creativeId && options.creatives.some(c => String(c.id) === String(saved.creativeId))) return
+    quickCreating.current = true
+    act(async () => {
+      const r = await api('quick-creative', { workspace, title: workspace === 'remix' ? 'Quick remix draft' : 'Quick video draft' })
+      const initial = workspace === 'remix' ? remixDraft(options.models[0]?.id || 'mock') : blank()
+      await api(`${r.creativeId}/scenes`, { revision: 0, scenes: [initial] })
+      await refreshOptions()
+      sessionStorage.setItem(`quick-generator:${workspace}:${apiBase()}`, JSON.stringify({ productTestId: r.productTestId, creativeId: r.creativeId }))
+      setProductId(String(r.productTestId))
+      setCreativeId(String(r.creativeId))
+    }).finally(() => { quickCreating.current = false })
+  }, [quickMode, options, creativeId, workspace])
+  useEffect(() => {
     selection.current = creativeId; current.current = null; setWork(null); setScenes([]); setDirty(false); setQuote(null); setError(''); setEstimate(null)
-    try { if (options) localStorage.setItem(`generator-selection:${apiBase()}`, JSON.stringify({ productId, creativeId })) } catch {}
-    if(options)onContextChange?.({productTestId:productId,creativeId})
+    try { if (options && !quickMode) localStorage.setItem(`generator-selection:${apiBase()}`, JSON.stringify({ productId, creativeId })) } catch {}
+    if(options && !quickMode)onContextChange?.({productTestId:productId,creativeId})
     if (!creativeId) return
     const load = async () => { try { const r = await api(creativeId); if (selection.current === creativeId) accept(r.workspace) } catch(e) { setError(e.message) } }
     load()
@@ -167,11 +195,31 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
   })
   const finalCurrent = work?.final && JSON.stringify(work.final.sources) === JSON.stringify(work.scenes.filter(s => s.approved).map(s => ({sceneId:s.id,assetId:s.media.id,sourceRunId:s.runId||null})))
   const download = asset => act(async () => { const r = await fetch(mediaUrl(asset)); if (!r.ok) throw new Error('Local video is unavailable.'); const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href=url; a.download='final-ad.mp4'; a.click(); setTimeout(() => URL.revokeObjectURL(url),10000) })
-  return <section className={`generator cg-workspace-${workspace}`} data-testid="creative-generator">
-    <header className="cg-header"><div><span className="cg-eyebrow">YOUR LOCAL CREATIVE WORKSPACE</span><h2>{workspace==='remix'?'Remix Reference Ad':workspace==='video'?'Create Video':'Create Ad'}</h2><p>{workspace==='remix'?'Reference, images, one instruction. A new version, with a clear cost.':workspace==='video'?'Reference or start frame, prompt, settings, Generate.':'Shape an idea. Choose your scenes. Make it move.'}</p></div><button className="ghost" onClick={onProductTests}>Product setup</button></header>
+  useEffect(() => {
+    if (workspace !== 'video' || !quickMode || !creativeId || !work || dirty || busy) return
+    let transfer = {}
+    try { transfer = JSON.parse(sessionStorage.getItem(`quick-transfer:video:${apiBase()}`) || '{}') } catch {}
+    const assetId = Number(transfer.assetId)
+    if (!assetId || scenes.some(scene => Number(scene.startAssetId) === assetId)) {
+      if (assetId) sessionStorage.removeItem(`quick-transfer:video:${apiBase()}`)
+      return
+    }
+    act(async () => {
+      const w = current.current
+      const incoming = { ...blank(), name: 'Image start frame', mode: 'image-to-video', startAssetId: assetId }
+      const replaceBlank = w.scenes.length === 1 && !String(w.scenes[0].prompt || '').trim() && !w.scenes[0].runId && !w.scenes[0].selectedAssetId
+      const r = await api(`${creativeId}/scenes`, { revision: w.revision, scenes: replaceBlank ? [{ ...w.scenes[0], ...incoming }] : [...w.scenes, incoming] })
+      sessionStorage.removeItem(`quick-transfer:video:${apiBase()}`)
+      accept(r.workspace)
+    })
+  }, [workspace, quickMode, creativeId, work?.revision, dirty, busy, scenes])
+  return <section className={`generator cg-workspace-${workspace} ${quickMode ? 'cg-quick-mode' : ''}`} data-testid="creative-generator">
+    <header className="cg-header"><div><span className="cg-eyebrow">CREATE</span><h2>{workspace==='remix'?'Remix':workspace==='video'?'Create Video':'Create Ad'}</h2><p>{workspace==='remix'?'Reference video + reference images + one instruction.':workspace==='video'?'Prompt, optional reference, model settings, Generate. Project setup is optional.':'Shape an idea. Choose your scenes. Make it move.'}</p></div>{!quickMode&&<button className="ghost" onClick={onProductTests}>Product setup</button>}</header>
+    {workspace==='video'&&<div className="cg-entry-paths cg-mode-paths"><button className="ghost" aria-pressed={videoMode==='single'} onClick={()=>setVideoMode('single')}>Single Video<br/><small>One prompt to one clip</small></button><button className="ghost" aria-pressed={videoMode==='auto'} onClick={()=>setVideoMode('auto')}>Ad / Auto Scenes<br/><small>Brief or script to editable scene cards</small></button></div>}
     <div className="cg-entry-paths"><button className="ghost" aria-pressed={entry==='scratch'} onClick={()=>chooseEntry('scratch')}>Build From Scratch<br/><small>Product → scenes → finished ad</small></button><button className="ghost" aria-pressed={entry==='remix'} onClick={()=>chooseEntry('remix')}>Remix Reference Ad<br/><small>Reference video → your product → a new ad</small></button></div>
     {error && <div role="alert" className="note bad">{error} <button className="ghost small" disabled={busy} onClick={() => act(async () => { if (dirty && !window.confirm('Reload saved scenes and discard unsaved edits?')) return; await refreshOptions(); if(creativeId) accept((await api(creativeId)).workspace) })}>Reload saved state</button></div>}
     {!options ? <p>Loading your workspace…</p> : <>
+      {quickMode&&<div className="cg-quick-panel"><span className="cg-context-chip">Quick draft · no project context in prompts</span><details><summary>Link to project / testing context (optional)</summary><div className="cg-selectors-link"><label className="field">Product<select aria-label="Product Test" value={productId} disabled={busy || dirty} onChange={e => { setProductId(e.target.value); setCreativeId('') }}><option value="">Choose a product</option>{options.productTests.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label className="field">Ad concept<select aria-label="Creative" value={creativeId} disabled={busy || dirty} onChange={e => { setCreativeId(e.target.value); sessionStorage.setItem(`quick-generator:${workspace}:${apiBase()}`, JSON.stringify({ productTestId: productId, creativeId: e.target.value })) }}><option value="">Choose or create an ad</option>{options.creatives.filter(c => String(c.product_test_id) === productId).map(c => <option key={c.id} value={c.id}>{c.angle}</option>)}</select></label><button className="ghost" disabled={busy || dirty} onClick={() => { sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`); setProductId(''); setCreativeId('') }}>Start fresh Quick draft</button></div></details></div>}
       <div className="cg-selectors subpanel"><label className="field">Product<select aria-label="Product Test" value={productId} disabled={busy || dirty} onChange={e => { setProductId(e.target.value); setCreativeId('') }}><option value="">Choose a product</option>{options.productTests.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <label className="field">Ad concept<select aria-label="Creative" value={creativeId} disabled={busy || dirty} onChange={e => setCreativeId(e.target.value)}><option value="">Choose or create an ad</option>{options.creatives.filter(c => String(c.product_test_id) === productId).map(c => <option key={c.id} value={c.id}>{c.angle}</option>)}</select></label>
         <details><summary>New product</summary><label className="field">Product name<input value={productName} onChange={e => setProductName(e.target.value)} /></label><button className="ghost" disabled={busy || !productName.trim()} onClick={() => act(async () => { const r=await request('/api/product-tests',{newProduct:{name:productName.trim()},market:'FR',language:'fr',currency:'EUR'}); await refreshOptions(); setProductId(String(r.item.id)); setCreativeId(''); setProductName('') })}>Create product</button></details>
@@ -179,8 +227,9 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
       </div>
       {!work ? <div className="cg-empty cg-empty-start">{workspace==='video'?'Create your first video: choose a product, name the ad, then write one prompt and generate with Mock or Seedance.':workspace==='remix'?'Create or choose an ad, then drop a reference video, add product images, write one instruction and generate.':'Choose or create an ad to begin.'}</div> : null}
       {work && <>
-        <div className="cg-summary"><h3>{work.creative.angle}</h3><p>{work.creative.concept_summary || work.creative.hook_text}</p><div className="cg-stats"><span>{scenes.length} scenes</span><span>{work.scenes.filter(s=>s.status==='Complete').length} complete</span><span>{approved} / {scenes.length} approved</span><span>Estimate: {money(estimate?.totalMinor)}</span><span>Recorded: {money(work.recordedMinor)}</span><span>Iteration budget: {money(work.budget.budgetCeilingMinor)}</span></div><small>Recorded costs may use catalog estimates, not verified provider invoices.</small></div>
-        {entry==='scratch'&&<div className="subpanel"><label className="field">One-line brief (optional)<input value={brief} onChange={e => setBrief(e.target.value)} placeholder="A cinematic ad showing why this product is useful" /></label><div className="cg-actions"><button className="ghost" disabled={busy || scenes.length>=12} onClick={() => { try { propose() } catch(e){setError(e.message)} }}>Generate Scenes From Creative</button>{studio && <button className="ghost" disabled={busy || scenes.length>=12} onClick={() => { try { propose(studio) } catch(e){setError(e.message)} }}>Import Marketing Studio scenes</button>}<small>Editable local proposals. No AI credits used.</small></div></div>}
+        <div className="cg-summary"><h3>{quickMode ? (workspace==='remix'?'Quick remix':'Quick video') : work.creative.angle}</h3>{!quickMode&&<p>{work.creative.concept_summary || work.creative.hook_text}</p>}<div className="cg-stats"><span>{scenes.length} scenes</span><span>{work.scenes.filter(s=>s.status==='Complete').length} complete</span><span>{approved} / {scenes.length} approved</span><span>Estimate: {money(estimate?.totalMinor)}</span>{!quickMode&&<><span>Recorded: {money(work.recordedMinor)}</span><span>Iteration budget: {money(work.budget.budgetCeilingMinor)}</span></>}</div>{!quickMode&&<small>Recorded costs may use catalog estimates, not verified provider invoices.</small>}</div>
+        {entry==='scratch'&&workspace==='video'&&videoMode==='auto'&&<div className="subpanel cg-auto-scenes"><label className="field">Ad brief / script<input value={brief} onChange={e => setBrief(e.target.value)} placeholder="Create a 20-second UGC ad. Hook, demo, natural CTA…" /></label><div className="cg-actions"><button className="primary" disabled={busy || scenes.length>=12 || !brief.trim()} onClick={() => { try { propose() } catch(e){setError(e.message)} }}>Auto-plan scenes</button>{studio && <button className="ghost" disabled={busy || scenes.length>=12} onClick={() => { try { propose(studio) } catch(e){setError(e.message)} }}>Import Marketing Studio scenes</button>}<small>Local editable scene planning. No AI credits used.</small></div></div>}
+        {entry==='scratch'&&workspace!=='video'&&<div className="subpanel"><label className="field">One-line brief (optional)<input value={brief} onChange={e => setBrief(e.target.value)} placeholder="A cinematic ad showing why this product is useful" /></label><div className="cg-actions"><button className="ghost" disabled={busy || scenes.length>=12} onClick={() => { try { propose() } catch(e){setError(e.message)} }}>Generate Scenes From Creative</button>{studio && <button className="ghost" disabled={busy || scenes.length>=12} onClick={() => { try { propose(studio) } catch(e){setError(e.message)} }}>Import Marketing Studio scenes</button>}<small>Editable local proposals. No AI credits used.</small></div></div>}
         <div className="cg-actions cg-toolbar"><button className="primary" disabled={busy || !ready.length} onClick={() => askGenerate(ready)}>Generate all ready scenes</button>{entry==='remix'?<button className="ghost" disabled={busy||scenes.length>=12} onClick={()=>edit([...scenes,remixDraft(options.models[0]?.id || 'mock')])}>Add remix scene</button>:<button className="ghost" disabled={busy || scenes.length>=12} onClick={() => edit([...scenes,blank()])}>Add scene</button>}<button className="ghost" disabled={busy || !dirty} onClick={() => act(save)}>Save scenes</button><span role="status">{busy ? 'Working…' : dirty ? 'Saving edits…' : 'Saved locally'}</span></div>
         <div className="cg-scenes">{scenes.map((s,i) => {
           const live=work.scenes.find(v=>v.id===s.id), held=live?.status==='Reconciliation required', running=['Generating','Queued'].includes(live?.status), locked=busy||held||running

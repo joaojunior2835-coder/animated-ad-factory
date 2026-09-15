@@ -218,9 +218,11 @@ async function main() {
   }, QA_API)
   await page.reload({ waitUntil: 'domcontentloaded' })
 
-  const nav = (re) => page.locator('.sidebar-left button.nav', { hasText: re })
+  const nav = (target) => typeof target === 'string' ? page.locator(`.sidebar-left button.nav[data-workspace="${target}"]`) : page.locator('.sidebar-left button.nav', { hasText: target })
   const fieldInput = (label) => page.locator('label.field', { hasText: label }).locator('input, textarea').first()
   const flowPanel = () => page.locator('.subpanel', { has: page.getByRole('heading', { name: 'Import from Flow' }) })
+  const advanced = page.getByText('Projects / Advanced', { exact: true })
+  if (await advanced.isVisible()) await advanced.click()
 
   // ---- Setup: competitor canvas with scenes + a built board -----------------
   await step('SETUP. Competitor canvas → scenes from outline → Board View', async () => {
@@ -229,7 +231,7 @@ async function main() {
     await card.waitFor()
     const select = card.getByRole('button', { name: 'Select this method' })
     if (await select.count()) await select.click()
-    await page.locator('.sidebar-left button.nav', { has: page.getByText('Canvas', { exact: true }) }).click()
+    await nav('canvas').click()
     await page.getByRole('heading', { name: /Canvas — Competitor Recreation/ }).waitFor()
     const ta = page.locator('.subpanel', { hasText: 'Quick Add From Outline' }).locator('textarea')
     await ta.fill(['0:00-0:03 Hook: a', '0:03-0:07 Problem: b', '0:07-0:12 Reveal: c'].join('\n'))

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { apiBase } from '../lib/ai/apiClient.js'
 import './ReferenceRemix.css'
 
-export const remixModes = [['product_swap','Product / Object Swap'],['character_swap','Character / Creator Swap'],['background_swap','Background / Location Swap'],['outfit','Outfit / Appearance'],['motion_transfer','Motion Transfer'],['full_remix','Full Ad Remix']]
+export const remixModes = [['product_swap','Object Swap'],['character_swap','Character / Creator Swap'],['background_swap','Background / Location Swap'],['outfit','Outfit / Appearance'],['motion_transfer','Motion Transfer'],['full_remix','Full Ad Remix']]
 const roles=['PRODUCT','PACKAGING','CHARACTER','OUTFIT','BACKGROUND','LOCATION','APP_SCREEN','STYLE','OTHER']
 const keepOptions=['Camera movement','Timing / pacing','Scene order','Creator','Background','Lighting style','Visual style','Audio structure']
 const analysisFields=[['setting','Setting'],['subject','Subject / creator'],['product','Visible product'],['shotTypes','Shot types'],['camera','Camera behavior'],['lighting','Lighting'],['visualStyle','Visual style'],['pacing','Pacing'],['sceneOrder','Scene order'],['actions','Major actions'],['hook','Hook structure'],['demonstration','Demonstration structure'],['cta','CTA structure'],['textOverlays','Text overlays']]

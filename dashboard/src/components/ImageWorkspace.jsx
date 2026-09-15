@@ -87,12 +87,16 @@ const ImageWorkspace = forwardRef(function ImageWorkspace({
   const [estimate, setEstimate] = useState(null)
   const [quote, setQuote] = useState(null)
   const [title, setTitle] = useState('')
+  const [quickContext, setQuickContext] = useState(EMPTY_CONTEXT)
   const state = useRef({ creativeId: '', work: null, draft: imageDraft(), dirty: false, editSequence: 0, newDraft: false })
   const savingRef = useRef(null), operationRef = useRef(null), optionsRef = useRef(null)
+  const quickCreating = useRef(false)
   const activeRef = useRef(active)
   activeRef.current = active
-  const creativeId = String(context.creativeId || '')
-  const productTestId = String(context.productTestId || '')
+  const externalCreativeId = String(context.creativeId || '')
+  const effectiveContext = externalCreativeId ? context : quickContext
+  const creativeId = String(effectiveContext.creativeId || '')
+  const productTestId = String(effectiveContext.productTestId || '')
   const models = (options?.capabilities || options?.imageModels || []).filter(model => model.capability === 'generate_image' || Array.isArray(model.imageSizes))
   const availableModels = models.filter(usableModel)
   const model = models.find(item => item.provider === draft.provider && item.model === draft.model)
@@ -200,6 +204,23 @@ const ImageWorkspace = forwardRef(function ImageWorkspace({
   }, [active])
 
   useEffect(() => {
+    if (!active || !options || creativeId || state.current.creativeId || quickCreating.current) return
+    let saved = {}
+    try { saved = JSON.parse(sessionStorage.getItem(`quick-generator:image:${apiBase()}`) || '{}') } catch {}
+    if (options.creatives?.some(item => String(item.id) === String(saved.creativeId))) {
+      setQuickContext({ productTestId: String(saved.productTestId || ''), creativeId: String(saved.creativeId || '') })
+      return
+    }
+    quickCreating.current = true
+    act(async () => {
+      const result = await request('quick-creative', { workspace: 'image', title: 'Quick image draft' })
+      const next = { productTestId: String(result.productTestId), creativeId: String(result.creativeId) }
+      sessionStorage.setItem(`quick-generator:image:${apiBase()}`, JSON.stringify(next))
+      setQuickContext(next)
+    }).finally(() => { quickCreating.current = false })
+  }, [active, options, creativeId])
+
+  useEffect(() => {
     if (!active) return
     const controller = new AbortController()
     const previous = state.current
@@ -274,8 +295,25 @@ const ImageWorkspace = forwardRef(function ImageWorkspace({
   const changeContext = next => act(async () => {
     await flushDraft()
     setQuote(null)
-    await onContextChange?.(next)
+    const normalized = { productTestId: String(next.productTestId || ''), creativeId: String(next.creativeId || '') }
+    setQuickContext(normalized)
+    await onContextChange?.(normalized)
   })
+  const ensureQuickCreative = async () => {
+    if (state.current.creativeId && state.current.work) return state.current.work
+    let id = creativeId
+    if (!id) {
+      const result = await request('quick-creative', { workspace: 'image', title: 'Quick image draft' })
+      const next = { productTestId: String(result.productTestId), creativeId: String(result.creativeId) }
+      sessionStorage.setItem(`quick-generator:image:${apiBase()}`, JSON.stringify(next))
+      setQuickContext(next)
+      id = next.creativeId
+    }
+    state.current.creativeId = id
+    const loaded = (await request(id)).workspace
+    accept(loaded)
+    return loaded
+  }
   const createCreative = () => act(async () => {
     await flushDraft()
     const result = await request('creatives', { productTestId: Number(productTestId), angle: title.trim() })
@@ -283,7 +321,9 @@ const ImageWorkspace = forwardRef(function ImageWorkspace({
     optionsRef.current = refreshed
     setOptions(refreshed)
     setTitle('')
-    await onContextChange?.({ productTestId, creativeId: String(result.creativeId) })
+    const next = { productTestId, creativeId: String(result.creativeId) }
+    setQuickContext(next)
+    await onContextChange?.(next)
   })
   const chooseDraft = id => act(async () => {
     const workspace = await flushDraft()
@@ -306,10 +346,12 @@ const ImageWorkspace = forwardRef(function ImageWorkspace({
     if (reset) setNotice('Unsupported settings were reset for the selected model. A new quote is required.')
   }
   const askGenerate = () => act(async () => {
+    await ensureQuickCreative()
     const workspace = await flushDraft()
     const scene = workspace?.scenes.find(item => item.id === state.current.draft.id)
-    if (!scene?.id || !scene.prompt.trim()) throw new Error('Choose a Creative and write an image prompt first.')
-    const result = await request(`${creativeId}/quote`, { revision: workspace.revision, sceneIds: [scene.id] })
+    if (!scene?.id || !scene.prompt.trim()) throw new Error('Write an image prompt first.')
+    const activeCreativeId = state.current.creativeId
+    const result = await request(`${activeCreativeId}/quote`, { revision: workspace.revision, sceneIds: [scene.id] })
     accept(result.workspace, scene.id)
     if (!activeRef.current) return
     setQuote({ ...result.quote, scene: imageDraft(scene), modelLabel: model?.label || scene.model,
@@ -340,19 +382,19 @@ const ImageWorkspace = forwardRef(function ImageWorkspace({
   const transfer = callback => act(async () => { await flushDraft(); await callback(selectedAsset) })
 
   const outputRows = images.flatMap(scene => {
-    const assets = scene.outputs?.length ? scene.outputs : scene.media ? [scene.media] : []
+    const assets = [...(scene.outputs?.length ? scene.outputs : scene.media ? [scene.media] : []), ...(scene.historyOutputs || [])]
     return [...new Map(assets.map(asset=>[asset.id,asset])).values()].map(asset => ({ scene, asset }))
   })
   const estimateRow = estimate?.rows?.find(row => row.sceneId === draft.id) || estimate?.rows?.[0]
   const estimateError = estimateRow?.error
-  const saveLabel = !creativeId ? 'Choose a Creative to save this draft' : saving ? 'Saving…' : dirty ? 'Unsaved edits' : draft.id ? 'Saved locally' : 'New draft'
+  const saveLabel = quickCreating.current ? 'Preparing quick draft…' : !creativeId ? 'Preparing quick draft' : saving ? 'Saving…' : dirty ? 'Unsaved edits' : draft.id ? 'Saved locally' : 'New draft'
 
   return <section className="image-workspace" data-testid="image-workspace" aria-busy={loading}>
     <header className="iw-header"><div><span className="workspace-eyebrow">CREATE SOMETHING NEW</span><h2>Image</h2></div><div className="iw-header-actions"><span className="iw-save-status" role="status">{saveLabel}</span><button type="button" className="ghost" disabled={busy || loading || !work || work.scenes.length >= 12} onClick={() => chooseDraft(null)}>New image draft</button></div></header>
-    <details className="iw-context" open={!creativeId}>
-      <summary>{currentProduct?.name || 'Choose a product'}<span>{currentCreative?.angle || 'Select a Creative before generation'}</span></summary>
+    <details className="iw-context">
+      <summary>{currentProduct?.name || 'Quick image draft'}<span>{currentCreative?.angle || 'Project/testing context is optional'}</span></summary>
       <div className="iw-context-fields"><label>Product Test<select aria-label="Image Product Test" value={productTestId} disabled={busy || loading || !onContextChange} onChange={event => changeContext({ productTestId: event.target.value, creativeId: '' })}><option value="">Choose a Product Test</option>{options?.productTests?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Creative<select aria-label="Image Creative" value={creativeId} disabled={busy || loading || !productTestId || !onContextChange} onChange={event => changeContext({ productTestId, creativeId: event.target.value })}><option value="">Choose a Creative</option>{options?.creatives?.filter(item => String(item.product_test_id) === productTestId).map(item => <option key={item.id} value={item.id}>{item.angle}</option>)}</select></label><label>New Creative title<input aria-label="New image Creative title" placeholder="Product image concept" value={title} onChange={event => setTitle(event.target.value)} maxLength={300} /></label><button type="button" className="ghost" disabled={busy || !productTestId || !title.trim() || !onContextChange} onClick={createCreative}>Create Creative</button></div>
-      {!options?.productTests?.length && options ? <p>Create a Product Test in Planning &amp; review to save and produce images. You can write your prompt below first.</p> : <p>The selected Creative supplies production lineage and its existing iteration budget.</p>}
+      {!options?.productTests?.length && options ? <p>Quick image drafts use internal local lineage for cost safety. You can link a Product Test later if needed.</p> : <p>Optional: link this draft to project/testing context. Normal Image generation does not require opening this section.</p>}
     </details>
     {error ? <div className="iw-error" role="alert">{error}<button type="button" className="ghost small" disabled={busy || saving} onClick={() => act(async () => { await flushDraft(); if (creativeId) accept((await request(creativeId)).workspace) })}>Retry save / refresh</button></div> : null}
     {notice ? <p className="iw-notice" role="status">{notice}</p> : null}
@@ -370,12 +412,12 @@ const ImageWorkspace = forwardRef(function ImageWorkspace({
     <div className="iw-composer" data-testid="image-composer">
       <label className="iw-prompt-label" htmlFor="image-generation-prompt">Describe your image</label><textarea id="image-generation-prompt" aria-label="Image prompt" placeholder="A product close-up in soft morning light, with…" rows={3} maxLength={6000} value={draft.prompt} disabled={locked} onChange={event => edit({ prompt: event.target.value })} />
       <div className="iw-composer-controls"><div className="iw-settings"><label className="iw-model-picker">Model<select aria-label="Image model" value={model?.id || ''} disabled={locked || !availableModels.length} onChange={event => changeModel(event.target.value)}>{!model ? <option value="">{draft.model ? `${draft.model} · unavailable` : 'Choose a configured model'}</option> : null}{models.filter(item => usableModel(item) || item.id === model?.id).map(item => <option key={item.id} value={item.id} disabled={!usableModel(item)}>{item.label}{!usableModel(item) ? ' · unavailable' : ''}</option>)}</select></label><ModelSettings image model={model} value={draft} onChange={(key,value)=>edit({[key]:value})} disabled={locked} prefix="Image"/></div>
-        <button type="button" className="primary iw-generate" disabled={locked || saving || !creativeId || !work || !draft.prompt.trim() || !validSettings} onClick={askGenerate}><span>{busy ? 'Working…' : running ? live.displayStatus || live.status : selectedAsset ? 'Regenerate' : 'Generate'}</span><small>{dirty || saving ? 'Quote before confirmation' : money(estimate?.totalMinor)}</small></button>
+        <button type="button" className="primary iw-generate" disabled={locked || saving || quickCreating.current || !draft.prompt.trim() || !validSettings} onClick={askGenerate}><span>{busy ? 'Working…' : running ? live.displayStatus || live.status : selectedAsset ? 'Regenerate' : 'Generate'}</span><small>{dirty || saving ? 'Quote before confirmation' : money(estimate?.totalMinor)}</small></button>
       </div>
       <div className="iw-composer-footnote"><span>Text-to-image · This model does not accept product/reference images.</span><span>{estimateRow?.sourceUsd != null ? `Provider estimate: $${Number(estimateRow.sourceUsd).toFixed(4)} USD · ` : ''}{estimateRow?.rounding || 'EUR quote includes conservative per-Job rounding.'}</span></div>
       {estimateError ? <p className="iw-price-warning" role="status">{estimateError}</p> : null}
       {!availableModels.length && options ? <p className="iw-price-warning">{options.imageUnavailableReason || 'No configured, priced image model is available. Check provider configuration in Settings.'}</p> : null}
-      {!creativeId ? <p className="iw-price-warning">Your prompt is a draft. Select a Product Test and Creative above to save it and request a quote.</p> : null}
+      {!creativeId ? <p className="iw-price-warning">Preparing a clean Quick image draft. No Product Test selection is required.</p> : null}
     </div>
     {quote && active ? <Confirmation quote={quote} busy={busy} onCancel={() => setQuote(null)} onConfirm={confirm} /> : null}
   </section>

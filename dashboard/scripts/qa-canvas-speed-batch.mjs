@@ -195,8 +195,10 @@ async function main() {
 
   // Sidebar-scoped nav avoids ambiguous matches (e.g. /Canvas/ also matches
   // content buttons like "Sync Canvas To Export Data").
-  const nav = (re) => page.locator('.sidebar-left button.nav', { hasText: re })
+  const nav = (target) => typeof target === 'string' ? page.locator(`.sidebar-left button.nav[data-workspace="${target}"]`) : page.locator('.sidebar-left button.nav', { hasText: target })
   const fieldInput = (label) => page.locator('label.field', { hasText: label }).locator('input, textarea').first()
+  const advanced = page.getByText('Projects / Advanced', { exact: true })
+  if (await advanced.isVisible()) await advanced.click()
 
   await step('RV. Variation reorder: within-scene move, selection preserved, survives round-trip', async () => {
     const vars = [
@@ -567,7 +569,7 @@ async function main() {
   })
 
   await step('2. Open Canvas', async () => {
-    await page.locator('.sidebar-left button.nav', { has: page.getByText('Canvas', { exact: true }) }).click()
+    await nav('canvas').click()
     await page.getByRole('heading', { name: /Canvas — Competitor Recreation/ }).waitFor()
   })
 
@@ -784,7 +786,7 @@ async function main() {
     if (!['openai', 'openrouter', 'groq'].every((x) => textOpts.includes(x))) throw new Error('Text Provider options incomplete')
     if (!['openai', 'pollinations'].every((x) => imageOpts.includes(x))) throw new Error('Image Provider options incomplete')
 
-    await page.locator('.sidebar-left button.nav', { hasText: 'Node Canvas' }).click()
+    await nav('node_canvas').click()
     await page.locator('.node-canvas-panel').waitFor()
     const nodeControls = await readProviderControls()
     const videoCtrl = nodeControls.find((x) => x.name === 'Video Provider')
@@ -806,11 +808,7 @@ async function main() {
     if (!replicateModelOpts.some((x) => x.value === 'wan-720p' && x.text.includes('$0.09/s'))) throw new Error('WAN quality model option missing')
     await videoSel.selectOption('mock')
 
-    await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('.sidebar-left button.nav')).find((el) => el.querySelector('.nav-text')?.textContent?.trim() === 'Canvas')
-      if (!btn) throw new Error('Canvas nav button missing')
-      btn.click()
-    })
+    await nav('canvas').click()
     await page.getByRole('button', { name: 'Board View' }).click()
     const modeSel = page.locator('.subpanel', { hasText: 'Production Board' }).locator('label.field', { hasText: 'Provider Mode' }).locator('select')
     await modeSel.selectOption('api')
@@ -1089,7 +1087,7 @@ async function main() {
   })
 
   await step('LM4. Add Existing Result upload saved to Local Media Library renders a local preview + label', async () => {
-    await page.locator('.sidebar-left button.nav', { has: page.getByText('Canvas', { exact: true }) }).click()
+    await nav('canvas').click()
     await page.getByRole('heading', { name: /Canvas — Competitor Recreation/ }).waitFor()
     await page.getByRole('button', { name: 'Board View' }).click()
     await page.getByRole('button', { name: 'Add Existing Result' }).first().click()

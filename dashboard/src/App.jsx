@@ -108,7 +108,7 @@ export default function App() {
   const [activeStudioSessionId, setActiveStudioSessionId] = useState(()=>{try{return localStorage.getItem(`studio-selection:${apiBase()}`)||null}catch{return null}})
   useEffect(()=>{try{if(activeStudioSessionId)localStorage.setItem(`studio-selection:${apiBase()}`,activeStudioSessionId);else localStorage.removeItem(`studio-selection:${apiBase()}`)}catch{}},[activeStudioSessionId])
   const [studioWizardStep, setStudioWizardStep] = useState(0)
-  const [active, setActive] = useState(() => { try { const key=sessionStorage.getItem(`workspace-active:${apiBase()}`);return isWorkspaceKey(key)?key:sessionStorage.getItem(`operator-active:${apiBase()}`) === 'true' ? 'product_tests' : 'create_ad' } catch { return 'create_ad' } })
+  const [active, setActive] = useState(() => { try { const key=sessionStorage.getItem(`workspace-active:${apiBase()}`);return isWorkspaceKey(key)?key:sessionStorage.getItem(`operator-active:${apiBase()}`) === 'true' ? 'product_tests' : 'image' } catch { return 'image' } })
   const generatorRef=useRef(null),imageWorkspaceRef=useRef(null)
   const [workstationOptions,setWorkstationOptions]=useState(null),[studioAdvanced,setStudioAdvanced]=useState(false)
   const [contextError,setContextError]=useState('')
@@ -120,6 +120,17 @@ export default function App() {
   const selectProductionContext=async next=>{try{await generatorRef.current?.flushDraft();await imageWorkspaceRef.current?.flushDraft();changeProductionContext(next);setContextError('')}catch(error){setContextError(error.message)}}
   const navigateWorkspace=async key=>{await generatorRef.current?.flushDraft();await imageWorkspaceRef.current?.flushDraft();if(active==='marketing_studio'){flushStudioSave();if(await studioSaveTasks.current.get(activeStudioSessionId)===false)throw new Error('Studio could not save. Resolve the displayed error before switching.')}setActive(key)}
   const useAssetInCreative=async(asset)=>{
+    if (active === 'image' && asset.mime_type.startsWith('image/')) {
+      await imageWorkspaceRef.current?.flushDraft()
+      const quick = await workspaceRequest('/api/operator/generator/quick-creative', { workspace: 'video', title: 'Quick video draft' })
+      const original = (await workspaceRequest(`/api/operator/generator/${quick.creativeId}`)).workspace
+      const draft = { name: 'Image start frame', prompt: '', provider: 'mock', mode: 'image-to-video', seconds: 5, resolution: '480p', aspectRatio: '9:16', generateAudio: false, quantity: 1, startAssetId: asset.id }
+      await workspaceRequest(`/api/operator/generator/${quick.creativeId}/scenes`, { revision: original.revision, scenes: [draft] })
+      sessionStorage.setItem(`quick-generator:video:${apiBase()}`, JSON.stringify({ productTestId: quick.productTestId, creativeId: quick.creativeId }))
+      workspaceRequest('/api/operator/generator/options').then(setWorkstationOptions).catch(()=>{})
+      await navigateWorkspace('video')
+      return
+    }
     if(!productionContext.creativeId)throw new Error('Choose a Product Test and Creative in the top bar before linking an Asset.')
     await generatorRef.current?.flushDraft();await imageWorkspaceRef.current?.flushDraft()
     const cid=productionContext.creativeId, isImage=asset.mime_type.startsWith('image/')
@@ -128,7 +139,7 @@ export default function App() {
     const draft={name:isImage?'Image start frame':'Linked media scene',prompt:'',provider:workstationOptions?.models[0]?.provider||'mock',mode:isImage?'image-to-video':'text-to-video',seconds:5,resolution:'480p',aspectRatio:'9:16',generateAudio:false,startAssetId:isImage?asset.id:null}
     let next=(await workspaceRequest(`/api/operator/generator/${cid}/scenes`,{revision:original.revision,scenes:[...original.scenes,draft]})).workspace
     if(!isImage)next=(await workspaceRequest(`/api/operator/generator/${cid}/result`,{revision:next.revision,sceneId:next.scenes.at(-1).id,assetId:asset.id})).workspace
-    await navigateWorkspace('video')
+    await navigateWorkspace(isImage ? 'video' : 'create_ad')
   }
   const useAssetInCanvas=async(asset)=>{
     const node=newNode('reference',80,80)
@@ -1453,7 +1464,7 @@ export default function App() {
   }
 
   return (
-    <WorkspaceShell active={active} onNavigate={navigateWorkspace} hasContent={hasContent} context={<><select aria-label="Active Product Test" value={productionContext.productTestId||''} onChange={e=>selectProductionContext({productTestId:e.target.value,creativeId:''})}><option value="">Product context</option>{workstationOptions?.productTests.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select aria-label="Active Creative" value={productionContext.creativeId||''} onChange={e=>selectProductionContext({...productionContext,creativeId:e.target.value})}><option value="">Creative context</option>{workstationOptions?.creatives.filter(c=>String(c.product_test_id)===String(productionContext.productTestId)).map(c=><option key={c.id} value={c.id}>{c.angle}</option>)}</select></>} status={(() => {
+    <WorkspaceShell active={active} onNavigate={navigateWorkspace} hasContent={hasContent} context={['product_tests','create_ad'].includes(active)?<><select aria-label="Active Product Test" value={productionContext.productTestId||''} onChange={e=>selectProductionContext({productTestId:e.target.value,creativeId:''})}><option value="">Product context</option>{workstationOptions?.productTests.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select aria-label="Active Creative" value={productionContext.creativeId||''} onChange={e=>selectProductionContext({...productionContext,creativeId:e.target.value})}><option value="">Creative context</option>{workstationOptions?.creatives.filter(c=>String(c.product_test_id)===String(productionContext.productTestId)).map(c=><option key={c.id} value={c.id}>{c.angle}</option>)}</select></>:null} status={(() => {
           const b = apiBadge
           const yn = (v) => (v ? '✓' : '✗')
           const label = b.loading
@@ -1485,7 +1496,7 @@ export default function App() {
           />
         )}>
         {contextError&&<div role="alert" className="note bad">{contextError}</div>}
-        <div hidden={active!=='image'}><ImageWorkspace ref={imageWorkspaceRef} active={active==='image'} context={productionContext} onContextChange={changeProductionContext} onUseAsStartFrame={useAssetInCreative} onAddToCanvas={useAssetInCanvas} onUseInStudio={useAssetInStudio} onSaveToCreative={useAssetInCreative}/></div>
+        <div hidden={active!=='image'}><ImageWorkspace ref={imageWorkspaceRef} active={active==='image'} context={{productTestId:'',creativeId:''}} onContextChange={changeProductionContext} onUseAsStartFrame={useAssetInCreative} onAddToCanvas={useAssetInCanvas} onUseInStudio={useAssetInStudio} onSaveToCreative={useAssetInCreative}/></div>
         {renderMain()}
         {canvasQuote?<CanvasProductionDialog quote={canvasQuote} busy={canvasStarting} onCancel={()=>setCanvasQuote(null)} onConfirm={confirmCanvasProduction}/>:null}
         {replicateConfirm ? (

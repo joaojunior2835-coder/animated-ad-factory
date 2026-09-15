@@ -4,7 +4,7 @@ import { promptForRemix, reuseGeneratorScene } from './creativeGenerator.mjs'
 import { getDb, getFxRate, setFxRate } from '../db/repository.mjs'
 import { reviewQueue, reviewCreative, approveManualPlan, analysisSummary, runDetails } from './operator.mjs'
 import { assembleProductionRun, completeExternalRun, videoTool, runVideoTool } from './assembly.mjs'
-import { generatorOptions, createGeneratorCreative, generatorWorkspace, saveGeneratorScenes, estimateGenerator, quoteGenerator, startGenerator, chooseGeneratorResult, assembleGenerator } from './creativeGenerator.mjs'
+import { generatorOptions, createGeneratorCreative, createQuickGeneratorCreative, generatorWorkspace, saveGeneratorScenes, estimateGenerator, quoteGenerator, startGenerator, chooseGeneratorResult, assembleGenerator } from './creativeGenerator.mjs'
 import { quoteCanvas, startCanvas, canvasProductionStatus } from './canvasProduction.mjs'
 
 export async function operatorRoute(req, res, url, send) {
@@ -33,6 +33,7 @@ export async function operatorRoute(req, res, url, send) {
     const generator = /^generator\/(\d+)(?:\/(scenes|estimate|quote|start|result|assemble|reuse))?$/.exec(route)
     if (req.method === 'GET' && route === 'generator/options') data = await generatorOptions()
     else if (req.method === 'POST' && route === 'generator/creatives') data = createGeneratorCreative(body)
+    else if (req.method === 'POST' && route === 'generator/quick-creative') data = createQuickGeneratorCreative(body)
     else if (generator && req.method === 'GET' && !generator[2]) data = { workspace: generatorWorkspace(Number(generator[1])) }
     else if (generator && req.method === 'POST') {
       const id = Number(generator[1]), action = generator[2]

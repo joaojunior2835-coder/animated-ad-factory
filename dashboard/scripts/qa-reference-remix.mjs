@@ -21,11 +21,11 @@ try{
   server=spawn(process.execPath,['server/index.mjs'],{env,windowsHide:true,stdio:'ignore'})
   let healthy=false;for(let i=0;i<60;i++){try{const r=await fetch(api+'/health');if(r.ok){assert.ok(Object.values((await r.json()).providers_configured).every(v=>v===false));healthy=true;break}}catch{}await wait(200)}assert.ok(healthy)
   browser=await chromium.launch();const context=await browser.newContext({viewport:{width:1440,height:1000}})
-  await context.addInitScript(url=>localStorage.setItem('API_BASE_URL',url),api)
+  await context.addInitScript(url=>{localStorage.setItem('API_BASE_URL',url);sessionStorage.setItem(`workspace-active:${url}`,'create_ad')},api)
   const external=[],errors=[]
   await context.route('**/*',route=>{const u=new URL(route.request().url());if(!['localhost','127.0.0.1'].includes(u.hostname)){external.push(u.hostname);return route.abort()}return route.continue()})
   page=await context.newPage();page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept())
-  await check('Create Ad has obvious scratch / remix navigation',async()=>{await page.goto('http://localhost:5173');await page.getByTestId('creative-generator').waitFor();await page.getByRole('button',{name:/Remix Reference Ad/}).click();await page.getByText('New product',{exact:true}).click();await page.getByLabel('Product name',{exact:true}).fill('Our travel suitcase');await page.getByRole('button',{name:'Create product',exact:true}).click();await page.getByLabel('Product Test',{exact:true}).getByRole('option',{name:'Our travel suitcase'}).waitFor({state:'attached'})})
+  await check('Legacy Create Ad has obvious scratch / remix navigation from Projects / Advanced',async()=>{await page.goto('http://localhost:5173');await page.getByText('Projects / Advanced',{exact:true}).click();await page.getByRole('button',{name:'Legacy Create Ad',exact:true}).click();await page.getByTestId('creative-generator').waitFor();await page.getByRole('button',{name:/Remix Reference Ad/}).click();await page.getByText('New product',{exact:true}).click();await page.getByLabel('Product name',{exact:true}).fill('Our travel suitcase');await page.getByRole('button',{name:'Create product',exact:true}).click();await page.getByLabel('Product Test',{exact:true}).getByRole('option',{name:'Our travel suitcase'}).waitFor({state:'attached'})})
   for(const [idx,mode] of ['product_swap','background_swap','full_remix'].entries()){
     const id=idx+1,scene=()=>page.getByTestId('generator-scene-1')
     await check(mode+': upload video/image and type one instruction',async()=>{

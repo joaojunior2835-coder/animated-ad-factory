@@ -57,8 +57,9 @@
 .workstation-shell .workspace-primary-nav .workspace-nav-item.active { color: var(--text); background: var(--panel-2); border-color: var(--border); }
 .workstation-shell .workspace-primary-nav .workspace-nav-item.active::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .workstation-shell .workspace-primary-nav .workspace-nav-item.active .dot { display: none; }
-.workspace-support-row { display: flex; align-items: center; gap: 14px; padding: 0 28px; border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
-.workspace-support-label { flex: none; font-size: 10px; color: var(--muted); letter-spacing: .45px; }
+.workspace-support-row { display: block; padding: 0 28px 6px; border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.workspace-support-label { display: inline-flex; align-items: center; min-height: 34px; cursor: pointer; font-size: 10px; color: var(--muted); letter-spacing: .45px; }
+.workspace-support-label:hover { color: var(--text); }
 .workspace-support-nav { gap: 4px; padding: 5px 0; }
 .workstation-shell .workspace-support-nav .workspace-nav-item { min-height: 32px; font-size: 11px; padding: 6px 9px; border-radius: 6px; }
 .workstation-shell .workspace-support-nav .workspace-nav-item.active { color: var(--accent); background: var(--panel); }
@@ -146,8 +147,8 @@
   .workspace-status .api-badge { max-width: 100%; font-size: 10px; }
   .workspace-primary-nav { gap: 4px; padding: 6px 12px 8px; }
   .workstation-shell .workspace-primary-nav .workspace-nav-item { min-height: 44px; padding: 10px 12px; }
-  .workspace-support-row { gap: 0; padding: 0 12px; }
-  .workspace-support-label { display: none; }
+  .workspace-support-row { padding: 0 12px 6px; }
+  .workspace-support-label { min-height: 38px; }
   .workstation-shell .workspace-support-nav .workspace-nav-item { min-height: 38px; }
   .workstation-shell .workspace-main { padding: 20px 14px max(20px, env(safe-area-inset-bottom)); }
   .workspace-layout-with-aside { grid-template-columns: minmax(0, 1fr); overflow: auto; display: block; }

@@ -54,12 +54,12 @@ export default function WorkspaceShell({
       <div className="workspace-nav-row workspace-primary-nav">
         {primaryItems.map(item => <NavigationItem key={item.key} item={item} active={active} busy={navigating} hasContent={hasContent} onNavigate={navigate} />)}
       </div>
-      {supportingItems.length ? <div className="workspace-support-row">
-        <span className="workspace-support-label">Planning &amp; review</span>
+      {supportingItems.length ? <details className="workspace-support-row">
+        <summary className="workspace-support-label">Projects / Advanced</summary>
         <div className="workspace-nav-row workspace-support-nav">
           {supportingItems.map(item => <NavigationItem key={item.key} item={item} active={active} busy={navigating} hasContent={hasContent} onNavigate={navigate} />)}
         </div>
-      </div> : null}
+      </details> : null}
     </nav>
     {navigationError ? <div className="workspace-navigation-error" role="alert">{navigationError}</div> : null}
     <div className={`workspace-layout${aside ? ' workspace-layout-with-aside' : ''}`}>

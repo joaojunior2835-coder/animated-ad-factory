@@ -37,9 +37,16 @@ try {
   page.on('request', (request) => { if (request.method() === 'POST' && /\/(publications|metrics)$/.test(new URL(request.url()).pathname)) writes.push({ path: new URL(request.url()).pathname, body: request.postDataJSON() }) })
   page.on('dialog', (dialog) => dialog.accept())
   page.setDefaultTimeout(20000)
+  const openSupporting = async (targetPage = page) => {
+    await targetPage.evaluate(() => {
+      const group = Array.from(document.querySelectorAll('details')).find((item) => item.querySelector('summary')?.textContent?.trim() === 'Projects / Advanced')
+      if (group) group.open = true
+    })
+  }
   await check('UI loads with no error overlay and healthy keyless backend/MCP', async () => {
     await page.goto('http://localhost:5173')
-    await page.getByRole('button', { name: /Product Tests/ }).click()
+    await openSupporting()
+    await page.locator('.sidebar-left button.nav[data-workspace="product_tests"]').click()
     await page.getByTestId('new-product-test').waitFor()
     assert.equal(await page.locator('vite-error-overlay').count(), 0)
   })
@@ -233,7 +240,8 @@ try {
     tab.on('pageerror', (error) => remoteErrors.push(error.message))
     tab.on('request', (request) => { if (new URL(request.url()).hostname === '127.0.0.1') loopback.push(request.url()) })
     await tab.goto(tunnel)
-    await tab.getByRole('button', { name: /Product Tests/ }).click()
+    await openSupporting(tab)
+    await tab.locator('.sidebar-left button.nav[data-workspace="product_tests"]').click()
     await tab.getByRole('button', { name: 'Review Queue', exact: true }).click()
     await tab.getByLabel('Review filter').selectOption('approved')
     const video = tab.locator('video').first()
