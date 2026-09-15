@@ -1,4 +1,4 @@
-// Local Studio drafting. These presets never call a model or invent product claims.
+﻿// Local Studio drafting. These presets never call a model or invent product claims.
 export const STUDIO_PRESETS = [
   { id: 'product_portrait', name: 'Portrait produit', category: 'Produit', description: 'Une présentation nette, une matière, une signature.', tone: 'portrait', shots: ['Présentation du produit sur une surface simple, lumière douce, lent rapprochement de caméra.', 'Gros plan sur un détail réellement visible du produit. Mouvement de caméra discret.', 'Vue finale du produit entier, composition stable et espace libre autour du produit.'] },
   { id: 'daily_ritual', name: 'Rituel quotidien', category: 'Lifestyle', description: 'Le produit dans un cadre simple et naturel.', tone: 'ritual', shots: ['Le produit posé dans un environnement quotidien sobre, lumière naturelle.', 'Approche lente vers le produit. Montrer uniquement ses caractéristiques visibles.', 'Plan large calme, le produit reste le sujet principal. Aucun résultat avant/après.'] },
@@ -10,7 +10,7 @@ const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value)
 const cleanString = (value, fallback = '') => typeof value === 'string' ? value : fallback
 
 export function emptyStudioProduction() {
-  return { templateId: 'product_portrait', productTestId: null, creativeId: null, newCreative: false, productAssetId: null, modelId: '', resolution: '480p', aspectRatio: '9:16', generateAudio: false, scenes: [], sceneLinks: {} }
+  return { templateId: 'product_portrait', mediaKind: 'video', productTestId: null, creativeId: null, newCreative: false, productAssetId: null, modelId: '', resolution: '480p', aspectRatio: '9:16', imageSize: 'square_hd', outputFormat: 'png', quantity: 1, generateAudio: false, scenes: [], sceneLinks: {} }
 }
 
 export function normalizeStudioProduction(value) {
@@ -18,8 +18,9 @@ export function normalizeStudioProduction(value) {
   return {
     ...base,
     templateId: STUDIO_PRESETS.some(t => t.id === p.templateId) ? p.templateId : base.templateId,
+    mediaKind: p.mediaKind === 'image' ? 'image' : 'video',
     productTestId: positiveId(p.productTestId), creativeId: positiveId(p.creativeId), newCreative: p.newCreative === true, productAssetId: positiveId(p.productAssetId),
-    modelId: cleanString(p.modelId), resolution: cleanString(p.resolution, base.resolution), aspectRatio: cleanString(p.aspectRatio, base.aspectRatio), generateAudio: p.generateAudio === true,
+    modelId: cleanString(p.modelId), resolution: cleanString(p.resolution, base.resolution), aspectRatio: cleanString(p.aspectRatio, base.aspectRatio), imageSize: cleanString(p.imageSize, base.imageSize), outputFormat: cleanString(p.outputFormat, base.outputFormat), quantity: Number.isInteger(p.quantity) ? Math.max(1, Math.min(4, p.quantity)) : base.quantity, generateAudio: p.generateAudio === true,
     scenes: Array.isArray(p.scenes) ? p.scenes.slice(0, 12).map((s, i) => ({ id: cleanString(s?.id, `studio-scene-${i + 1}`), name: cleanString(s?.name, `Scène ${i + 1}`), visualDescription: cleanString(s?.visualDescription), script: cleanString(s?.script), scriptLocked: s?.scriptLocked === true, seconds: Number.isInteger(s?.seconds) ? s.seconds : 5 })) : [],
     sceneLinks: p.sceneLinks && typeof p.sceneLinks === 'object' && !Array.isArray(p.sceneLinks) ? Object.fromEntries(Object.entries(p.sceneLinks).filter(([k, v]) => typeof k === 'string' && typeof v === 'string')) : {},
   }
@@ -37,16 +38,32 @@ export function importStudioScenes(scenes) {
 
 export function buildStudioGenerationScene(scene, studio, capability) {
   const p = normalizeStudioProduction(studio.production)
-  if (!capability || !capability.configured || !capability.priced || capability.capability !== 'generate_video') throw new Error('Choisissez un modèle vidéo configuré et tarifé.')
+  if (!capability || !capability.configured || !capability.priced) throw new Error('Choisissez un modèle configuré et tarifé.')
+  if (p.mediaKind === 'image') {
+    if (capability.capability !== 'generate_image') throw new Error('Choisissez un modèle image configuré et tarifé.')
+    if (!capability.imageSizes?.some(size => size.id === p.imageSize) || !capability.outputFormats?.includes(p.outputFormat)) throw new Error('Les réglages image ne correspondent plus au modèle.')
+    if (p.productAssetId) throw new Error('Ce modèle image est texte seul. Retirez la photo produit ou choisissez une vidéo image vers vidéo.')
+    if (!scene.visualDescription.trim() && !studio.brief?.hook?.trim()) throw new Error('Décrivez le visuel marketing à créer.')
+    const prompt = [
+      studio.brief?.hook ? `Operator request: ${studio.brief.hook}` : '',
+      scene.visualDescription,
+      studio.product?.name?.trim() ? `Product name supplied by operator: ${studio.product.name}.` : '',
+      studio.product?.description?.trim() ? `Verified product facts: ${studio.product.description}.` : '',
+      studio.product?.claimBoundary ? `Claim boundaries: ${studio.product.claimBoundary}` : '',
+      'Do not invent performance claims, statistics, testimonials, before/after results or readable packaging text.',
+    ].filter(Boolean).join('\n\n')
+    if (prompt.length > 6000) throw new Error('La scène dépasse la limite de 6 000 caractères.')
+    return { kind: 'image', name: scene.name, prompt, provider: capability.provider, model: capability.model, mode: 'text-to-image', imageSize: p.imageSize, outputFormat: p.outputFormat, quantity: p.quantity }
+  }
+  if (capability.capability !== 'generate_video') throw new Error('Choisissez un modèle vidéo configuré et tarifé.')
   const mode = p.productAssetId ? 'image-to-video' : 'text-to-video'
   if (!capability.modes?.includes(mode)) throw new Error('Ce modèle ne prend pas en charge la photo produit. Choisissez un modèle image vers vidéo.')
   if (!capability.aspects?.includes(p.aspectRatio) || !capability.resolutions?.includes(p.resolution) || !capability.durations?.includes(scene.seconds)) throw new Error('Les réglages ne correspondent plus au modèle. Vérifiez format, résolution et durée.')
   if (p.generateAudio && !capability.audio) throw new Error('Ce modèle ne prend pas en charge la génération audio.')
-  if (!scene.visualDescription.trim()) throw new Error('Ajoutez une instruction visuelle à chaque scène.')
-  if (!studio.product?.name?.trim() || !studio.product?.description?.trim()) throw new Error('Renseignez le nom et les faits produit.')
+  if (!scene.visualDescription.trim() && !studio.brief?.hook?.trim()) throw new Error('Ajoutez une instruction visuelle à chaque scène.')
   const language = studio.brief?.language === 'en' ? 'English' : 'French'
   const prompt = [
-    `Product: ${studio.product.name}. Supplied product facts: ${studio.product.description}.`,
+    studio.product?.name?.trim() || studio.product?.description?.trim() ? `Product: ${studio.product?.name || 'unspecified product'}. Supplied product facts: ${studio.product?.description || 'none supplied'}.` : 'No product facts were supplied. Follow only the operator prompt and visible references.',
     p.productAssetId ? 'Use the attached product photograph as the starting image. Preserve its visible design and packaging as guidance; do not invent additional product features.' : 'Visual concept without a product reference. Exact product identity is not specified by an image.',
     scene.visualDescription,
     studio.brief?.hook ? `Creative direction supplied by the operator: ${studio.brief.hook}` : '',
@@ -59,7 +76,7 @@ export function buildStudioGenerationScene(scene, studio, capability) {
 }
 
 export function studioSceneSignature(scene) {
-  return JSON.stringify([...['name', 'prompt', 'provider', 'mode', 'seconds', 'resolution', 'aspectRatio', 'generateAudio', 'startAssetId'].map(k => scene[k] ?? null), scene.quantity ?? 1])
+  return JSON.stringify(scene.kind === 'image' ? [...['kind', 'name', 'prompt', 'provider', 'model', 'mode', 'imageSize', 'outputFormat'].map(k => scene[k] ?? null), scene.quantity ?? 1] : [...['name', 'prompt', 'provider', 'mode', 'seconds', 'resolution', 'aspectRatio', 'generateAudio', 'startAssetId'].map(k => scene[k] ?? null), scene.quantity ?? 1])
 }
 
 export function savedStudioGeneratorScene(scene) {
@@ -85,7 +102,7 @@ export function prepareStudioSceneSave(workspace, draftScenes, compiled, links =
 
 export function studioCanvasPayload(studio, liveScenes = [], capability) {
   const p = normalizeStudioProduction(studio.production)
-  return { source: 'marketing_studio', creativeId: p.creativeId, productTestId: p.productTestId, productAssetId: p.productAssetId, modelId: p.modelId, resolution: p.resolution, aspectRatio: p.aspectRatio, generateAudio: p.generateAudio, language: studio.brief?.language === 'en' ? 'en' : 'fr', scenes: p.scenes.map((s, i) => {
+  return { source: 'marketing_studio', creativeId: p.creativeId, productTestId: p.productTestId, productAssetId: p.productAssetId, modelId: p.modelId, mediaKind: p.mediaKind, resolution: p.resolution, aspectRatio: p.aspectRatio, imageSize: p.imageSize, outputFormat: p.outputFormat, quantity: p.quantity, generateAudio: p.generateAudio, language: studio.brief?.language === 'en' ? 'en' : 'fr', scenes: p.scenes.map((s, i) => {
     const live = liveScenes.find(v => v.id === p.sceneLinks[s.id])
     let compiled = null
     try { compiled = buildStudioGenerationScene(s, studio, capability) } catch { /* Incomplete drafts can still be opened in Canvas. */ }

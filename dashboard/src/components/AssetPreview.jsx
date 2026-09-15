@@ -6,10 +6,13 @@ export default function AssetPreview({ asset, compact = false, className = '', o
   const [failedUrl, setFailedUrl] = useState('')
   const url = assetMediaUrl(asset)
   const kind = assetMediaKind(asset)
+  const width = Number(asset?.width)
+  const height = Number(asset?.height)
+  const aspect = width > 0 && height > 0 ? `${width} / ${height}` : kind === 'video' ? '9 / 16' : '1 / 1'
   const unavailable = !url || failedUrl === url
   const failed = () => { setFailedUrl(url); onError?.(asset) }
 
-  return <div className={`asset-preview${compact ? ' asset-preview-compact' : ''} ${className}`}>
+  return <div className={`asset-preview${compact ? ' asset-preview-compact' : ''} ${className}`} data-kind={kind} style={{ '--asset-aspect': aspect }}>
     {unavailable ? <div className="asset-preview-message" role={compact ? undefined : 'status'}><span>Media unavailable</span>{!compact ? <small>The saved file is missing or cannot be displayed.</small> : null}</div>
       : kind === 'image' ? <img src={url} alt={assetDisplayName(asset)} loading="lazy" decoding="async" onError={failed} />
         : kind === 'video' ? <><video src={url} controls={!compact} preload="metadata" playsInline muted={compact} onError={failed} />{compact ? <span className="asset-preview-video-label" aria-hidden="true">Video</span> : null}</>

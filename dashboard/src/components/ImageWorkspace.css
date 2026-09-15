@@ -16,10 +16,10 @@
 .iw-draft-history button { display: grid; gap: 4px; padding: 9px 12px; background: var(--panel); flex: 0 0 auto; font-size: 11px; text-align: left; border-radius: 8px; }
 .iw-draft-history button span { color: var(--muted); font-size: 10px; }
 .iw-draft-history button.active { border-color: var(--accent); }
-.iw-output-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; }
-.iw-output { padding: 0; min-width: 0; overflow: hidden; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); text-align: left; }
+.iw-output-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(185px, 100%), 260px)); gap: 16px; align-items:start; justify-content:start; }
+.iw-output { padding: 0; min-width: 0; max-width: 280px; overflow: hidden; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); text-align: left; }
 .iw-output.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.image-workspace .iw-output .asset-preview { border-radius:0; min-height:240px; height:clamp(240px,34vh,350px); max-height:350px; }
+.image-workspace .iw-output .asset-preview { border-radius:0; min-height:0; height:auto; max-height:none; }
 .iw-output .asset-preview img { max-height:100%; min-height:0; height:100%; object-fit:contain; }
 .iw-output-caption { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; font-size: 11px; }
 .iw-output-caption > :last-child { color: var(--muted); }
@@ -89,8 +89,9 @@
   .iw-empty-art { transform: scale(.8); height: 76px; margin-bottom: 10px; }
   .iw-prompt-starters { gap: 5px; margin-top: 15px; }
   .iw-prompt-starters button { font-size: 10px; padding: 8px; }
-  .iw-output-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .iw-output .asset-preview, .iw-output .asset-preview img { min-height: 230px; max-height: 410px; }
+  .iw-output-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .iw-output { max-width:none; }
+  .iw-output .asset-preview, .iw-output .asset-preview img { min-height: 0; max-height: none; }
   .iw-result-actions > span { flex: 1 0 100%; }
   .iw-result-actions button { min-height: 44px; }
   .iw-composer { position: relative; bottom: auto; padding: 14px; border-radius: 14px; margin-bottom: env(safe-area-inset-bottom); }

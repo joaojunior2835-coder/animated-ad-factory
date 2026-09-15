@@ -1,4 +1,4 @@
-// Browser -> isolated SQLite/media -> Mock image/video M5 -> local M6.
+﻿// Browser -> isolated SQLite/media -> Mock image/video M5 -> local M6.
 // All paid credentials are blank and both backend/browser remote requests fail.
 // Requires the operator's existing Vite server on 5173; owns backend 8797 only.
 import { chromium } from 'playwright'
@@ -373,12 +373,13 @@ try {
   })
   await check('Studio creates a factual French draft, uses an existing product image, and proposes one editable scene', async () => {
     await navigate('marketing_studio')
-    await studio().getByRole('button', { name: 'Créer un brouillon Studio', exact: true }).click()
+    await studio().getByLabel('Brief créatif Studio').waitFor()
     await studio().getByLabel('Nom du produit Studio').fill('Flacon de démonstration')
     await studio().getByLabel('Faits produit Studio').fill('Flacon cylindrique vert avec bouchon. Fixture locale sans marque ni promesse produit.')
-    await studio().getByLabel('Photo produit Studio').selectOption(String(imageAssetId))
+    await studio().getByRole('complementary').getByLabel('Photo produit Studio').selectOption(String(imageAssetId))
     assert.equal(await studio().locator('label').filter({ hasText: 'Langue du script' }).locator('select').inputValue(), 'fr')
-    await studio().locator('.sw-presets').getByRole('button', { name: /Un plan, une idée/ }).click()
+    await studio().getByText('Templates', { exact: true }).click()
+    await studio().locator('.sw-template-drawer .sw-preset', { hasText: 'Un plan, une idée' }).click()
     await studio().getByLabel('Instruction visuelle Studio').waitFor()
     await studio().getByLabel('Brief créatif Studio').fill('Une lumière douce, une prise de vue calme et aucun texte ajouté.')
     await studio().getByLabel('Script exact Studio').fill('Voici notre flacon. Regardez sa forme et sa couleur.')
@@ -392,7 +393,7 @@ try {
   })
   await check('Studio explicitly confirms its finite batch, renders playable output, and keeps the locked script', async () => {
     const jobsBefore = counts().job
-    await studio().getByRole('button', { name: /^Générer les scènes/ }).click()
+    await studio().locator('.sw-generate').click()
     const dialog = page.getByRole('dialog', { name: 'Confirmer la production Studio' })
     await dialog.waitFor()
     assert.match(await dialog.innerText(), /Générer 1 clip/)

@@ -37,10 +37,18 @@ async function healthy(url) {
   throw new Error(`No backend health at ${url}`)
 }
 async function clickNav(page, label) {
-  await page.getByRole('button', { name: label, exact: true }).click()
+  const button = page.locator('.workspace-primary-nav').getByRole('button').filter({ hasText: label }).first()
+  await button.scrollIntoViewIfNeeded()
+  await button.click()
+}
+async function assertBox(page, locator, predicate, message) {
+  const box = await locator.boundingBox()
+  assert.ok(box, `${message}: missing box`)
+  assert.ok(predicate(box), `${message}: ${JSON.stringify(box)}`)
+  return box
 }
 async function confirmGeneration(page) {
-  await page.getByRole('button', { name: /Confirm generation/ }).click()
+  await page.getByRole('button', { name: /Confirm generation|Confirmer/ }).click()
 }
 async function checkNoExternal(context) {
   const external = []
@@ -82,17 +90,30 @@ try {
     await page.screenshot({ path: path.join(artifacts, 'nav-image-desktop.png'), fullPage: true })
   })
 
-  await check('Image quick workflow needs no Product Test and keeps six outputs visible after 1 + 1 + 4 generations', async () => {
+  await check('Image quick workflow needs no Product Test and preserves 1:1, 9:16, 16:9, and multi-output sizing', async () => {
     await page.getByLabel('Image model').selectOption('mock-image')
-    for (const [prompt, quantity] of [['First clean product image.', 'Outputs: 1'], ['Second clean product image.', 'Outputs: 1'], ['Third clean product image.', 'Outputs: 4']]) {
+    for (const [prompt, size, quantity] of [
+      ['First clean product image.', 'square_hd', 'Outputs: 1'],
+      ['Second clean portrait product image.', 'portrait_16_9', 'Outputs: 1'],
+      ['Third clean landscape product image.', 'landscape_16_9', 'Outputs: 4'],
+    ]) {
       await page.getByLabel('Image prompt').fill(prompt)
+      await page.getByLabel('Image size').selectOption(size)
       await page.getByLabel('Image output quantity').selectOption({ label: quantity })
       await page.locator('.iw-generate').click()
       await confirmGeneration(page)
       await page.locator('.iw-output').first().waitFor({ timeout: 20000 })
     }
     await page.waitForFunction(() => document.querySelectorAll('.iw-output').length >= 6, null, { timeout: 20000 })
-    await page.locator('.iw-output').nth(1).click()
+    const squareCard = page.locator('.iw-output', { hasText: '1024 × 1024' }).first()
+    const portraitCard = page.locator('.iw-output', { hasText: '768 × 1344' }).first()
+    const landscapeCard = page.locator('.iw-output', { hasText: '1344 × 768' }).first()
+    const first = await assertBox(page, squareCard.locator('.asset-preview'), box => box.width <= 320 && Math.abs(box.width - box.height) < 24, '1:1 image output stays compact and square')
+    const second = await assertBox(page, portraitCard.locator('.asset-preview'), box => box.width <= 260 && box.height > box.width * 1.35, '9:16 image output stays compact and portrait')
+    await assertBox(page, landscapeCard.locator('.asset-preview'), box => box.width <= 320 && box.width > box.height * 1.35, '16:9 image output stays compact and landscape')
+    assert.ok(Math.abs(second.x - first.x) > 80 || Math.abs(second.y - first.y) > 80, 'multiple image outputs use a gallery grid')
+    await portraitCard.click()
+    await assertBox(page, portraitCard.locator('.asset-preview'), box => box.width <= 260 && box.height > box.width * 1.35, 'selected portrait output does not expand into a full-width inspector')
     assert.ok(await page.getByRole('button', { name: 'Use as Start Frame', exact: true }).isVisible())
     assert.ok(await page.getByRole('button', { name: 'Add to Canvas', exact: true }).isVisible())
     await page.reload()
@@ -100,16 +121,26 @@ try {
     await page.screenshot({ path: path.join(artifacts, 'image-history-desktop.png'), fullPage: true })
   })
 
-  await check('Video single mode starts clean with no Product or smoke-test Creative required', async () => {
+  await check('Video prompt-first screen has no mandatory mode or testing context', async () => {
     await clickNav(page, 'Video')
     await page.getByTestId('creative-generator').waitFor()
-    await page.getByRole('button', { name: /Single Video/ }).waitFor()
-    await page.getByLabel('Scene 1 model').selectOption('mock')
-    await page.getByLabel('Scene 1 prompt').fill('Handheld UGC shot of a woman holding a skincare product in a bright bedroom.')
+    await page.getByLabel('Video prompt', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: /Single Video/ }).count(), 0)
+    assert.equal(await page.getByRole('button', { name: /Ad \/ Auto Scenes/ }).count(), 0)
+    assert.equal(await page.getByText(/Quick draft|Link to project \/ testing context/i).filter({ visible: true }).count(), 0)
+    await page.getByLabel('Video structure').selectOption('single')
+    await page.getByLabel('Video model').selectOption('mock')
+    await page.getByLabel('Video prompt').fill('Handheld UGC shot of a woman holding a skincare product in a bright bedroom.')
     assert.equal(await page.getByText(/Red apple smoke validation|DISPOSABLE final Seedance/i).filter({ visible: true }).count(), 0)
-    await page.getByRole('button', { name: 'Generate scene', exact: true }).click()
+    await page.locator('.cg-video-generate').click()
     await confirmGeneration(page)
     await page.locator('.cg-preview video').first().waitFor({ timeout: 20000 })
+    await page.waitForFunction(() => {
+      const video = document.querySelector('.cg-preview video')
+      return video && video.videoWidth > 0 && video.videoHeight > 0
+    }, null, { timeout: 10000 })
+    const videoAspect = await page.locator('.cg-preview video').first().evaluate(video => ({ rendered: video.getBoundingClientRect().width / video.getBoundingClientRect().height, natural: video.videoWidth / video.videoHeight }))
+    assert.ok(Math.abs(videoAspect.rendered - videoAspect.natural) < 0.08, `video player preserves actual media aspect: ${JSON.stringify(videoAspect)}`)
     await page.screenshot({ path: path.join(artifacts, 'video-single-desktop.png'), fullPage: true })
   })
 
@@ -135,21 +166,20 @@ try {
     await page.reload()
     await page.getByTestId('creative-generator').waitFor()
     await page.getByRole('heading', { name: 'Quick video', exact: true }).waitFor()
-    await page.getByRole('button', { name: 'New video draft', exact: true }).waitFor()
-    await page.getByLabel('Scene 1 prompt', { exact: true }).waitFor()
-    assert.equal(await page.getByLabel('Scene 1 prompt', { exact: true }).inputValue(), '')
+    await page.getByRole('button', { name: 'New', exact: true }).waitFor()
+    await page.getByLabel('Video prompt', { exact: true }).waitFor()
+    assert.equal(await page.getByLabel('Video prompt', { exact: true }).inputValue(), '')
     assert.equal(await page.getByText(/Red apple smoke validation|DISPOSABLE final Seedance/i).filter({ visible: true }).count(), 0)
-    assert.equal(await page.locator('.cg-quick-panel details[open]').count(), 0)
+    assert.equal(await page.getByText(/Quick draft|Link to project \/ testing context/i).filter({ visible: true }).count(), 0)
     await page.screenshot({ path: path.join(artifacts, 'video-stale-pointer-after.png'), fullPage: true })
   })
 
-  await check('Video auto scenes creates editable scene cards from one brief', async () => {
+  await check('Video Auto creates editable scene cards from one prompt', async () => {
     await page.evaluate(() => sessionStorage.removeItem(`quick-generator:video:${localStorage.getItem('API_BASE_URL')}`))
     await page.reload()
     await clickNav(page, 'Video')
-    await page.getByRole('button', { name: /Ad \/ Auto Scenes/ }).click()
-    await page.getByLabel('Ad brief / script').fill('Create a 20-second UGC ad. Start with a strong hook, demonstrate the product, and finish with a natural CTA.')
-    await page.getByRole('button', { name: 'Auto-plan scenes', exact: true }).click()
+    await page.getByLabel('Video prompt').fill('Create a 20-second UGC ad. Start with a strong hook, demonstrate the product, and finish with a natural CTA.')
+    await page.locator('.cg-video-generate').click()
     await page.waitForFunction(() => document.querySelectorAll('[data-testid^="generator-scene-"]').length >= 3)
     await page.getByLabel('Scene 2 prompt').fill('Scene 2 edited: demonstrate the product close to camera with natural handheld movement.')
     await page.screenshot({ path: path.join(artifacts, 'video-auto-scenes-desktop.png'), fullPage: true })
@@ -166,11 +196,27 @@ try {
     await page.screenshot({ path: path.join(artifacts, 'remix-desktop.png'), fullPage: true })
   })
 
-  await check('Studio and Canvas are discoverable primary workspaces', async () => {
+  await check('Studio is prompt-first and templates are secondary shortcuts', async () => {
     await clickNav(page, 'Marketing Studio')
     await page.getByTestId('studio-workbench').waitFor()
     await page.getByText('Marketing Studio', { exact: true }).first().waitFor()
+    await page.getByLabel('Brief créatif Studio').fill('Create a premium product hero image on a clean bathroom counter.')
+    await page.getByLabel('Studio media type').selectOption('image')
+    await page.getByLabel('Modèle Studio').selectOption('mock-image')
+    assert.equal(await page.getByText('Choisir une direction', { exact: true }).filter({ visible: true }).count(), 0)
+    await page.locator('.sw-generate').click()
+    await page.waitForTimeout(1000)
+    const studioAlert = await page.locator('.studio-workbench [role="alert"]').textContent().catch(() => '')
+    assert.equal(studioAlert || '', '', `Studio generate failed before confirmation: ${studioAlert}`)
+    await confirmGeneration(page)
+    await page.locator('.sw-preview img').first().waitFor({ timeout: 20000 })
+    await assertBox(page, page.locator('.sw-preview img').first(), box => box.width <= 560 && Math.abs(box.width - box.height) < 140, 'Studio image result stays aspect-correct')
+    await page.getByText('Templates', { exact: true }).click()
+    await page.locator('.sw-template-drawer .sw-preset', { hasText: 'Portrait produit' }).waitFor()
     await page.screenshot({ path: path.join(artifacts, 'studio-desktop.png'), fullPage: true })
+  })
+
+  await check('Canvas remains discoverable primary workspace', async () => {
     await clickNav(page, 'Canvas')
     await page.getByRole('application', { name: 'Production node canvas' }).waitFor()
     await page.screenshot({ path: path.join(artifacts, 'canvas-desktop.png'), fullPage: true })

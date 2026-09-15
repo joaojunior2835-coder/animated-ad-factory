@@ -1,4 +1,4 @@
-// Human operating-mode acceptance: MCP -> dashboard -> visual editing -> Mock generation -> M6 assembly -> MCP parity.
+﻿// Human operating-mode acceptance: MCP -> dashboard -> visual editing -> Mock generation -> M6 assembly -> MCP parity.
 // Isolated temp DB/media, no provider credentials and browser network locked to localhost.
 import { chromium } from 'playwright'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -122,7 +122,8 @@ try {
     await page.getByTestId('creative-generator').waitFor()
     await page.getByRole('heading', { name: 'Quick video', exact: true }).waitFor()
     assert.equal(await page.locator('.cg-scene').count(), 4)
-    assert.equal(await page.getByText('Quick draft · no project context in prompts', { exact: true }).count(), 1)
+    assert.equal(await page.getByText('Quick draft · no project context in prompts', { exact: true }).count(), 0)
+    assert.equal(await page.getByText(/Choose a Product Test|Link to project \/ testing context/i).filter({ visible: true }).count(), 0)
     assert.equal(await page.getByText(/Red apple smoke validation|DISPOSABLE final Seedance/i).filter({ visible: true }).count(), 0)
     assert.equal(await page.locator('.cg-start-frame').count(), 4)
     summary.dashboardScenes = await Promise.all([1, 2, 3, 4].map(async n => ({
