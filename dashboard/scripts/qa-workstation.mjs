@@ -373,6 +373,7 @@ try {
   })
   await check('Studio creates a factual French draft, uses an existing product image, and proposes one editable scene', async () => {
     await navigate('marketing_studio')
+    await studio().getByRole('button', { name: 'Advanced Studio', exact: true }).click()
     await studio().getByLabel('Brief créatif Studio').waitFor()
     await studio().getByLabel('Nom du produit Studio').fill('Flacon de démonstration')
     await studio().getByLabel('Faits produit Studio').fill('Flacon cylindrique vert avec bouchon. Fixture locale sans marque ni promesse produit.')
@@ -435,6 +436,7 @@ try {
     assert.equal(counts().job, before.job)
     assert.equal(counts().asset, before.asset)
     await navigate('marketing_studio')
+    await studio().getByRole('button', { name: 'Advanced Studio', exact: true }).click()
     assert.equal(await studio().getByLabel('Script exact Studio').inputValue(), 'Voici notre flacon. Regardez sa forme et sa couleur.')
   })
   await check('Studio → Canvas links the saved product and output onto a persisted populated board without generation', async () => {
@@ -553,6 +555,7 @@ try {
     await shot('video-mobile', scene(1).locator('.cg-preview'))
     await shot('video-composer-mobile', scene(1).locator('.cg-controls'))
     await navigate('marketing_studio')
+    await studio().getByRole('button', { name: 'Advanced Studio', exact: true }).click()
     await studio().getByLabel('Modèle Studio').getByRole('option', { name: /Mock Video/ }).waitFor({ state: 'attached' })
     await until(() => studio().getByLabel('Script exact Studio').count().then(count => count > 0), 'Studio did not restore the saved selected draft after reload')
     assert.equal(await studio().getByLabel('Script exact Studio').inputValue(), 'Voici notre flacon. Regardez sa forme et sa couleur.')
