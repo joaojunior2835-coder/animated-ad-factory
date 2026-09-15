@@ -19,6 +19,11 @@ const draft = s => ({ id: s.id, name: s.name, prompt: s.prompt, provider: s.prov
 const unavailable = e => /FX/i.test(e) ? 'FX rate unavailable. Enter a verified rate in Operator settings.' : /BUDGET|budget/i.test(e) ? 'Insufficient budget. Check the iteration budget in Product Tests.' : /PROVIDER_NOT|not_configured/i.test(e) ? 'Provider not configured. Check Provider status below.' : e
 const remixReady = s => Boolean(s.remix?.sourceAssetId && s.remix?.preparedAssetId && s.remix?.analysis && (s.remix.instructions.trim() || s.prompt.trim()))
 const generationReady = s => s.remix ? remixReady(s) : Boolean(s.prompt.trim() && (s.mode!=='image-to-video' || s.startAssetId))
+const isInternalQuickCreative = (options, saved) => {
+  const creative = options?.creatives?.find(c => String(c.id) === String(saved?.creativeId))
+  const product = options?.productTests?.find(p => String(p.id) === String(creative?.product_test_id || saved?.productTestId))
+  return Boolean(creative && product?.name === 'Quick Create' && /Quick Create draft/i.test(creative.concept_summary || ''))
+}
 
 const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onReview, onProductTests, context, onContextChange, workspace='create_ad' }, ref) {
   const [options, setOptions] = useState(null), [work, setWork] = useState(null), [scenes, setScenes] = useState([])
@@ -57,9 +62,11 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
     if (quickMode) {
       let saved = {}
       try { saved = JSON.parse(sessionStorage.getItem(`quick-generator:${workspace}:${apiBase()}`) || '{}') } catch {}
-      if (o.creatives.some(c => String(c.id) === String(saved.creativeId))) {
+      if (isInternalQuickCreative(o, saved)) {
         setProductId(String(saved.productTestId || ''))
         setCreativeId(String(saved.creativeId || ''))
+      } else if (saved.creativeId) {
+        sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`)
       }
       return
     }
@@ -72,7 +79,8 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
     if (!quickMode || !options || creativeId || quickCreating.current) return
     let saved = {}
     try { saved = JSON.parse(sessionStorage.getItem(`quick-generator:${workspace}:${apiBase()}`) || '{}') } catch {}
-    if (saved.creativeId && options.creatives.some(c => String(c.id) === String(saved.creativeId))) return
+    if (isInternalQuickCreative(options, saved)) return
+    if (saved.creativeId) sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`)
     quickCreating.current = true
     act(async () => {
       const r = await api('quick-creative', { workspace, title: workspace === 'remix' ? 'Quick remix draft' : 'Quick video draft' })
@@ -195,6 +203,7 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
   })
   const finalCurrent = work?.final && JSON.stringify(work.final.sources) === JSON.stringify(work.scenes.filter(s => s.approved).map(s => ({sceneId:s.id,assetId:s.media.id,sourceRunId:s.runId||null})))
   const download = asset => act(async () => { const r = await fetch(mediaUrl(asset)); if (!r.ok) throw new Error('Local video is unavailable.'); const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href=url; a.download='final-ad.mp4'; a.click(); setTimeout(() => URL.revokeObjectURL(url),10000) })
+  const resetQuickDraft = () => { sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`); setProductId(''); setCreativeId(''); setWork(null); setScenes([]); setQuote(null); setEstimate(null); setError('') }
   useEffect(() => {
     if (workspace !== 'video' || !quickMode || !creativeId || !work || dirty || busy) return
     let transfer = {}
@@ -214,12 +223,12 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
     })
   }, [workspace, quickMode, creativeId, work?.revision, dirty, busy, scenes])
   return <section className={`generator cg-workspace-${workspace} ${quickMode ? 'cg-quick-mode' : ''}`} data-testid="creative-generator">
-    <header className="cg-header"><div><span className="cg-eyebrow">CREATE</span><h2>{workspace==='remix'?'Remix':workspace==='video'?'Create Video':'Create Ad'}</h2><p>{workspace==='remix'?'Reference video + reference images + one instruction.':workspace==='video'?'Prompt, optional reference, model settings, Generate. Project setup is optional.':'Shape an idea. Choose your scenes. Make it move.'}</p></div>{!quickMode&&<button className="ghost" onClick={onProductTests}>Product setup</button>}</header>
+    <header className="cg-header"><div><span className="cg-eyebrow">CREATE</span><h2>{workspace==='remix'?'Remix':workspace==='video'?'Create Video':'Create Ad'}</h2><p>{workspace==='remix'?'Reference video + reference images + one instruction.':workspace==='video'?'Prompt, optional reference, model settings, Generate. Project setup is optional.':'Shape an idea. Choose your scenes. Make it move.'}</p></div>{quickMode?<button className="ghost" disabled={busy || quickCreating.current} onClick={resetQuickDraft}>{workspace==='remix'?'New remix draft':'New video draft'}</button>:<button className="ghost" onClick={onProductTests}>Product setup</button>}</header>
     {workspace==='video'&&<div className="cg-entry-paths cg-mode-paths"><button className="ghost" aria-pressed={videoMode==='single'} onClick={()=>setVideoMode('single')}>Single Video<br/><small>One prompt to one clip</small></button><button className="ghost" aria-pressed={videoMode==='auto'} onClick={()=>setVideoMode('auto')}>Ad / Auto Scenes<br/><small>Brief or script to editable scene cards</small></button></div>}
     <div className="cg-entry-paths"><button className="ghost" aria-pressed={entry==='scratch'} onClick={()=>chooseEntry('scratch')}>Build From Scratch<br/><small>Product → scenes → finished ad</small></button><button className="ghost" aria-pressed={entry==='remix'} onClick={()=>chooseEntry('remix')}>Remix Reference Ad<br/><small>Reference video → your product → a new ad</small></button></div>
     {error && <div role="alert" className="note bad">{error} <button className="ghost small" disabled={busy} onClick={() => act(async () => { if (dirty && !window.confirm('Reload saved scenes and discard unsaved edits?')) return; await refreshOptions(); if(creativeId) accept((await api(creativeId)).workspace) })}>Reload saved state</button></div>}
     {!options ? <p>Loading your workspace…</p> : <>
-      {quickMode&&<div className="cg-quick-panel"><span className="cg-context-chip">Quick draft · no project context in prompts</span><details><summary>Link to project / testing context (optional)</summary><div className="cg-selectors-link"><label className="field">Product<select aria-label="Product Test" value={productId} disabled={busy || dirty} onChange={e => { setProductId(e.target.value); setCreativeId('') }}><option value="">Choose a product</option>{options.productTests.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label className="field">Ad concept<select aria-label="Creative" value={creativeId} disabled={busy || dirty} onChange={e => { setCreativeId(e.target.value); sessionStorage.setItem(`quick-generator:${workspace}:${apiBase()}`, JSON.stringify({ productTestId: productId, creativeId: e.target.value })) }}><option value="">Choose or create an ad</option>{options.creatives.filter(c => String(c.product_test_id) === productId).map(c => <option key={c.id} value={c.id}>{c.angle}</option>)}</select></label><button className="ghost" disabled={busy || dirty} onClick={() => { sessionStorage.removeItem(`quick-generator:${workspace}:${apiBase()}`); setProductId(''); setCreativeId('') }}>Start fresh Quick draft</button></div></details></div>}
+      {quickMode&&<div className="cg-quick-panel"><span className="cg-context-chip">Quick draft · no project context in prompts</span><details key={`quick-context-${workspace}-${creativeId || 'new'}`}><summary>Link to project / testing context (optional)</summary><div className="cg-selectors-link"><label className="field">Product<select aria-label="Product Test" value={productId} disabled={busy || dirty} onChange={e => { setProductId(e.target.value); setCreativeId('') }}><option value="">Choose a product</option>{options.productTests.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label className="field">Ad concept<select aria-label="Creative" value={creativeId} disabled={busy || dirty} onChange={e => { setCreativeId(e.target.value); sessionStorage.setItem(`quick-generator:${workspace}:${apiBase()}`, JSON.stringify({ productTestId: productId, creativeId: e.target.value, linked: true })) }}><option value="">Choose or create an ad</option>{options.creatives.filter(c => String(c.product_test_id) === productId).map(c=><option key={c.id} value={c.id}>{c.angle}</option>)}</select></label><button className="ghost" disabled={busy || dirty} onClick={resetQuickDraft}>Start fresh Quick draft</button></div></details></div>}
       <div className="cg-selectors subpanel"><label className="field">Product<select aria-label="Product Test" value={productId} disabled={busy || dirty} onChange={e => { setProductId(e.target.value); setCreativeId('') }}><option value="">Choose a product</option>{options.productTests.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <label className="field">Ad concept<select aria-label="Creative" value={creativeId} disabled={busy || dirty} onChange={e => setCreativeId(e.target.value)}><option value="">Choose or create an ad</option>{options.creatives.filter(c => String(c.product_test_id) === productId).map(c => <option key={c.id} value={c.id}>{c.angle}</option>)}</select></label>
         <details><summary>New product</summary><label className="field">Product name<input value={productName} onChange={e => setProductName(e.target.value)} /></label><button className="ghost" disabled={busy || !productName.trim()} onClick={() => act(async () => { const r=await request('/api/product-tests',{newProduct:{name:productName.trim()},market:'FR',language:'fr',currency:'EUR'}); await refreshOptions(); setProductId(String(r.item.id)); setCreativeId(''); setProductName('') })}>Create product</button></details>

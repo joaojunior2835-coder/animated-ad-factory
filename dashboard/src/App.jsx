@@ -184,6 +184,7 @@ export default function App() {
   // import cannot destroy the only copy of their work.
   const nodeCanvasRef = useRef(null)
   const nodeCanvasMutationVersionRef = useRef(0)
+  const [nodeCanvasLoaded, setNodeCanvasLoaded] = useState(false)
   const [nodeCanvasError, setNodeCanvasError] = useState('')
   const [legacyNodeCanvas, setLegacyNodeCanvas] = useState(() => {
     const stored = loadProject(emptyProject()).node_canvas
@@ -254,17 +255,20 @@ export default function App() {
         const canvas = normalizeNodeCanvas(stored || emptyNodeCanvas())
         if (nodeCanvasMutationVersionRef.current !== startedAtVersion) {
           setNodeCanvasError('')
+          setNodeCanvasLoaded(true)
           return
         }
         nodeCanvasRef.current = canvas
         setProject((p) => ({ ...p, node_canvas: canvas }))
         setNodeCanvasError('')
+        setNodeCanvasLoaded(true)
       } catch (e) {
         if (cancelled) return
         setNodeCanvasError(
           `Could not reach the local backend: ${e && e.message ? e.message : 'unknown error'}. ` +
             'Start it with npm run dev, then Retry.'
         )
+        setNodeCanvasLoaded(true)
       }
     })()
     return () => {
@@ -283,6 +287,7 @@ export default function App() {
       const canvas = normalizeNodeCanvas(stored || emptyNodeCanvas())
       nodeCanvasRef.current = canvas
       setProject((p) => ({ ...p, node_canvas: canvas }))
+      setNodeCanvasLoaded(true)
       setLegacyCanvasImportState({
         status: 'done',
         message: imported > 0 ? `Imported the canvas (${canvas.nodes.length} node${canvas.nodes.length === 1 ? '' : 's'}).` : `${skipped} already imported, 0 new.`
@@ -371,6 +376,7 @@ export default function App() {
   // afterwards changed — the canvas is persisted to the database rather than
   // into the whole-project localStorage blob.
   const updateNodeCanvas = (fn) => {
+    setNodeCanvasLoaded(true)
     setProject((p) => {
       const next = fn(p.node_canvas || emptyNodeCanvas())
       nodeCanvasMutationVersionRef.current += 1
@@ -1171,6 +1177,14 @@ export default function App() {
             </div>
           ) : null}
 
+          {!nodeCanvasLoaded ? (
+            <div className="panel" data-testid="node-canvas-loading">
+              <h2>Loading Node Canvas…</h2>
+              <p className="muted">
+                Restoring the saved graph before enabling edits, so starter graphs and sends cannot overwrite existing work.
+              </p>
+            </div>
+          ) : (
           <NodeCanvas
           nodeCanvas={normalizeNodeCanvas(project.node_canvas, { preserveRuntimeStatus: true })}
           onChange={updateNodeCanvas}
@@ -1216,6 +1230,7 @@ export default function App() {
             </div>
           ) : null}
           />
+          )}
         </>
       )
     }

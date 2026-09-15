@@ -100,11 +100,41 @@ try {
     await page.getByRole('button', { name: /Single Video/ }).waitFor()
     await page.getByLabel('Scene 1 model').selectOption('mock')
     await page.getByLabel('Scene 1 prompt').fill('Handheld UGC shot of a woman holding a skincare product in a bright bedroom.')
-    assert.equal(await page.getByText(/Red apple smoke validation|DISPOSABLE final Seedance/i).count(), 0)
+    assert.equal(await page.getByText(/Red apple smoke validation|DISPOSABLE final Seedance/i).filter({ visible: true }).count(), 0)
     await page.getByRole('button', { name: 'Generate scene', exact: true }).click()
     await confirmGeneration(page)
     await page.locator('.cg-preview video').first().waitFor({ timeout: 20000 })
     await page.screenshot({ path: path.join(artifacts, 'video-single-desktop.png'), fullPage: true })
+  })
+
+  await check('Video ignores a stale project-linked quick pointer and opens a clean draft', async () => {
+    const productResponse = await fetch(api + '/api/product-tests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newProduct: { name: 'Red apple smoke validation' }, market: 'FR', language: 'en', currency: 'EUR' }),
+    })
+    const product = await productResponse.json()
+    assert.equal(productResponse.ok, true, JSON.stringify(product))
+    const creativeResponse = await fetch(api + '/api/operator/generator/creatives', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productTestId: product.item.id, angle: 'DISPOSABLE final Seedance audio-off validation' }),
+    })
+    const creative = await creativeResponse.json()
+    assert.equal(creativeResponse.ok, true, JSON.stringify(creative))
+    await page.evaluate(({ apiUrl, productTestId, creativeId }) => {
+      sessionStorage.setItem(`workspace-active:${apiUrl}`, 'video')
+      sessionStorage.setItem(`quick-generator:video:${apiUrl}`, JSON.stringify({ productTestId, creativeId, linked: true }))
+    }, { apiUrl: api, productTestId: product.item.id, creativeId: creative.creativeId })
+    await page.reload()
+    await page.getByTestId('creative-generator').waitFor()
+    await page.getByRole('heading', { name: 'Quick video', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'New video draft', exact: true }).waitFor()
+    await page.getByLabel('Scene 1 prompt', { exact: true }).waitFor()
+    assert.equal(await page.getByLabel('Scene 1 prompt', { exact: true }).inputValue(), '')
+    assert.equal(await page.getByText(/Red apple smoke validation|DISPOSABLE final Seedance/i).filter({ visible: true }).count(), 0)
+    assert.equal(await page.locator('.cg-quick-panel details[open]').count(), 0)
+    await page.screenshot({ path: path.join(artifacts, 'video-stale-pointer-after.png'), fullPage: true })
   })
 
   await check('Video auto scenes creates editable scene cards from one brief', async () => {
