@@ -172,6 +172,7 @@ export default function App() {
   // the blob until the user explicitly removes it, so reloading before doing the
   // import cannot destroy the only copy of their work.
   const nodeCanvasRef = useRef(null)
+  const nodeCanvasMutationVersionRef = useRef(0)
   const [nodeCanvasError, setNodeCanvasError] = useState('')
   const [legacyNodeCanvas, setLegacyNodeCanvas] = useState(() => {
     const stored = loadProject(emptyProject()).node_canvas
@@ -234,11 +235,16 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
+    const startedAtVersion = nodeCanvasMutationVersionRef.current
     ;(async () => {
       try {
         const stored = await fetchNodeCanvas()
         if (cancelled) return
         const canvas = normalizeNodeCanvas(stored || emptyNodeCanvas())
+        if (nodeCanvasMutationVersionRef.current !== startedAtVersion) {
+          setNodeCanvasError('')
+          return
+        }
         nodeCanvasRef.current = canvas
         setProject((p) => ({ ...p, node_canvas: canvas }))
         setNodeCanvasError('')
@@ -356,6 +362,7 @@ export default function App() {
   const updateNodeCanvas = (fn) => {
     setProject((p) => {
       const next = fn(p.node_canvas || emptyNodeCanvas())
+      nodeCanvasMutationVersionRef.current += 1
       nodeCanvasRef.current = next
       return { ...p, node_canvas: next }
     })

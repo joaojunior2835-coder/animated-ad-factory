@@ -56,6 +56,7 @@
 .workstation-shell .workspace-nav-item.nav:hover { background: var(--panel); color: var(--text); }
 .workstation-shell .workspace-primary-nav .workspace-nav-item.active { color: var(--text); background: var(--panel-2); border-color: var(--border); }
 .workstation-shell .workspace-primary-nav .workspace-nav-item.active::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.workstation-shell .workspace-primary-nav .workspace-nav-item.active .dot { display: none; }
 .workspace-support-row { display: flex; align-items: center; gap: 14px; padding: 0 28px; border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
 .workspace-support-label { flex: none; font-size: 10px; color: var(--muted); letter-spacing: .45px; }
 .workspace-support-nav { gap: 4px; padding: 5px 0; }
