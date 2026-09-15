@@ -82,15 +82,21 @@ try {
     await page.screenshot({ path: path.join(artifacts, 'nav-image-desktop.png'), fullPage: true })
   })
 
-  await check('Image quick workflow needs no Product Test and keeps three generations visible', async () => {
+  await check('Image quick workflow needs no Product Test and keeps six outputs visible after 1 + 1 + 4 generations', async () => {
     await page.getByLabel('Image model').selectOption('mock-image')
-    for (const prompt of ['First clean product image.', 'Second clean product image.', 'Third clean product image.']) {
+    for (const [prompt, quantity] of [['First clean product image.', 'Outputs: 1'], ['Second clean product image.', 'Outputs: 1'], ['Third clean product image.', 'Outputs: 4']]) {
       await page.getByLabel('Image prompt').fill(prompt)
+      await page.getByLabel('Image output quantity').selectOption({ label: quantity })
       await page.locator('.iw-generate').click()
       await confirmGeneration(page)
       await page.locator('.iw-output').first().waitFor({ timeout: 20000 })
     }
-    await page.waitForFunction(() => document.querySelectorAll('.iw-output').length >= 3, null, { timeout: 20000 })
+    await page.waitForFunction(() => document.querySelectorAll('.iw-output').length >= 6, null, { timeout: 20000 })
+    await page.locator('.iw-output').nth(1).click()
+    assert.ok(await page.getByRole('button', { name: 'Use as Start Frame', exact: true }).isVisible())
+    assert.ok(await page.getByRole('button', { name: 'Add to Canvas', exact: true }).isVisible())
+    await page.reload()
+    await page.waitForFunction(() => document.querySelectorAll('.iw-output').length >= 6, null, { timeout: 20000 })
     await page.screenshot({ path: path.join(artifacts, 'image-history-desktop.png'), fullPage: true })
   })
 
