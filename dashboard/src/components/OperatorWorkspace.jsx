@@ -14,14 +14,14 @@ const display = (value, suffix = '', unavailable = 'missing data') => value == n
 const stateLabel = (state) => state === 'regenerating' ? 'Needs revision' : state
 function ErrorLine({ error }) { return error ? <p className="note bad" role="alert">{error}</p> : null }
 
-export function VideoPreview({ asset, compact = false }) {
+export function VideoPreview({ asset, compact = false, maxWidth = 280 }) {
   const [failed, setFailed] = useState(false)
   const [metadata,setMetadata]=useState(null)
   useEffect(() => {setFailed(false);setMetadata(null)}, [asset?.relative_path])
   if (!asset?.relative_path) return null
   const url = mediaUrl(asset)
   return <div>
-    <video controls playsInline preload="metadata" src={url} onLoadedMetadata={event=>{const v=event.currentTarget;setMetadata({width:v.videoWidth,height:v.videoHeight,duration_seconds:Number.isFinite(v.duration)?v.duration:null})}} onError={() => setFailed(true)} style={{ width: '100%', maxWidth: 280, maxHeight: 420 }} />
+    <video controls playsInline preload="metadata" src={url} onLoadedMetadata={event=>{const v=event.currentTarget;setMetadata({width:v.videoWidth,height:v.videoHeight,duration_seconds:Number.isFinite(v.duration)?v.duration:null})}} onError={() => setFailed(true)} style={{ width: '100%', maxWidth, maxHeight: 420 }} />
     {failed && <ErrorLine error="Local video is missing or cannot be played. Check the file before review/publication." />}
     <p className="hint small">{(metadata||asset).width ? `${(metadata||asset).width}×${(metadata||asset).height} · ` : ''}{(metadata||asset).duration_seconds ? `${(metadata||asset).duration_seconds.toFixed(2)} s · ` : ''}{asset.file_size ? `${Math.round(asset.file_size / 1024)} KB` : ''}{asset.relative_path==='mock-video-output.mp4'?' · Local test fixture (not an AI result)':''}</p>
     <a href={url} target="_blank" rel="noreferrer" style={{ color: '#92bdff' }}>Open / download video</a>

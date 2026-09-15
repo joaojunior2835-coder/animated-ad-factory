@@ -16,8 +16,8 @@
 .iw-draft-history button { display: grid; gap: 4px; padding: 9px 12px; background: var(--panel); flex: 0 0 auto; font-size: 11px; text-align: left; border-radius: 8px; }
 .iw-draft-history button span { color: var(--muted); font-size: 10px; }
 .iw-draft-history button.active { border-color: var(--accent); }
-.iw-output-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(185px, 100%), 260px)); gap: 16px; align-items:start; justify-content:start; }
-.iw-output { padding: 0; min-width: 0; max-width: 280px; overflow: hidden; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); text-align: left; }
+.iw-output-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(240px, 24vw, 340px), 1fr)); gap: 16px; align-items:start; justify-content:start; }
+.iw-output { padding: 0; min-width: 0; max-width: 360px; overflow: hidden; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); text-align: left; }
 .iw-output.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .image-workspace .iw-output .asset-preview { border-radius:0; min-height:0; height:auto; max-height:none; }
 .iw-output .asset-preview img { max-height:100%; min-height:0; height:100%; object-fit:contain; }
@@ -44,15 +44,15 @@
 .iw-notice { color: var(--text); border-left: 2px solid var(--accent); padding: 10px 12px; background: var(--panel); font-size: 12px; margin: 0 0 14px; }
 .iw-diagnostics { margin: 10px 0; color: var(--muted); font-size: 12px; }
 .iw-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
-.iw-composer { position: sticky; bottom: 0; z-index: 10; margin-top: auto; padding: 18px 20px 14px; background: var(--panel-2); border: 1px solid #4b5159; border-radius: 18px; box-shadow: 0 12px 40px #0005; }
+.iw-composer { position: sticky; bottom: 0; z-index: 10; margin-top: auto; padding: 14px 18px 12px; background: var(--panel-2); border: 1px solid #4b5159; border-radius: 18px; box-shadow: 0 12px 40px #0005; }
 .iw-prompt-row { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
 .iw-attach { width:38px; min-height:38px; border-radius:999px; display:grid; place-items:center; font-size:20px; padding:0; }
 .iw-attach:disabled { opacity:.42; cursor:not-allowed; }
 .iw-prompt-label { display: block; margin:0; font-size: 11px; color: var(--muted); }
-.iw-composer textarea { display: block; width: 100%; min-height: 76px; max-height: 240px; resize: vertical; padding: 2px 0 12px; border: 0; border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; line-height: 1.6; }
+.iw-composer textarea { display: block; width: 100%; min-height: 48px; max-height: 220px; resize: vertical; padding: 2px 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; line-height: 1.45; }
 .iw-composer textarea:focus { outline: none; }
 .iw-composer textarea::placeholder { color: #89909a; }
-.iw-composer-controls { display: flex; align-items: end; gap: 16px; padding-top: 10px; }
+.iw-composer-controls { display: flex; align-items: end; gap: 16px; padding-top: 6px; }
 .iw-settings { flex: 1; display: flex; align-items: end; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .iw-settings label { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 10px; }
 .iw-settings select { min-height: 38px; max-width: 100%; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 11px; }
