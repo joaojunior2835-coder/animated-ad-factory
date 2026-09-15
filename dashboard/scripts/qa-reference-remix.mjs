@@ -5,10 +5,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
+import Database from 'better-sqlite3'
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'aaf-remix-browser-'))
 const api = 'http://127.0.0.1:8796'
 const env = { ...process.env, PORT: '8796', FACTORY_DB_PATH: path.join(temp, 'factory.db'), FACTORY_MEDIA_ROOT: path.join(temp, 'media'), MOCK_VIDEO_DELAY_MS: '900', PRODUCTION_POLL_INTERVAL_MS: '100', FAL_API_KEY: '', REPLICATE_API_TOKEN: '', POLLINATIONS_API_KEY: '', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '', GROQ_API_KEY: '', GEMINI_API_KEY: '', OPENROUTER_API_KEY: '' }
+const dbPath = env.FACTORY_DB_PATH
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const video = path.join(temp, 'reference.mp4')
 const image = path.join(temp, 'product.png')
@@ -131,6 +133,26 @@ try {
     await page.waitForFunction(() => [...document.querySelectorAll('.remix-video-pair video')].every(v => v.currentTime > .1 && !v.paused))
     await remix.getByText('History', { exact: true }).waitFor()
     await page.screenshot({ path: 'qa-artifacts/remix-result.png', fullPage: true })
+  })
+
+  await check('Real provider persisted shape renders with partial analysis metadata', async () => {
+    const db = new Database(dbPath)
+    const row = db.prepare("SELECT value FROM app_settings WHERE key='creative_generator_1'").get()
+    const state = JSON.parse(row.value)
+    state.scenes[0].remix.analysis = {
+      beats: [{ start: 0, end: 3, label: 'Continuous shot', description: '' }],
+    }
+    db.prepare("UPDATE app_settings SET value=?, updated_at=datetime('now') WHERE key='creative_generator_1'").run(JSON.stringify(state))
+    db.close()
+    await page.reload({ waitUntil: 'networkidle' })
+    const remix = page.getByTestId('generator-scene-1')
+    await remix.locator('.remix-video-pair video').first().waitFor()
+    assert.equal(await remix.locator('.remix-video-pair video').count(), 2)
+    await remix.getByRole('button', { name: 'Use as Scene', exact: true }).waitFor()
+    await remix.getByRole('button', { name: 'Use in Creative', exact: true }).waitFor()
+    const realShapeText = await remix.innerText()
+    assert.match(realShapeText, /Ready · (?:\d+\.\d{2}s|duration unknown)/)
+    assert.ok(!realShapeText.includes('Ready · 0.00s'))
   })
 
   await check('Use in Creative action stays visible without exposing final assembly controls', async () => {
