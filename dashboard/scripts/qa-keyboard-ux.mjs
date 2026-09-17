@@ -83,8 +83,9 @@ try {
 
   const proofs = []
   await nav('video')
-  await page.getByLabel('Video prompt', { exact: true }).waitFor()
-  proofs.push(await typeNaturally('Video prompt', page.getByLabel('Video prompt', { exact: true })))
+  const video = page.locator('.video-generator')
+  await video.getByLabel('Video prompt', { exact: true }).waitFor()
+  proofs.push(await typeNaturally('Video prompt', video.getByLabel('Video prompt', { exact: true })))
 
   await nav('remix')
   await page.getByLabel('What should change?', { exact: true }).waitFor()
