@@ -111,3 +111,10 @@
   .iw-modal-actions { display: grid; grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .iw-status-dot { animation: none; } }
+
+@media (min-width: 701px) {
+  .iw-composer { overflow: visible; }
+  .iw-composer-footnote { display: none; }
+  .iw-composer textarea { min-height: 82px; max-height: 122px; }
+  .iw-composer-controls { align-items: end; }
+}

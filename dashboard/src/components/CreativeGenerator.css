@@ -134,3 +134,16 @@
 .cg-workspace-video .cg-video-primary{display:none!important}
 
 @media(min-width:701px){.video-generator__rail{height:min(460px,calc(100dvh - 240px));padding-bottom:88px}.video-generator__generate{position:absolute;left:14px;right:14px;bottom:14px;width:auto;margin:0;z-index:4;box-shadow:0 10px 28px #000a}}
+
+/* Desktop control rails: page/history may scroll; primary controls may not. */
+@media(min-width:701px){
+  .video-generator__rail{height:auto;max-height:none;overflow:visible;padding:10px;gap:7px}
+  .video-generator__rail-heading{gap:3px}.video-generator__tabs button{padding:3px 7px}
+  .video-generator__reference-tabs{margin-bottom:4px}.video-generator__reference-tabs button{padding:5px}
+  .video-generator__attach summary{min-height:54px}.video-generator__reference-hint{display:none}
+  .video-generator__prompt{gap:2px}.video-generator__prompt textarea{min-height:70px;max-height:108px;padding:7px}
+  .video-generator__model{gap:3px}.video-generator__model select{padding:7px}
+  .video-generator__chips{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.video-generator__chips label{min-width:0}.video-generator__chips label>span{display:none}.video-generator__chips select{padding:7px 3px;font-size:11px}
+  .video-generator__more{display:none}.video-generator__generate{position:static;width:100%;margin:0;min-height:44px;box-shadow:none}
+  .cg-remix-rail{max-height:none;overflow:visible;padding:10px}.cg-remix-rail .remix-file-button{min-height:48px}.cg-remix-rail .remix-source-thumb{max-height:100px}.cg-remix-rail .remix-reference-cards{display:flex;overflow-x:auto}.cg-remix-rail .remix-reference-cards .subpanel{flex:0 0 104px}.cg-remix-rail .remix-reference-cards img{height:52px}.cg-remix-rail .remix-more{display:none}
+}
