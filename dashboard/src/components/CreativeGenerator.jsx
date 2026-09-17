@@ -298,7 +298,10 @@ const CreativeGenerator = forwardRef(function CreativeGenerator({ studio, onRevi
   const remixLive = remixScene ? work?.scenes.find(v => v.id === remixScene.id) : null
   const remixHeld = remixLive?.status === 'Reconciliation required'
   const remixRunning = ['Generating','Queued'].includes(remixLive?.status)
-  const remixLocked = busy || remixHeld || remixRunning
+  // An ambiguous historical request must remain non-retryable, but it is not
+  // a workspace-wide editing lock. Operators can still inspect and revise the
+  // draft or open a new one; paid execution stays blocked by remixHeld below.
+  const remixLocked = busy || remixRunning
   const remixPrice = remixScene ? estimate?.rows.find(r => r.sceneId === remixScene.id) : null
   const showRemixPrimary = (workspace === 'remix' || entry === 'remix') && work && remixScene
   const showSceneWorkbench = (workspace !== 'video' && workspace !== 'remix' && entry !== 'remix') && !showRemixPrimary
